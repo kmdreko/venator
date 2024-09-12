@@ -1,0 +1,23 @@
+[package]
+name = "venator-engine"
+version = "0.1.0"
+edition = "2021"
+description = "The core functionality that drives the Venator app"
+readme = "README.md"
+repository = "https://github.com/kmdreko/venator"
+license = "MIT"
+keywords = ["tracing"]
+
+[features]
+default = []
+persist = ["dep:rusqlite", "dep:serde_json"]
+
+[dependencies]
+futures = { version = "0.3.30", default-features = false, features = ["executor"] }
+rusqlite = { version = "0.31.0", features = ["bundled"], optional = true}
+ghost-cell = "0.2.6"
+serde = { version = "1.0.159", default-features = false, features = ["std", "derive"] }
+tokio = { version = "1.38.0", features = ["rt", "sync", "macros"] }
+serde_json = { version = "1.0.120", optional = true }
+serde_repr = "0.1.19"
+nom = "7.1.3"

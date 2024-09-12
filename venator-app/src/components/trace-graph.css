@@ -1,0 +1,89 @@
+.trace-graph-container {
+    height: 100px;
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.trace-graph-stats {
+    flex: 0;
+    color: #505050;
+}
+
+.trace-graph {
+    flex: 1;
+
+    position: relative;
+
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 4px;
+    overflow-y: clip;
+}
+
+.trace-graph-x-axis {
+    flex: 0;
+    color: #505050;
+    position: relative;
+    min-height: 20px;
+}
+
+.trace-graph-x-axis-marker {
+    flex: 0;
+    color: #505050;
+    position: absolute;
+    translate: -50% 0%;
+}
+
+.trace-graph-y-lines {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.trace-graph-y-line {
+    width: 100%;
+    border-bottom: 1px solid #CCCCCC;
+}
+
+.trace-graph-cursor {
+    position: absolute;
+    min-width: 3px;
+    height: 100%;
+
+    background-color: gray;
+    opacity: 50%;
+}
+
+.trace-graph-bar {
+    min-width: 1px;
+    height: 4px;
+    position: absolute;
+}
+
+.trace-graph-bar.level-0 {
+    background-color: #1E1E1E;
+}
+
+.trace-graph-bar.level-1 {
+    background-color: #1E1E1E;
+}
+
+.trace-graph-bar.level-2 {
+    background-color: #1E1E1E;
+}
+
+.trace-graph-bar.level-3 {
+    background-color: #FB8C00;
+}
+
+.trace-graph-bar.level-4 {
+    background-color: #E65100;
+}

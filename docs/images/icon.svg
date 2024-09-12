@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<svg width="480" height="480" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">
+ <g class="layer">
+  <title>Layer 1</title>
+  <rect fill="#ffffff" height="80" id="svg_1" rx="16" ry="16" stroke="#000000" stroke-width="0" width="136" x="8" y="8"/>
+  <rect fill="#ffffff" height="80" id="svg_2" rx="16" ry="16" stroke="#000000" stroke-width="0" width="136" x="84" y="200"/>
+  <rect fill="#e65100" height="80" id="svg_3" rx="16" ry="16" stroke="#000000" stroke-width="0" transform="matrix(1 0 0 1 0 0)" width="80" x="160" y="392"/>
+  <rect fill="#ffffff" height="80" id="svg_4" rx="16" ry="16" stroke="#000000" stroke-width="0" width="136" x="336" y="8"/>
+  <rect fill="#ffffff" height="80" id="svg_5" rx="16" ry="16" stroke="#000000" stroke-width="0" width="136" x="46" y="104"/>
+  <rect fill="#ffffff" height="80" id="svg_6" rx="16" ry="16" stroke="#000000" stroke-width="0" width="136" x="280" y="104"/>
+  <rect fill="#fb8c00" height="80" id="svg_7" rx="16" ry="16" stroke="#000000" stroke-width="0" transform="matrix(1 0 0 1 0 0)" width="172" x="124" y="296"/>
+  <rect fill="#ffffff" height="80" id="svg_8" rx="16" ry="16" stroke="#000000" stroke-width="0" width="120" x="236" y="200"/>
+ </g>
+</svg>

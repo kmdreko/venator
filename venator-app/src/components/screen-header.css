@@ -1,0 +1,26 @@
+.screen-header {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.screen-header h1 {
+    margin-top: 4px;
+    margin-bottom: 0px;
+}
+
+.screen-header .sub-header {
+    margin-left: 8px;
+    font-size: 12px;
+    font-weight: normal;
+    color: #505050;
+}
+
+.screen-header .sub-header.warn-text {
+    color: #c16c00;
+}
+
+.screen-header .sub-header.error-text {
+    color: #d13200;
+}

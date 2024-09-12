@@ -1,0 +1,54 @@
+.time-controls {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+}
+
+.time-control {
+    display: flex;
+    flex-direction: row;
+}
+
+.time-controls button {
+    border: 1px solid gray;
+    border-radius: 3px;
+    background-color: white;
+}
+
+.time-controls:not(.enabled) button {
+    background-color: #D9D9D9;
+}
+
+.time-controls.enabled button:hover {
+    background-color: #E8E8E8;
+    border-color: #1E1E1E;
+}
+
+.time-controls.enabled button:active {
+    background-color: #dbdbdb;
+}
+
+.time-controls .time-control .left {
+    border-radius: 3px 0px 0px 3px;
+}
+
+.time-controls .time-control .main {
+    border-top: 1px solid gray;
+    border-bottom: 1px solid gray;
+    padding: 0 8px;
+    background-color: white;
+    text-align: center;
+}
+
+.time-controls:not(.enabled) .time-control .main {
+    background-color: #dbdbdb;
+}
+
+.time-controls .time-control .right {
+    border-radius: 0px 3px 3px 0px;
+}
+
+.time-controls button.live {
+    padding-top: 2px;
+    padding-bottom: 0px;
+}

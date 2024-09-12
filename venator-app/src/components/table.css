@@ -1,0 +1,132 @@
+#table {
+    flex: 1;
+    max-height: 100%;
+    border: 1px solid #A8A8A8;
+    border-top: none;
+    overflow-y: auto;
+
+    display: grid;
+    /* grid-template-columns: set by column definitions */
+    grid-template-rows: 24px;
+    grid-auto-rows: 21px;
+}
+
+#table .header {
+    top: 0;
+    position: sticky;
+    background-color: #E8E8E8;
+    border-bottom: 1px solid #CCCCCC;
+    border-right: 1px solid #CCCCCC;
+    font-size: 12px;
+    font-weight: bold;
+    text-align: left;
+
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 0 4px;
+    padding-bottom: 2px;
+    padding-top: 1px;
+}
+
+#table .header .header-text {
+    width: fit-content;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+#table .header .header-text:focus-within {
+    font-weight: 600;
+    background-color: white;
+    padding: 0 8px;
+    border-color: gray;
+}
+
+#table .header button {
+    flex: 0;
+    border: none;
+    background-color: transparent;
+}
+
+#table .header button:hover {
+    background-color: #dbdbdb;
+}
+
+#table .header .grabber {
+    position: absolute;
+    right: calc(0% - 3px);
+    top: 0%;
+    height: 100%;
+    width: 5px;
+    cursor: ew-resize;
+}
+
+#table .header .grabber.grabbed {
+    width: 200px;
+    height: 300px;
+    right: calc(0% - 101px);
+}
+
+#table .data {
+    position: relative;
+    background-color: white;
+    border-bottom: 1px solid #CCCCCC;
+    border-right: 1px solid #CCCCCC;
+    padding: 0 4px;
+    font-family: monospace;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: clip;
+}
+
+#table .data.selected {
+    background-color: #dbdbdb;
+}
+
+#table .data:not(.selected).hovered {
+    background-color: #E8E8E8;
+}
+
+#table .data .level-0,
+#table .data .level-1,
+#table .data .level-2,
+#table .data .level-3,
+#table .data .level-4 {
+    margin-top: 3px;
+    width: 7px;
+    height: 14px;
+    border-radius: 4px;
+}
+
+#table .data .level-0 {
+    width: 5px;
+    height: 12px;
+    margin-left: 1px;
+    background-color: white;
+    outline: 1px solid #A8A8A8;
+}
+
+#table .data .level-1 {
+    background-color: #A8A8A8;
+}
+
+#table .data .level-2 {
+    background-color: #1E1E1E;
+}
+
+#table .data .level-3 {
+    background-color: #FB8C00;
+}
+
+#table .data .level-4 {
+    background-color: #E65100;
+}
+
+#table .data .time-bar {
+    background-color: black;
+    position: absolute;
+    min-width: 3px;
+    top: 10%;
+    height: 80%;
+}

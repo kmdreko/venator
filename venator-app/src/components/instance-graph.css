@@ -1,0 +1,78 @@
+.instance-graph-container {
+    height: 100px;
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.instance-graph-stats {
+    flex: 0;
+    color: #505050;
+}
+
+.instance-graph {
+    flex: 1;
+
+    position: relative;
+
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 4px;
+    overflow-y: clip;
+}
+
+.instance-graph-x-axis {
+    flex: 0;
+    color: #505050;
+    position: relative;
+    min-height: 20px;
+}
+
+.instance-graph-x-axis-marker {
+    flex: 0;
+    color: #505050;
+    position: absolute;
+    translate: -50% 0%;
+}
+
+.instance-graph-y-lines {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.instance-graph-y-line {
+    width: 100%;
+    border-bottom: 1px solid #CCCCCC;
+}
+
+.instance-graph-cursor {
+    position: absolute;
+    min-width: 3px;
+    height: 100%;
+
+    background-color: gray;
+    opacity: 50%;
+}
+
+.instance-graph-selection {
+    position: absolute;
+    height: 100%;
+
+    background-color: gray;
+    opacity: 25%;
+}
+
+.instance-graph-bar {
+    min-width: 1px;
+    height: 4px;
+    position: absolute;
+    background-color: black;
+}

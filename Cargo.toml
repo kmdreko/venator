@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "venator",
+    "venator-app/src-tauri",
+    "venator-engine",
+]

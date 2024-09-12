@@ -1,0 +1,98 @@
+.event-count-graph-container {
+    height: 100px;
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.event-count-graph-stats {
+    flex: 0;
+    color: #505050;
+}
+
+.event-count-graph {
+    flex: 1;
+
+    position: relative;
+
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.event-count-graph-x-axis {
+    flex: 0;
+    color: #505050;
+    position: relative;
+    min-height: 20px;
+}
+
+.event-count-graph-x-axis-marker {
+    flex: 0;
+    color: #505050;
+    position: absolute;
+    translate: -50% 0%;
+}
+
+.event-count-graph-y-lines {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.event-count-graph-y-line {
+    width: 100%;
+    border-bottom: 1px solid #CCCCCC;
+}
+
+.event-count-graph-cursor {
+    position: absolute;
+    min-width: 3px;
+    height: 100%;
+
+    background-color: gray;
+    opacity: 50%;
+}
+
+.event-count-graph-selection {
+    position: absolute;
+    height: 100%;
+
+    background-color: gray;
+    opacity: 25%;
+}
+
+.event-count-graph-bar {
+    flex: 1;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column-reverse;
+}
+
+.event-count-graph-bar-level-0 {
+    background-color: #1E1E1E;
+}
+
+.event-count-graph-bar-level-1 {
+    background-color: #1E1E1E;
+}
+
+.event-count-graph-bar-level-2 {
+    background-color: #1E1E1E;
+}
+
+.event-count-graph-bar-level-3 {
+    background-color: #FB8C00;
+}
+
+.event-count-graph-bar-level-4 {
+    background-color: #E65100;
+}
