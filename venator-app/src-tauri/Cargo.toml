@@ -1,9 +1,13 @@
 [package]
 name = "venator-app"
-version = "0.0.0"
-description = "A log and trace viewer for Rust tracing"
-authors = ["you"]
+version = "0.1.1"
 edition = "2021"
+description = "A log and trace viewer for Rust tracing"
+readme = "README.md"
+repository = "https://github.com/kmdreko/venator"
+license = "MIT"
+keywords = ["tracing"]
+include = ["/src", "/build.rs", "/tauri.conf.json", "/icons", "/gen", "/capabilities", "/dist"]
 
 [build-dependencies]
 tauri-build = { version = "2.0.0-rc.1", features = [] }
@@ -16,8 +20,9 @@ serde = { version = "1.0.159", default-features = false, features = ["std", "der
 serde_json = "1"
 tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros", "net"] }
 
-venator-engine = { path = "../../venator-engine", features = ["persist"] }
+venator-engine = { version = "0.1.0", features = ["persist"] }
 
 [features]
+default = ["custom-protocol"]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]

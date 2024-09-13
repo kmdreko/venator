@@ -8,7 +8,7 @@ This is currently in an "alpha" state; bugs, quirks, and missing functionality a
 
 ## Usage
 
-In your application:
+In your instrumented program:
 
 ```toml
 [dependencies]
@@ -30,12 +30,11 @@ tracing_subscriber::registry()
     .init();
 ```
 
-Running the Venator app:
+Installing the Venator app (Rust 1.76 or newer):
 
-- clone the repo:
-- navigate to `venator-app/`
-- `npm i`
-- `npm run tauri dev`
+```
+cargo install venator-app
+```
 
 ## Screenshots:
 

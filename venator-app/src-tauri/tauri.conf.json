@@ -1,12 +1,12 @@
 {
   "identifier": "com.kmdreko.venator",
   "productName": "venator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../dist"
+    "frontendDist": "./dist"
   },
   "app": {
     "windows": [
@@ -23,6 +23,8 @@
   },
   "bundle": {
     "publisher": "kmdreko",
+    "shortDescription": "Venator",
+    "longDescription": "A log and trace viewer for Rust tracing",
     "active": true,
     "targets": "all",
     "icon": [

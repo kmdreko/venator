@@ -5,3 +5,6 @@ members = [
     "venator-app/src-tauri",
     "venator-engine",
 ]
+
+[patch.crates-io]
+venator-engine = { path = "./venator-engine" }
