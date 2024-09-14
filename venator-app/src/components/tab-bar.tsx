@@ -47,6 +47,7 @@ export function TabBar(props: TabBarProps) {
             <For each={props.screens}>
                 {(screen, idx) => (<div class="tab" classList={{ active: idx() == props.active }} onclick={() => navigation.activateTab(idx())} onauxclick={e => { if (e.button == 1) navigation.removeTab(idx()); }}>
                     <span><b>{getTabPrefix(screen)}:</b>{stringifyFilter(screen.filter)}</span>
+                    <button onclick={e => { navigation.removeTab(idx()); e.stopPropagation(); }}>X</button>
                 </div>)}
             </For>
         </div>
