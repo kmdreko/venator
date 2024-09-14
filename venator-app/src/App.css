@@ -64,60 +64,6 @@ body {
     margin: 2px;
 }
 
-#tabs {
-    height: 28px;
-    background: #2b2b2b;
-    padding: 0 20px;
-    border-bottom: 1px solid #A8A8A8;
-
-    display: flex;
-    flex-direction: row;
-    align-items: flex-end;
-}
-
-.selected-tab {
-    flex: 0 0 180px;
-    height: 25px;
-    background-color: #E8E8E8;
-    border: 1px solid #A8A8A8;
-    border-bottom: none;
-    padding: 0px 8px;
-    translate: 0 1px;
-
-    text-wrap: nowrap;
-    overflow: hidden;
-
-    padding-right: 20px;
-}
-
-.tab {
-    flex: 0 1 180px;
-
-    height: 22px;
-    background-color: #CCCCCC;
-    border: 1px solid #A8A8A8;
-    border-bottom: none;
-    padding: 0px 8px;
-    margin-left: -1px;
-
-    text-wrap: nowrap;
-    overflow: hidden;
-
-    padding-right: 20px;
-}
-
-#new-tab {
-    background: transparent;
-    border: none;
-    opacity: 75%;
-    font-size: 20px;
-    margin-left: 2px;
-}
-
-#new-tab:hover {
-    opacity: 100%;
-}
-
 #screen {
     flex: 1;
     height: 0;

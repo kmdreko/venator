@@ -6,4 +6,7 @@ export const NavigationContext = createContext<Navigation>();
 
 export type Navigation = {
     createTab: (data: ScreenData, navigate: boolean) => void,
+    removeTab: (idx: number) => void,
+    moveTab: (fromIdx: number, toIdx: number) => void,
+    activateTab: (idx: number) => void,
 }

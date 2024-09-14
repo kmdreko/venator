@@ -1,6 +1,6 @@
 import { EventsScreen } from "./screens/events-screen";
 import { Event, FilterPredicate, getStats, Instance, Span, Timestamp } from "./invoke";
-import { batch, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
+import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
 import { EventDataLayer, SpanDataLayer, TraceDataLayer, InstanceDataLayer } from "./utils/datalayer";
@@ -8,10 +8,9 @@ import { NavigationContext } from "./context/navigation";
 import { TraceScreen } from "./screens/trace-screen";
 import { ATTRIBUTE, ColumnDef, CONNECTED, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./components/table";
 import { InstancesScreen } from "./screens/instances-screen";
+import { TabBar } from "./components/tab-bar";
 
 import "./App.css";
-import eventsAddIcon from './assets/event-add.svg';
-import spansAddIcon from './assets/span-add.svg';
 
 const HOUR = 3600000000;
 
@@ -58,161 +57,115 @@ type InstancesScreenData = {
 
 export type ScreenData = EventsScreenData | SpansScreenData | TraceScreenData | InstancesScreenData;
 
+export async function defaultEventsScreen(): Promise<EventsScreenData> {
+    let stats = await getStats();
+
+    let start;
+    let end;
+    if (stats.start == null) {
+        let now = Date.now() * 1000;
+        start = now - HOUR;
+        end = now;
+    } else {
+        start = stats.start!;
+        end = stats.end!;
+    }
+
+    let filter = [{
+        text: ">=TRACE",
+        property_kind: 'Inherent',
+        property: "level",
+        value_operator: "Gte",
+        value: "TRACE",
+    }];
+    let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
+    let columnWidths = columns.map(def => def.defaultWidth);
+
+    return {
+        kind: 'events',
+        filter,
+        timespan: [start, end],
+        live: false,
+        store: new EventDataLayer(filter),
+        columns,
+        columnWidths,
+    };
+}
+
+export async function defaultSpansScreen(): Promise<SpansScreenData> {
+    let stats = await getStats();
+
+    let start;
+    let end;
+    if (stats.start == null) {
+        let now = Date.now() * 1000;
+        start = now - HOUR;
+        end = now;
+    } else {
+        start = stats.start!;
+        end = stats.end!;
+    }
+
+    let filter = [{
+        text: ">=TRACE",
+        property_kind: 'Inherent',
+        property: "level",
+        value_operator: "Gte",
+        value: "TRACE",
+    }, {
+        text: "#parent: none",
+        property_kind: 'Inherent',
+        property: "parent",
+        value: "none",
+    }];
+    let columns = [LEVEL, CREATED, INHERENT('name')];
+    let columnWidths = columns.map(def => def.defaultWidth);
+
+    return {
+        kind: 'spans',
+        filter,
+        timespan: [start, end],
+        live: false,
+        store: new SpanDataLayer(filter),
+        columns,
+        columnWidths,
+    };
+}
+
+export async function defaultInstancesScreen(): Promise<InstancesScreenData> {
+    let stats = await getStats();
+
+    let start;
+    let end;
+    if (stats.start == null) {
+        let now = Date.now() * 1000;
+        start = now - HOUR;
+        end = now;
+    } else {
+        start = stats.start!;
+        end = stats.end!;
+    }
+
+    let columns = [CONNECTED, INHERENT('id')];
+    let columnWidths = columns.map(def => def.defaultWidth);
+    return {
+        kind: 'instances',
+        filter: [],
+        timespan: [start, end],
+        live: false,
+        store: new InstanceDataLayer([]),
+        columns,
+        columnWidths,
+    };
+}
+
 function App() {
     let [screens, setScreens] = createSignal<ScreenData[]>([]);
     let [selectedScreen, setSelectedScreen] = createSignal<number | undefined>();
 
     onMount(async () => {
-        let stats = await getStats();
-
-        let start;
-        let end;
-        if (stats.start == null) {
-            let now = Date.now() * 1000;
-            start = now - HOUR;
-            end = now;
-        } else {
-            start = stats.start!;
-            end = stats.end!;
-        }
-
-        batch(() => {
-            let filter = [{
-                text: ">=TRACE",
-                property_kind: 'Inherent',
-                property: "level",
-                value_operator: "Gte",
-                value: "TRACE",
-            }];
-            let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
-            let columnWidths = columns.map(def => def.defaultWidth);
-            setScreens([{
-                kind: 'events',
-                filter,
-                timespan: [start, end],
-                live: false,
-                store: new EventDataLayer(filter),
-                columns,
-                columnWidths,
-            }])
-            setSelectedScreen(0);
-        });
+        createTab(await defaultEventsScreen(), true);
     });
-
-    async function newEventsTab() {
-        let current_screens = screens();
-
-        let stats = await getStats();
-
-        let start;
-        let end;
-        if (stats.start == null) {
-            let now = Date.now() * 1000;
-            start = now - HOUR;
-            end = now;
-        } else {
-            start = stats.start!;
-            end = stats.end!;
-        }
-
-        batch(() => {
-            let filter = [{
-                text: ">=TRACE",
-                property_kind: 'Inherent',
-                property: "level",
-                value_operator: "Gte",
-                value: "TRACE",
-            }];
-            let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
-            let columnWidths = columns.map(def => def.defaultWidth);
-            setScreens([...current_screens, {
-                kind: 'events',
-                filter,
-                timespan: [start, end],
-                live: false,
-                store: new EventDataLayer(filter),
-                columns,
-                columnWidths,
-            }])
-            setSelectedScreen(current_screens.length);
-        });
-    }
-
-    async function newSpansTab() {
-        let current_screens = screens();
-
-        let stats = await getStats();
-
-        let start;
-        let end;
-        if (stats.start == null) {
-            let now = Date.now() * 1000;
-            start = now - HOUR;
-            end = now;
-        } else {
-            start = stats.start!;
-            end = stats.end!;
-        }
-
-        batch(() => {
-            let filter = [{
-                text: ">=TRACE",
-                property_kind: 'Inherent',
-                property: "level",
-                value_operator: "Gte",
-                value: "TRACE",
-            }, {
-                text: "#parent: none",
-                property_kind: 'Inherent',
-                property: "parent",
-                value: "none",
-            }];
-            let columns = [LEVEL, CREATED, INHERENT('name')];
-            let columnWidths = columns.map(def => def.defaultWidth);
-            setScreens([...current_screens, {
-                kind: 'spans',
-                filter,
-                timespan: [start, end],
-                live: false,
-                store: new SpanDataLayer(filter),
-                columns,
-                columnWidths,
-            }])
-            setSelectedScreen(current_screens.length);
-        });
-    }
-
-    async function newInstancesTab() {
-        let current_screens = screens();
-
-        let stats = await getStats();
-
-        let start;
-        let end;
-        if (stats.start == null) {
-            let now = Date.now() * 1000;
-            start = now - HOUR;
-            end = now;
-        } else {
-            start = stats.start!;
-            end = stats.end!;
-        }
-
-        batch(() => {
-            let columns = [CONNECTED, INHERENT('id')];
-            let columnWidths = columns.map(def => def.defaultWidth);
-            setScreens([...current_screens, {
-                kind: 'instances',
-                filter: [],
-                timespan: [start, end],
-                live: false,
-                store: new InstanceDataLayer([]),
-                columns,
-                columnWidths,
-            }])
-            setSelectedScreen(current_screens.length);
-        });
-    }
 
     function normalizeTimespan(new_timespan: Timespan): Timespan {
         let [new_start, new_end] = new_timespan;
@@ -259,14 +212,6 @@ function App() {
         }
 
         return [new_start, new_end];
-    }
-
-    function stringifyFilter(filter: FilterPredicate[]): string {
-        let s = "";
-        for (let predicate of filter) {
-            s += ` ${predicate.text}`;
-        }
-        return s;
     }
 
     async function getAndCacheEvents(screen: EventsScreenData, filter: PartialFilter): Promise<Event[]> {
@@ -450,18 +395,6 @@ function App() {
         })
     }
 
-    function getTabPrefix(screen: ScreenData): string {
-        if (screen.kind == 'events') {
-            return 'Events';
-        } else if (screen.kind == 'spans') {
-            return 'Spans';
-        } else if (screen.kind == 'trace') {
-            return 'Trace';
-        } else {
-            return 'Instances';
-        }
-    }
-
     function createTab(screen: ScreenData, navigate: boolean) {
         let current_screens = screens();
         let updated_screens = [...current_screens];
@@ -551,22 +484,14 @@ function App() {
     }
 
     return (<>
-        <div id="tabs">
-            <For each={screens()}>
-                {(screen, idx) => (<div class={(idx() == selectedScreen()) ? "selected-tab" : "tab"} onclick={() => setSelectedScreen(idx())} onauxclick={e => { if (e.button == 1) removeScreen(idx()); }}>
-                    <b>{getTabPrefix(screen)}:</b>{stringifyFilter(screen.filter)}
-                </div>)}
-            </For>
-            <button id="new-tab" onclick={newEventsTab}>
-                <img src={eventsAddIcon} style="width:16px; height:16px;" />
-            </button>
-            <button id="new-tab" onclick={newSpansTab}>
-                <img src={spansAddIcon} style="width:16px; height:16px;" />
-            </button>
-            <button id="new-tab" onclick={newInstancesTab} style="color: white">+</button>
-        </div>
-        <div id="screen">
-            <NavigationContext.Provider value={{ createTab }}>
+        <NavigationContext.Provider value={{
+            createTab,
+            removeTab: removeScreen,
+            moveTab: () => { },
+            activateTab: setSelectedScreen,
+        }}>
+            <TabBar screens={screens()} active={selectedScreen()!} />
+            <div id="screen">
                 <Show when={getCurrentScreen()}>
                     {screen => (<Switch>
                         <Match when={screen().kind == 'events'}>
@@ -656,8 +581,8 @@ function App() {
                         </Match>
                     </Switch>)}
                 </Show>
-            </NavigationContext.Provider>
-        </div>
+            </div>
+        </NavigationContext.Provider>
 
         <div id="statusbar">
             <span style="padding: 0 4px;">Listening on 0.0.0.0:8362</span>
