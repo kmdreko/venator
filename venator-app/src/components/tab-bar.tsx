@@ -1,5 +1,5 @@
 import { For, useContext } from "solid-js";
-import { defaultEventsScreen, defaultInstancesScreen, defaultSpansScreen, ScreenData } from "../App";
+import { defaultEventsScreen, defaultSpansScreen, ScreenData } from "../App";
 import { FilterPredicate } from "../invoke";
 import { NavigationContext } from "../context/navigation";
 
@@ -35,18 +35,26 @@ export function TabBar(props: TabBarProps) {
         return s;
     }
 
-    return (<div id="tabs">
-        <For each={props.screens}>
-            {(screen, idx) => (<div class={(idx() == props.active) ? "selected-tab" : "tab"} onclick={() => navigation.activateTab(idx())} onauxclick={e => { if (e.button == 1) navigation.removeTab(idx()); }}>
-                <b>{getTabPrefix(screen)}:</b>{stringifyFilter(screen.filter)}
-            </div>)}
-        </For>
-        <button id="new-tab" onclick={async () => navigation.createTab(await defaultEventsScreen(), true)}>
-            <img src={eventsAddIcon} style="width:16px; height:16px;" />
+    function onwheel(this: HTMLDivElement, e: WheelEvent) {
+        if (Math.abs(e.deltaY) > 0) {
+            e.preventDefault();
+            this.scrollLeft += e.deltaY;
+        }
+    }
+
+    return (<div class="tabbar">
+        <div class="tabs" onwheel={onwheel}>
+            <For each={props.screens}>
+                {(screen, idx) => (<div class="tab" classList={{ active: idx() == props.active }} onclick={() => navigation.activateTab(idx())} onauxclick={e => { if (e.button == 1) navigation.removeTab(idx()); }}>
+                    <span><b>{getTabPrefix(screen)}:</b>{stringifyFilter(screen.filter)}</span>
+                </div>)}
+            </For>
+        </div>
+        <button class="new-tab" onclick={async () => navigation.createTab(await defaultEventsScreen(), true)}>
+            <img src={eventsAddIcon} />
         </button>
-        <button id="new-tab" onclick={async () => navigation.createTab(await defaultSpansScreen(), true)}>
-            <img src={spansAddIcon} style="width:16px; height:16px;" />
+        <button class="new-tab" onclick={async () => navigation.createTab(await defaultSpansScreen(), true)}>
+            <img src={spansAddIcon} />
         </button>
-        <button id="new-tab" onclick={async () => navigation.createTab(await defaultInstancesScreen(), true)} style="color: white">+</button>
     </div>)
 }
