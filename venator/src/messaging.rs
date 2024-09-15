@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::num::NonZeroU64;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -19,7 +20,7 @@ pub struct Handshake {
 #[derive(Serialize)]
 pub struct Message {
     timestamp: DateTime<Utc>,
-    span_id: Option<u64>,
+    span_id: Option<NonZeroU64>,
     data: MessageData,
 }
 
@@ -53,9 +54,9 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: Some(id.0.get()),
+            span_id: Some(id.0),
             data: MessageData::Create(CreateData {
-                parent_id: parent_id.map(|id| id.0.get()),
+                parent_id: parent_id.map(|id| id.0),
                 target: metadata.target(),
                 name: metadata.name(),
                 level: match *metadata.level() {
@@ -80,7 +81,7 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: Some(id.0.get()),
+            span_id: Some(id.0),
             data: MessageData::Update(UpdateData { fields }),
         }
     }
@@ -90,9 +91,9 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: Some(id.0.get()),
+            span_id: Some(id.0),
             data: MessageData::Follows(FollowsData {
-                follows: follows_id.0.get(),
+                follows: follows_id.0,
             }),
         }
     }
@@ -102,7 +103,7 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: Some(id.0.get()),
+            span_id: Some(id.0),
             data: MessageData::Enter,
         }
     }
@@ -112,7 +113,7 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: Some(id.0.get()),
+            span_id: Some(id.0),
             data: MessageData::Exit,
         }
     }
@@ -122,7 +123,7 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: Some(id.0.get()),
+            span_id: Some(id.0),
             data: MessageData::Close,
         }
     }
@@ -143,7 +144,7 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: parent_id.map(|id| id.0.get()),
+            span_id: parent_id.map(|id| id.0),
             data: MessageData::Event(EventData {
                 name: metadata.name(),
                 target: metadata.target(),
@@ -158,7 +159,7 @@ impl Message {
 
 #[derive(Serialize)]
 struct CreateData {
-    parent_id: Option<u64>,
+    parent_id: Option<NonZeroU64>,
     target: &'static str,
     name: &'static str,
     level: i32,
@@ -174,7 +175,7 @@ struct UpdateData {
 
 #[derive(Serialize)]
 struct FollowsData {
-    follows: u64,
+    follows: NonZeroU64,
 }
 
 #[derive(Serialize)]

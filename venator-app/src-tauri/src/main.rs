@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
 use std::io::ErrorKind;
+use std::num::NonZeroU64;
 
 use bincode::{DefaultOptions, Options};
 use chrono::{DateTime, Utc};
@@ -449,7 +450,7 @@ pub struct Handshake {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Message {
     timestamp: DateTime<Utc>,
-    span_id: Option<u64>,
+    span_id: Option<NonZeroU64>,
     data: MessageData,
 }
 
@@ -457,7 +458,7 @@ struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MessageView {
     timestamp: DateTime<Utc>,
-    span_id: Option<u64>,
+    span_id: Option<NonZeroU64>,
     data: MessageDataView,
 }
 
@@ -505,7 +506,7 @@ enum MessageDataView {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CreateData {
-    parent_id: Option<u64>,
+    parent_id: Option<NonZeroU64>,
     target: String,
     name: String,
     level: i32,
@@ -521,7 +522,7 @@ struct UpdateData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct FollowsData {
-    follows: u64,
+    follows: NonZeroU64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

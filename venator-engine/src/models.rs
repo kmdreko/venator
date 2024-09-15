@@ -28,7 +28,7 @@ pub type EventKey = NonZeroU64;
 
 /// This is the external type used to identity a span. This is generated client-
 /// side and is unique but only within that instance.
-pub type SpanId = u64;
+pub type SpanId = NonZeroU64;
 
 pub type InstanceIdView = String;
 pub type FullSpanIdView = String;

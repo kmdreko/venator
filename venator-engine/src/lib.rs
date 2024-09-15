@@ -1333,7 +1333,7 @@ mod tests {
                     NewSpanEvent {
                         instance_key,
                         timestamp: Timestamp::new(open).unwrap(),
-                        span_id: open,
+                        span_id: open.try_into().unwrap(),
                         kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                             parent_id: None,
                             target: "crate::storage::tests".to_owned(),
@@ -1353,7 +1353,7 @@ mod tests {
                 NewSpanEvent {
                     instance_key,
                     timestamp: Timestamp::new(close).unwrap(),
-                    span_id: open,
+                    span_id: open.try_into().unwrap(),
                     kind: NewSpanEventKind::Close,
                 }
             };
@@ -1637,7 +1637,7 @@ mod tests {
                 .insert_span_event(NewSpanEvent {
                     instance_key,
                     timestamp: now(),
-                    span_id: 1,
+                    span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                         parent_id: None,
                         target: "crate::storage::tests".to_owned(),
@@ -1655,7 +1655,7 @@ mod tests {
                 .insert_event(NewEvent {
                     instance_key,
                     timestamp: now.saturating_add(1),
-                    span_id: Some(1),
+                    span_id: SpanId::new(1),
                     name: "event".to_owned(),
                     target: "crate::storage::tests".to_owned(),
                     level: 4,
@@ -1707,7 +1707,7 @@ mod tests {
                 .insert_span_event(NewSpanEvent {
                     instance_key,
                     timestamp: now(),
-                    span_id: 1,
+                    span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                         parent_id: None,
                         target: "crate::storage::tests".to_owned(),
@@ -1725,7 +1725,7 @@ mod tests {
                 .insert_event(NewEvent {
                     instance_key,
                     timestamp: now.saturating_add(1),
-                    span_id: Some(1),
+                    span_id: SpanId::new(1),
                     name: "event".to_owned(),
                     target: "crate::storage::tests".to_owned(),
                     level: 4,
@@ -1775,7 +1775,7 @@ mod tests {
                 .insert_span_event(NewSpanEvent {
                     instance_key,
                     timestamp: now(),
-                    span_id: 1,
+                    span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                         parent_id: None,
                         target: "crate::storage::tests".to_owned(),
@@ -1793,7 +1793,7 @@ mod tests {
                 .insert_event(NewEvent {
                     instance_key,
                     timestamp: now.saturating_add(1),
-                    span_id: Some(1),
+                    span_id: SpanId::new(1),
                     name: "event".to_owned(),
                     target: "crate::storage::tests".to_owned(),
                     level: 4,
@@ -1807,7 +1807,7 @@ mod tests {
                 .insert_span_event(NewSpanEvent {
                     instance_key,
                     timestamp: super::now(),
-                    span_id: 1,
+                    span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
                         fields: BTreeMap::from_iter([("attr1".to_owned(), "C".to_owned())]),
                     }),
@@ -1856,7 +1856,7 @@ mod tests {
                 .insert_span_event(NewSpanEvent {
                     instance_key,
                     timestamp: now(),
-                    span_id: 1,
+                    span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                         parent_id: None,
                         target: "crate::storage::tests".to_owned(),
@@ -1874,7 +1874,7 @@ mod tests {
                 .insert_event(NewEvent {
                     instance_key,
                     timestamp: now.saturating_add(1),
-                    span_id: Some(1),
+                    span_id: SpanId::new(1),
                     name: "event".to_owned(),
                     target: "crate::storage::tests".to_owned(),
                     level: 4,
@@ -1888,7 +1888,7 @@ mod tests {
                 .insert_span_event(NewSpanEvent {
                     instance_key,
                     timestamp: super::now(),
-                    span_id: 1,
+                    span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
                         fields: BTreeMap::from_iter([("attr1".to_owned(), "C".to_owned())]),
                     }),

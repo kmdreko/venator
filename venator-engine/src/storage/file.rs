@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Error as DbError, Params, Row};
 
-use crate::{Event, Instance, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp};
+use crate::{Event, Instance, Span, SpanEvent, SpanEventKind, SpanId, SpanKey, Timestamp};
 
 use super::{Boo, Storage};
 
@@ -316,7 +316,7 @@ fn instance_from_row(row: &Row<'_>) -> Result<Instance, DbError> {
 fn span_to_params(span: Span) -> impl Params {
     let key = span.created_at;
     let instance_key = span.instance_key;
-    let id = span.id as i64;
+    let id = span.id.get() as i64;
     let closed_at = span.closed_at;
     let parent_id = span.parent_key;
     let follows = serde_json::to_string(&span.follows).unwrap();
@@ -349,7 +349,7 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
     Ok(Span {
         created_at: key,
         instance_key,
-        id: id as u64,
+        id: SpanId::new(id as u64).unwrap(),
         closed_at,
         parent_key,
         follows,
