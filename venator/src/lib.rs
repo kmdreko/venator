@@ -10,9 +10,12 @@ use serde::Serialize;
 use tracing_core::span::{Attributes, Id, Record};
 use tracing_core::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
+use tracing_subscriber::registry::LookupSpan;
 
+pub mod ids;
 pub mod messaging;
 
+use ids::VenatorId;
 use messaging::{Handshake, Message};
 
 pub struct VenatorBuilder {
@@ -78,26 +81,61 @@ impl Venator {
 
 impl<S> Layer<S> for Venator
 where
-    S: Subscriber,
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
-        self.send(&Message::from_new_span(attrs, id, &ctx));
+        let vid = ids::generate();
+        ctx.span(id).unwrap().extensions_mut().insert(vid);
+
+        self.send(&Message::from_new_span(attrs, &vid, &ctx));
     }
 
-    fn on_record(&self, id: &Id, values: &Record<'_>, _ctx: Context<'_, S>) {
-        self.send(&Message::from_record(id, values));
+    fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
+        let vid = ctx
+            .span(id)
+            .unwrap()
+            .extensions()
+            .get::<VenatorId>()
+            .copied()
+            .unwrap();
+
+        self.send(&Message::from_record(&vid, values));
     }
 
-    fn on_enter(&self, id: &Id, _ctx: Context<'_, S>) {
-        self.send(&Message::from_enter(id));
+    fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
+        let vid = ctx
+            .span(id)
+            .unwrap()
+            .extensions()
+            .get::<VenatorId>()
+            .copied()
+            .unwrap();
+
+        self.send(&Message::from_enter(&vid));
     }
 
-    fn on_exit(&self, id: &Id, _ctx: Context<'_, S>) {
-        self.send(&Message::from_exit(id));
+    fn on_exit(&self, id: &Id, ctx: Context<'_, S>) {
+        let vid = ctx
+            .span(id)
+            .unwrap()
+            .extensions()
+            .get::<VenatorId>()
+            .copied()
+            .unwrap();
+
+        self.send(&Message::from_exit(&vid));
     }
 
-    fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
-        self.send(&Message::from_close(&id));
+    fn on_close(&self, id: Id, ctx: Context<'_, S>) {
+        let vid = ctx
+            .span(&id)
+            .unwrap()
+            .extensions()
+            .get::<VenatorId>()
+            .copied()
+            .unwrap();
+
+        self.send(&Message::from_close(&vid));
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
@@ -110,8 +148,7 @@ where
     }
 
     fn on_id_change(&self, _old: &Id, _new: &Id, _ctx: Context<'_, S>) {
-        // handle this at some point
-        println!("[venator]: unhandled on_id_change call");
+        // we do not handle this because we generate our own ids
     }
 }
 

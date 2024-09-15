@@ -4,9 +4,12 @@ use std::fmt::Debug;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tracing_core::field::{Field, Visit};
-use tracing_core::span::{Attributes, Id, Record};
+use tracing_core::span::{Attributes, Record};
 use tracing_core::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
+use tracing_subscriber::registry::LookupSpan;
+
+use crate::ids::VenatorId;
 
 #[derive(Serialize)]
 pub struct Handshake {
@@ -31,23 +34,27 @@ enum MessageData {
 }
 
 impl Message {
-    pub fn from_new_span<S: Subscriber>(
+    pub(crate) fn from_new_span<S: Subscriber + for<'lookup> LookupSpan<'lookup>>(
         attrs: &Attributes<'_>,
-        id: &Id,
+        id: &VenatorId,
         ctx: &Context<'_, S>,
     ) -> Message {
         let timestamp = Utc::now();
         let metadata = attrs.metadata();
         let parent_id = ctx.current_span().id().cloned();
 
+        let parent_id = parent_id
+            .and_then(|id| ctx.span(&id))
+            .and_then(|span| span.extensions().get::<VenatorId>().copied());
+
         let mut fields = Fields::new();
         attrs.record(&mut fields);
 
         Message {
             timestamp,
-            span_id: Some(id.into_u64()),
+            span_id: Some(id.0.get()),
             data: MessageData::Create(CreateData {
-                parent_id: parent_id.map(|id| id.into_u64()),
+                parent_id: parent_id.map(|id| id.0.get()),
                 target: metadata.target(),
                 name: metadata.name(),
                 level: match *metadata.level() {
@@ -64,7 +71,7 @@ impl Message {
         }
     }
 
-    pub fn from_record(id: &Id, values: &Record<'_>) -> Message {
+    pub(crate) fn from_record(id: &VenatorId, values: &Record<'_>) -> Message {
         let timestamp = Utc::now();
 
         let mut fields = Fields::new();
@@ -72,61 +79,58 @@ impl Message {
 
         Message {
             timestamp,
-            span_id: Some(id.into_u64()),
+            span_id: Some(id.0.get()),
             data: MessageData::Update(UpdateData { fields }),
         }
     }
 
-    pub fn from_enter(id: &Id) -> Message {
+    pub(crate) fn from_enter(id: &VenatorId) -> Message {
         let timestamp = Utc::now();
 
         Message {
             timestamp,
-            span_id: Some(id.into_u64()),
+            span_id: Some(id.0.get()),
             data: MessageData::Enter,
         }
     }
 
-    pub fn from_exit(id: &Id) -> Message {
+    pub(crate) fn from_exit(id: &VenatorId) -> Message {
         let timestamp = Utc::now();
 
         Message {
             timestamp,
-            span_id: Some(id.into_u64()),
+            span_id: Some(id.0.get()),
             data: MessageData::Exit,
         }
     }
 
-    pub fn from_close(id: &Id) -> Message {
+    pub(crate) fn from_close(id: &VenatorId) -> Message {
         let timestamp = Utc::now();
 
         Message {
             timestamp,
-            span_id: Some(id.into_u64()),
+            span_id: Some(id.0.get()),
             data: MessageData::Close,
         }
     }
 
-    pub fn from_event<S: Subscriber>(event: &Event<'_>, ctx: &Context<'_, S>) -> Message {
+    pub(crate) fn from_event<S: Subscriber + for<'lookup> LookupSpan<'lookup>>(
+        event: &Event<'_>,
+        ctx: &Context<'_, S>,
+    ) -> Message {
         let timestamp = Utc::now();
         let metadata = event.metadata();
 
-        // NOTE: This is how `Context::event_span` looks up the event's span but
-        // we don't use that because we don't require `S: LookupSpan`.
-        let parent_id = if event.is_root() {
-            None
-        } else if event.is_contextual() {
-            ctx.current_span().id().cloned()
-        } else {
-            event.parent().cloned()
-        };
+        let parent_id = ctx
+            .event_span(event)
+            .and_then(|span| span.extensions().get::<VenatorId>().copied());
 
         let mut fields = Fields::new();
         event.record(&mut fields);
 
         Message {
             timestamp,
-            span_id: parent_id.map(|id| id.into_u64()),
+            span_id: parent_id.map(|id| id.0.get()),
             data: MessageData::Event(EventData {
                 name: metadata.name(),
                 target: metadata.target(),
