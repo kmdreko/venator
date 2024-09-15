@@ -27,6 +27,7 @@ pub struct Message {
 enum MessageData {
     Create(CreateData),
     Update(UpdateData),
+    Follows(FollowsData),
     Enter,
     Exit,
     Close,
@@ -81,6 +82,18 @@ impl Message {
             timestamp,
             span_id: Some(id.0.get()),
             data: MessageData::Update(UpdateData { fields }),
+        }
+    }
+
+    pub(crate) fn from_follows(id: &VenatorId, follows_id: &VenatorId) -> Message {
+        let timestamp = Utc::now();
+
+        Message {
+            timestamp,
+            span_id: Some(id.0.get()),
+            data: MessageData::Follows(FollowsData {
+                follows: follows_id.0.get(),
+            }),
         }
     }
 
@@ -157,6 +170,11 @@ struct CreateData {
 #[derive(Serialize)]
 struct UpdateData {
     fields: Fields,
+}
+
+#[derive(Serialize)]
+struct FollowsData {
+    follows: u64,
 }
 
 #[derive(Serialize)]

@@ -15,8 +15,9 @@ use tokio::net::TcpListener;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventQuery, EventView,
     FileStorage, FilterPredicate, FilterPropertyKind, FilterValueOperator, InstanceQuery,
-    InstanceView, NewCreateSpanEvent, NewEvent, NewInstance, NewSpanEvent, NewSpanEventKind,
-    NewUpdateSpanEvent, Order, SpanQuery, SpanView, StatsView, SubscriptionId, Timestamp,
+    InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent, NewInstance, NewSpanEvent,
+    NewSpanEventKind, NewUpdateSpanEvent, Order, SpanQuery, SpanView, StatsView, SubscriptionId,
+    Timestamp,
 };
 
 #[tauri::command]
@@ -336,6 +337,24 @@ async fn ingress_task(engine: Engine) {
                             }),
                         });
                     }
+                    MessageData::Follows(follows_data) => {
+                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
+                            .to_std()
+                            .unwrap()
+                            .as_micros() as u64;
+
+                        // we have no need for the result, and the insert is
+                        // executed regardless if we poll
+                        #[allow(clippy::let_underscore_future)]
+                        let _ = engine.insert_span_event(NewSpanEvent {
+                            instance_key,
+                            timestamp: timestamp.try_into().unwrap(),
+                            span_id: msg.span_id.unwrap(),
+                            kind: NewSpanEventKind::Follows(NewFollowsSpanEvent {
+                                follows: follows_data.follows,
+                            }),
+                        });
+                    }
                     MessageData::Enter => {
                         let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
                             .to_std()
@@ -450,6 +469,7 @@ impl From<Message> for MessageView {
             data: match value.data {
                 MessageData::Create(create) => MessageDataView::Create(create),
                 MessageData::Update(update) => MessageDataView::Update(update),
+                MessageData::Follows(follows) => MessageDataView::Follows(follows),
                 MessageData::Enter => MessageDataView::Enter,
                 MessageData::Exit => MessageDataView::Exit,
                 MessageData::Close => MessageDataView::Close,
@@ -463,6 +483,7 @@ impl From<Message> for MessageView {
 enum MessageData {
     Create(CreateData),
     Update(UpdateData),
+    Follows(FollowsData),
     Enter,
     Exit,
     Close,
@@ -475,6 +496,7 @@ enum MessageData {
 enum MessageDataView {
     Create(CreateData),
     Update(UpdateData),
+    Follows(FollowsData),
     Enter,
     Exit,
     Close,
@@ -495,6 +517,11 @@ struct CreateData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UpdateData {
     fields: Fields,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FollowsData {
+    follows: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

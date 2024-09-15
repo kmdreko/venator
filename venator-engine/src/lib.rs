@@ -29,9 +29,10 @@ pub use filter::{
 };
 pub use models::{
     AncestorView, AttributeKindView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
-    InstanceId, InstanceKey, InstanceView, NewCreateSpanEvent, NewEvent, NewInstance, NewSpanEvent,
-    NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent, SpanEventKey, SpanEventKind, SpanId,
-    SpanKey, SpanView, StatsView, SubscriptionId, Timestamp, UpdateSpanEvent,
+    InstanceId, InstanceKey, InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent,
+    NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent, SpanEventKey,
+    SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
+    UpdateSpanEvent,
 };
 pub use storage::{Boo, Storage, TransientStorage};
 
@@ -887,6 +888,9 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
                 self.insert_span_event_bookeeping(&span_event);
                 self.storage.insert_span_event(span_event);
+            }
+            NewSpanEventKind::Follows(_new_follows_event) => {
+                todo!()
             }
             NewSpanEventKind::Enter => {
                 let span_key = self

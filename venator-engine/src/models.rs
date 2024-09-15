@@ -118,6 +118,7 @@ pub struct NewSpanEvent {
 pub enum NewSpanEventKind {
     Create(NewCreateSpanEvent),
     Update(NewUpdateSpanEvent),
+    Follows(NewFollowsSpanEvent),
     Enter,
     Exit,
     Close,
@@ -168,6 +169,10 @@ pub struct NewUpdateSpanEvent {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UpdateSpanEvent {
     pub fields: BTreeMap<String, String>,
+}
+
+pub struct NewFollowsSpanEvent {
+    pub follows: SpanId,
 }
 
 pub struct NewEvent {

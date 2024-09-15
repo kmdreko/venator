@@ -142,9 +142,24 @@ where
         self.send(&Message::from_event(event, &ctx));
     }
 
-    fn on_follows_from(&self, _span: &Id, _follows: &Id, _ctx: Context<'_, S>) {
-        // handle this at some point
-        println!("[venator]: unhandled on_follows_from call");
+    fn on_follows_from(&self, span: &Id, follows: &Id, ctx: Context<'_, S>) {
+        let vid = ctx
+            .span(span)
+            .unwrap()
+            .extensions()
+            .get::<VenatorId>()
+            .copied()
+            .unwrap();
+
+        let follows_vid = ctx
+            .span(follows)
+            .unwrap()
+            .extensions()
+            .get::<VenatorId>()
+            .copied()
+            .unwrap();
+
+        self.send(&Message::from_follows(&vid, &follows_vid));
     }
 
     fn on_id_change(&self, _old: &Id, _new: &Id, _ctx: Context<'_, S>) {
