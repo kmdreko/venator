@@ -395,6 +395,16 @@ function App() {
         })
     }
 
+    function removeAllOtherScreens(idx: number) {
+        let current_screens = screens();
+        let selected_screen = current_screens[idx];
+
+        batch(() => {
+            setScreens([selected_screen]);
+            setSelectedScreen(0);
+        })
+    }
+
     function createTab(screen: ScreenData, navigate: boolean) {
         let current_screens = screens();
         let updated_screens = [...current_screens];
@@ -487,6 +497,7 @@ function App() {
         <NavigationContext.Provider value={{
             createTab,
             removeTab: removeScreen,
+            removeAllOtherTabs: removeAllOtherScreens,
             moveTab: () => { },
             activateTab: setSelectedScreen,
         }}>
