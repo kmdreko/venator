@@ -13,6 +13,7 @@ use std::future::Future;
 use std::rc::Rc;
 
 use ghost_cell::{GhostCell, GhostToken};
+use models::FollowsSpanEvent;
 use serde::Serialize;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
@@ -785,6 +786,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     created_at: new_span_event.timestamp,
                     closed_at: None,
                     parent_key,
+                    follows: Vec::new(),
                     target: new_create_event.target.clone(),
                     name: new_create_event.name.clone(),
                     level: new_create_event
@@ -889,8 +891,35 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 self.insert_span_event_bookeeping(&span_event);
                 self.storage.insert_span_event(span_event);
             }
-            NewSpanEventKind::Follows(_new_follows_event) => {
-                todo!()
+            NewSpanEventKind::Follows(new_follows_event) => {
+                let span_key = self
+                    .span_key_map
+                    .get(&(new_span_event.instance_key, new_span_event.span_id))
+                    .copied()
+                    .ok_or(EngineInsertError::UnknownSpanId)?;
+
+                let follows_span_key = self
+                    .span_key_map
+                    .get(&(new_span_event.instance_key, new_follows_event.follows))
+                    .copied()
+                    .ok_or(EngineInsertError::UnknownSpanId)?;
+
+                // TODO: check against circular following
+                // TODO: check against duplicates
+
+                let span_event = SpanEvent {
+                    instance_key: new_span_event.instance_key,
+                    timestamp: new_span_event.timestamp,
+                    span_key,
+                    kind: SpanEventKind::Follows(FollowsSpanEvent {
+                        follows: follows_span_key,
+                    }),
+                };
+
+                self.storage.update_span_follows(span_key, follows_span_key);
+
+                self.insert_span_event_bookeeping(&span_event);
+                self.storage.insert_span_event(span_event);
             }
             NewSpanEventKind::Enter => {
                 let span_key = self

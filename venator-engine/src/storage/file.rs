@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Error as DbError, Params, Row};
 
-use crate::{Event, Instance, Span, SpanEvent, SpanEventKind, Timestamp};
+use crate::{Event, Instance, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp};
 
 use super::{Boo, Storage};
 
@@ -33,6 +33,7 @@ impl FileStorage {
                 id        INT8,
                 closed_at INT8,
                 parent_id INT8,
+                follows   TEXT,
                 target    TEXT,
                 name      TEXT,
                 level     INT,
@@ -191,7 +192,7 @@ impl Storage for FileStorage {
         let mut stmt = self
             .connection
             .prepare_cached(
-                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             )
             .unwrap();
 
@@ -261,6 +262,30 @@ impl Storage for FileStorage {
 
         stmt.execute((at, fields)).unwrap();
     }
+
+    fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey) {
+        let mut stmt = self
+            .connection
+            .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
+            .unwrap();
+
+        let span = stmt.query_row((at,), span_from_row).unwrap();
+        let existing_follows = span.follows;
+
+        let follows = {
+            let mut new_follows = existing_follows;
+            new_follows.push(follows);
+            new_follows
+        };
+        let fields = serde_json::to_string(&follows).unwrap();
+
+        let mut stmt = self
+            .connection
+            .prepare_cached("UPDATE spans SET follows = ?2 WHERE key = ?1")
+            .unwrap();
+
+        stmt.execute((at, fields)).unwrap();
+    }
 }
 
 fn instance_to_params(instance: Instance) -> impl Params {
@@ -294,6 +319,7 @@ fn span_to_params(span: Span) -> impl Params {
     let id = span.id as i64;
     let closed_at = span.closed_at;
     let parent_id = span.parent_key;
+    let follows = serde_json::to_string(&span.follows).unwrap();
     let target = span.target;
     let name = span.name;
     let level = span.level as i32;
@@ -301,7 +327,7 @@ fn span_to_params(span: Span) -> impl Params {
     let file_line = span.file_line;
     let fields = serde_json::to_string(&span.fields).unwrap();
 
-    (key, instance_key, id, closed_at, parent_id, target, name, level, file_name, file_line, fields)
+    (key, instance_key, id, closed_at, parent_id, follows, target, name, level, file_name, file_line, fields)
 }
 
 fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
@@ -310,12 +336,14 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
     let id: i64 = row.get(2)?;
     let closed_at = row.get(3)?;
     let parent_key = row.get(4)?;
-    let target = row.get(5)?;
-    let name = row.get(6)?;
-    let level: i32 = row.get(7)?;
-    let file_name = row.get(8)?;
-    let file_line = row.get(9)?;
-    let fields: String = row.get(10)?;
+    let follows: String = row.get(5)?;
+    let follows = serde_json::from_str(&follows).unwrap();
+    let target = row.get(6)?;
+    let name = row.get(7)?;
+    let level: i32 = row.get(8)?;
+    let file_name = row.get(9)?;
+    let file_line = row.get(10)?;
+    let fields: String = row.get(11)?;
     let fields = serde_json::from_str(&fields).unwrap();
 
     Ok(Span {
@@ -324,6 +352,7 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
         id: id as u64,
         closed_at,
         parent_key,
+        follows,
         target,
         name,
         level: level.try_into().unwrap(),
@@ -350,6 +379,15 @@ fn span_event_to_params(span_event: SpanEvent) -> impl Params {
             let span_key = span_event.span_key;
             let kind = "update";
             let data = serde_json::to_string(&update_span_event).unwrap();
+
+            (key, instance_key, span_key, kind, Some(data))
+        }
+        SpanEventKind::Follows(follows_span_event) => {
+            let key = span_event.timestamp;
+            let instance_key = span_event.instance_key;
+            let span_key = span_event.span_key;
+            let kind = "follows";
+            let data = serde_json::to_string(&follows_span_event).unwrap();
 
             (key, instance_key, span_key, kind, Some(data))
         }
@@ -403,6 +441,15 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
                 timestamp: key,
                 span_key,
                 kind: SpanEventKind::Update(update_span_event),
+            })
+        }
+        "follows" => {
+            let follows_span_event = serde_json::from_str(&data.unwrap()).unwrap();
+            Ok(SpanEvent {
+                instance_key,
+                timestamp: key,
+                span_key,
+                kind: SpanEventKind::Follows(follows_span_event),
             })
         }
         "enter" => Ok(SpanEvent {

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::{Boo, Storage};
-use crate::{Event, Instance, Span, SpanEvent, Timestamp};
+use crate::{Event, Instance, Span, SpanEvent, SpanKey, Timestamp};
 
 /// This storage implementation just holds elements in memory.
 pub struct TransientStorage {
@@ -91,6 +91,12 @@ impl Storage for TransientStorage {
     fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, String>) {
         if let Some(span) = self.spans.get_mut(&at) {
             span.fields.extend(fields);
+        }
+    }
+
+    fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey) {
+        if let Some(span) = self.spans.get_mut(&at) {
+            span.follows.push(follows);
         }
     }
 }

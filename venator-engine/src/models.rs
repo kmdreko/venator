@@ -136,6 +136,7 @@ pub struct SpanEvent {
 pub enum SpanEventKind {
     Create(CreateSpanEvent),
     Update(UpdateSpanEvent),
+    Follows(FollowsSpanEvent),
     Enter,
     Exit,
     Close,
@@ -173,6 +174,11 @@ pub struct UpdateSpanEvent {
 
 pub struct NewFollowsSpanEvent {
     pub follows: SpanId,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FollowsSpanEvent {
+    pub follows: SpanKey,
 }
 
 pub struct NewEvent {
@@ -225,6 +231,7 @@ pub struct Span {
     pub created_at: Timestamp,
     pub closed_at: Option<Timestamp>,
     pub parent_key: Option<SpanKey>,
+    pub follows: Vec<SpanKey>,
     pub target: String,
     pub name: String,
     pub level: Level,
