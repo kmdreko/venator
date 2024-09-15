@@ -3810,7 +3810,6 @@ dependencies = [
  "chrono",
  "serde",
  "tracing",
- "tracing-core",
  "tracing-subscriber",
 ]
 

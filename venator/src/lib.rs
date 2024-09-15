@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use serde::Serialize;
-use tracing_core::span::{Attributes, Id, Record};
-use tracing_core::{Event, Subscriber};
+use tracing::span::{Attributes, Id, Record};
+use tracing::{debug, error, Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
@@ -39,9 +39,7 @@ impl VenatorBuilder {
     }
 
     pub fn build(self) -> Venator {
-        let mut connection = Connection::new(self.host, self.fields);
-
-        connection.connect();
+        let connection = Connection::new(self.host, self.fields);
 
         Venator {
             connection: Mutex::new(connection),
@@ -69,7 +67,7 @@ impl Venator {
         let mut buffer = SCRATCH.with(|b| b.take());
 
         if let Err(err) = encode(&mut buffer, &message) {
-            println!("[venator]: failed to encode message: {err:?}");
+            error!(parent: None, "failed to encode message: {err:?}");
             return;
         };
 
@@ -139,6 +137,10 @@ where
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
+        if event.metadata().target() == "venator" {
+            return;
+        }
+
         self.send(&Message::from_event(event, &ctx));
     }
 
@@ -180,7 +182,7 @@ impl Connection {
             host,
             fields,
             stream: None,
-            last_connect_attempt: Instant::now(),
+            last_connect_attempt: Instant::now() - Duration::from_secs(10),
         }
     }
 
@@ -192,7 +194,7 @@ impl Connection {
         let mut addrs = match host.to_socket_addrs() {
             Ok(addrs) => addrs,
             Err(err) => {
-                println!("[venator]: failed to connect: {err:?}");
+                error!(parent: None, "failed to connect: {err:?}");
                 return;
             }
         };
@@ -200,21 +202,21 @@ impl Connection {
         let addr = match addrs.next() {
             Some(addr) => addr,
             None => {
-                println!("[venator]: failed to connect: could not resolve to any addresses");
+                error!(parent: None, "failed to connect: could not resolve to any addresses");
                 return;
             }
         };
 
-        let connect_result = TcpStream::connect_timeout(&addr, Duration::from_millis(500));
+        let connect_result = TcpStream::connect_timeout(&addr, Duration::from_millis(100));
         let mut stream = match connect_result {
             Ok(stream) => stream,
             Err(err) => {
-                println!("[venator]: failed to connect: {err:?}");
+                error!(parent: None, "failed to connect: {err:?}");
                 return;
             }
         };
 
-        println!("[venator]: connected");
+        debug!(parent: None, "connected");
 
         let handshake = Handshake {
             fields: self.fields.clone(),
@@ -223,12 +225,12 @@ impl Connection {
         let mut buffer = vec![];
 
         if let Err(err) = encode(&mut buffer, &handshake) {
-            println!("[venator]: failed to encode handshake: {err:?}");
+            error!(parent: None, "failed to encode handshake: {err:?}");
             return;
         };
 
         if let Err(err) = stream.write_all(&buffer) {
-            println!("[venator]: failed to send handshake: {err:?}");
+            error!(parent: None, "failed to send handshake: {err:?}");
             return;
         }
 
@@ -240,9 +242,9 @@ impl Connection {
             let result = stream.write_all(payload);
 
             if let Err(err) = result {
-                println!("[venator]: failed to send payload: {err:?}");
+                error!(parent: None, "failed to send payload: {err:?}");
+
                 self.stream = None;
-                self.last_connect_attempt = Instant::now();
             }
         } else if self.last_connect_attempt.elapsed() >= Duration::from_secs(5) {
             self.connect();

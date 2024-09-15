@@ -3,9 +3,9 @@ use std::fmt::Debug;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use tracing_core::field::{Field, Visit};
-use tracing_core::span::{Attributes, Record};
-use tracing_core::{Event, Level, Subscriber};
+use tracing::field::{Field, Visit};
+use tracing::span::{Attributes, Record};
+use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
