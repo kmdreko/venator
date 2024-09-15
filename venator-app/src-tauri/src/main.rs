@@ -7,7 +7,6 @@ use std::io::ErrorKind;
 use std::num::NonZeroU64;
 
 use bincode::{DefaultOptions, Options};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::{AppHandle, Emitter, State};
@@ -297,17 +296,12 @@ async fn ingress_task(engine: Engine) {
 
                 match msg.data {
                     MessageData::Create(create_data) => {
-                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
-                            .to_std()
-                            .unwrap()
-                            .as_micros() as u64;
-
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
                             instance_key,
-                            timestamp: timestamp.try_into().unwrap(),
+                            timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                                 parent_id: create_data.parent_id,
@@ -321,17 +315,12 @@ async fn ingress_task(engine: Engine) {
                         });
                     }
                     MessageData::Update(update_data) => {
-                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
-                            .to_std()
-                            .unwrap()
-                            .as_micros() as u64;
-
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
                             instance_key,
-                            timestamp: timestamp.try_into().unwrap(),
+                            timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
                                 fields: update_data.fields.inner,
@@ -339,17 +328,12 @@ async fn ingress_task(engine: Engine) {
                         });
                     }
                     MessageData::Follows(follows_data) => {
-                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
-                            .to_std()
-                            .unwrap()
-                            .as_micros() as u64;
-
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
                             instance_key,
-                            timestamp: timestamp.try_into().unwrap(),
+                            timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Follows(NewFollowsSpanEvent {
                                 follows: follows_data.follows,
@@ -357,65 +341,45 @@ async fn ingress_task(engine: Engine) {
                         });
                     }
                     MessageData::Enter => {
-                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
-                            .to_std()
-                            .unwrap()
-                            .as_micros() as u64;
-
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
                             instance_key,
-                            timestamp: timestamp.try_into().unwrap(),
+                            timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Enter,
                         });
                     }
                     MessageData::Exit => {
-                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
-                            .to_std()
-                            .unwrap()
-                            .as_micros() as u64;
-
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
                             instance_key,
-                            timestamp: timestamp.try_into().unwrap(),
+                            timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Exit,
                         });
                     }
                     MessageData::Close => {
-                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
-                            .to_std()
-                            .unwrap()
-                            .as_micros() as u64;
-
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
                             instance_key,
-                            timestamp: timestamp.try_into().unwrap(),
+                            timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Close,
                         });
                     }
                     MessageData::Event(event) => {
-                        let timestamp = (msg.timestamp - DateTime::UNIX_EPOCH)
-                            .to_std()
-                            .unwrap()
-                            .as_micros() as u64;
-
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_event(NewEvent {
                             instance_key,
-                            timestamp: timestamp.try_into().unwrap(),
+                            timestamp: msg.timestamp,
                             span_id: msg.span_id,
                             target: event.target,
                             name: event.name,
@@ -449,7 +413,7 @@ pub struct Handshake {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Message {
-    timestamp: DateTime<Utc>,
+    timestamp: NonZeroU64,
     span_id: Option<NonZeroU64>,
     data: MessageData,
 }
@@ -457,7 +421,7 @@ struct Message {
 // Only used to adjust how the JSON is formatted
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MessageView {
-    timestamp: DateTime<Utc>,
+    timestamp: NonZeroU64,
     span_id: Option<NonZeroU64>,
     data: MessageDataView,
 }

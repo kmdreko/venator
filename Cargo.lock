@@ -3807,7 +3807,6 @@ name = "venator"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "chrono",
  "serde",
  "tracing",
  "tracing-subscriber",
@@ -3818,7 +3817,6 @@ name = "venator-app"
 version = "0.1.1"
 dependencies = [
  "bincode",
- "chrono",
  "serde",
  "serde_json",
  "tauri",

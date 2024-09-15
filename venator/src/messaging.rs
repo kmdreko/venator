@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::num::NonZeroU64;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, Utc};
+use bincode::{DefaultOptions, Error as BincodeError, Options};
 use serde::Serialize;
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Record};
@@ -12,6 +13,38 @@ use tracing_subscriber::registry::LookupSpan;
 
 use crate::ids::VenatorId;
 
+fn now() -> NonZeroU64 {
+    // this only errors if "now" is at or before the UNIX epoch, if so you are a
+    // liar and deserve to crash
+
+    let microseconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
+
+    // microseconds won't exceed a u64 until the year 586,912 AD
+    NonZeroU64::new(microseconds as u64).unwrap()
+}
+
+pub(crate) fn encode<T: Serialize>(buffer: &mut Vec<u8>, payload: &T) -> Result<(), BincodeError> {
+    // this uses a two-byte length prefix followed by the bincode-ed payload
+
+    buffer.resize(2, 0);
+
+    DefaultOptions::new()
+        .with_varint_encoding()
+        .with_big_endian()
+        .with_limit(u16::MAX as u64)
+        .serialize_into(&mut *buffer, payload)?;
+
+    let payload_size = buffer.len() - 2;
+    let payload_size_bytes = (payload_size as u16).to_be_bytes();
+
+    buffer[0..2].copy_from_slice(&payload_size_bytes);
+
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct Handshake {
     pub fields: BTreeMap<String, String>,
@@ -19,7 +52,7 @@ pub struct Handshake {
 
 #[derive(Serialize)]
 pub struct Message {
-    timestamp: DateTime<Utc>,
+    timestamp: NonZeroU64,
     span_id: Option<NonZeroU64>,
     data: MessageData,
 }
@@ -41,7 +74,7 @@ impl Message {
         id: &VenatorId,
         ctx: &Context<'_, S>,
     ) -> Message {
-        let timestamp = Utc::now();
+        let timestamp = now();
         let metadata = attrs.metadata();
         let parent_id = ctx.current_span().id().cloned();
 
@@ -74,7 +107,7 @@ impl Message {
     }
 
     pub(crate) fn from_record(id: &VenatorId, values: &Record<'_>) -> Message {
-        let timestamp = Utc::now();
+        let timestamp = now();
 
         let mut fields = Fields::new();
         values.record(&mut fields);
@@ -87,7 +120,7 @@ impl Message {
     }
 
     pub(crate) fn from_follows(id: &VenatorId, follows_id: &VenatorId) -> Message {
-        let timestamp = Utc::now();
+        let timestamp = now();
 
         Message {
             timestamp,
@@ -99,7 +132,7 @@ impl Message {
     }
 
     pub(crate) fn from_enter(id: &VenatorId) -> Message {
-        let timestamp = Utc::now();
+        let timestamp = now();
 
         Message {
             timestamp,
@@ -109,7 +142,7 @@ impl Message {
     }
 
     pub(crate) fn from_exit(id: &VenatorId) -> Message {
-        let timestamp = Utc::now();
+        let timestamp = now();
 
         Message {
             timestamp,
@@ -119,7 +152,7 @@ impl Message {
     }
 
     pub(crate) fn from_close(id: &VenatorId) -> Message {
-        let timestamp = Utc::now();
+        let timestamp = now();
 
         Message {
             timestamp,
@@ -132,7 +165,7 @@ impl Message {
         event: &Event<'_>,
         ctx: &Context<'_, S>,
     ) -> Message {
-        let timestamp = Utc::now();
+        let timestamp = now();
         let metadata = event.metadata();
 
         let parent_id = ctx

@@ -5,8 +5,6 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use bincode::{DefaultOptions, Error as BincodeError, Options};
-use serde::Serialize;
 use tracing::span::{Attributes, Id, Record};
 use tracing::{debug, error, Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
@@ -66,7 +64,7 @@ impl Venator {
 
         let mut buffer = SCRATCH.with(|b| b.take());
 
-        if let Err(err) = encode(&mut buffer, &message) {
+        if let Err(err) = messaging::encode(&mut buffer, &message) {
             error!(parent: None, "failed to encode message: {err:?}");
             return;
         };
@@ -224,7 +222,7 @@ impl Connection {
 
         let mut buffer = vec![];
 
-        if let Err(err) = encode(&mut buffer, &handshake) {
+        if let Err(err) = messaging::encode(&mut buffer, &handshake) {
             error!(parent: None, "failed to encode handshake: {err:?}");
             return;
         };
@@ -251,25 +249,6 @@ impl Connection {
             self.send(payload);
         }
     }
-}
-
-fn encode<T: Serialize>(buffer: &mut Vec<u8>, payload: &T) -> Result<(), BincodeError> {
-    // this uses a two-byte length prefix followed by the bincode-ed payload
-
-    buffer.resize(2, 0);
-
-    DefaultOptions::new()
-        .with_varint_encoding()
-        .with_big_endian()
-        .with_limit(u16::MAX as u64)
-        .serialize_into(&mut *buffer, payload)?;
-
-    let payload_size = buffer.len() - 2;
-    let payload_size_bytes = (payload_size as u16).to_be_bytes();
-
-    buffer[0..2].copy_from_slice(&payload_size_bytes);
-
-    Ok(())
 }
 
 #[cfg(test)]
