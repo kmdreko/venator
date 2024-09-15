@@ -405,6 +405,32 @@ function App() {
         })
     }
 
+    function moveScreen(fromIdx: number, toIdx: number) {
+        if (fromIdx == toIdx) {
+            return;
+        }
+
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+        let updated_screens = [...current_screens];
+        let [screen] = updated_screens.splice(fromIdx, 1);
+        updated_screens.splice(toIdx, 0, screen);
+
+        let updated_selected_screen = current_selected_screen;
+        if (current_selected_screen == fromIdx) {
+            updated_selected_screen = toIdx;
+        } else if (current_selected_screen < fromIdx && current_selected_screen >= toIdx) {
+            updated_selected_screen += 1;
+        } else if (current_selected_screen > fromIdx && current_selected_screen <= toIdx) {
+            updated_selected_screen -= 1;
+        }
+
+        batch(() => {
+            setScreens(updated_screens);
+            setSelectedScreen(updated_selected_screen);
+        })
+    }
+
     function createTab(screen: ScreenData, navigate: boolean) {
         let current_screens = screens();
         let updated_screens = [...current_screens];
@@ -498,7 +524,7 @@ function App() {
             createTab,
             removeTab: removeScreen,
             removeAllOtherTabs: removeAllOtherScreens,
-            moveTab: () => { },
+            moveTab: moveScreen,
             activateTab: setSelectedScreen,
         }}>
             <TabBar screens={screens()} active={selectedScreen()!} />

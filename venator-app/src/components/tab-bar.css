@@ -35,6 +35,10 @@
     align-items: center;
 }
 
+.tab:not(.active):hover {
+    background-color: #bdbdbd;
+}
+
 .tab.active {
     flex: 0 0 220px;
     height: 24px;

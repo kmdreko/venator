@@ -142,34 +142,36 @@ export function TabBar(props: TabBarProps) {
     }
 
     function duplicationItems(screen: ScreenData): MenuItemOptions[] {
+        // TODO: re-enable these when screens can handle bad initial filters (or
+        // add logic to handle them)
         if (screen.kind == 'events') {
             return [
-                { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), false) },
-                // { text: "duplicate tab for spans", action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), false) },
-                // { text: "duplicate tab for instances", action: () => navigation.createTab(duplicateScreenAs(screen, 'instances'), false) },
+                { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
+                { text: "duplicate tab for spans", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), true)*/ },
+                { text: "duplicate tab for instances", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'instances'), true)*/ },
             ];
         } else if (screen.kind == 'spans') {
             return [
-                { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), false) },
-                // { text: "duplicate tab for events", action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), false) },
-                // { text: "duplicate tab for instances", action: () => navigation.createTab(duplicateScreenAs(screen, 'instances'), false) },
+                { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
+                { text: "duplicate tab for events", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), true)*/ },
+                { text: "duplicate tab for instances", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'instances'), true)*/ },
             ];
         } else if (screen.kind == 'instances') {
             return [
-                { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), false) },
-                // { text: "duplicate tab for events", action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), false) },
-                // { text: "duplicate tab for spans", action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), false) },
+                { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
+                { text: "duplicate tab for events", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), true)*/ },
+                { text: "duplicate tab for spans", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), true)*/ },
             ];
         } else /* screen.kind == 'trace' */ {
             if (screen.timespan == null) {
                 return [
-                    { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), false) },
+                    { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
                 ]
             } else {
                 return [
-                    { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), false) },
-                    { text: "duplicate tab for events", action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), false) },
-                    { text: "duplicate tab for spans", action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), false) },
+                    { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
+                    { text: "duplicate tab for events", action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), true) },
+                    { text: "duplicate tab for spans", action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), true) },
                 ];
             }
         }
@@ -177,10 +179,16 @@ export function TabBar(props: TabBarProps) {
 
     async function showContextMenu(e: MouseEvent, idx: number) {
         let screen = props.screens[idx];
+        let end = props.screens.length - 1;
 
         let menu = await Menu.new({
             items: [
                 ...duplicationItems(screen),
+                { item: 'Separator' },
+                { text: "move left", enabled: idx != 0, action: () => navigation.moveTab(idx, idx - 1) },
+                { text: "move far left", enabled: idx != 0, action: () => navigation.moveTab(idx, 0) },
+                { text: "move right", enabled: idx != end, action: () => navigation.moveTab(idx, idx + 1) },
+                { text: "move far right", enabled: idx != end, action: () => navigation.moveTab(idx, end) },
                 { item: 'Separator' },
                 { text: "close tab", action: () => navigation.removeTab(idx) },
                 { text: "close all other tabs", action: () => navigation.removeAllOtherTabs(idx) },
