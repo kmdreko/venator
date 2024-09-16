@@ -310,7 +310,7 @@ async fn ingress_task(engine: Engine) {
                                 level: create_data.level,
                                 file_name: create_data.file_name,
                                 file_line: create_data.file_line,
-                                fields: create_data.fields.inner,
+                                fields: value_map_to_string_map(create_data.fields),
                             }),
                         });
                     }
@@ -323,7 +323,7 @@ async fn ingress_task(engine: Engine) {
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                                fields: update_data.fields.inner,
+                                fields: value_map_to_string_map(update_data.fields),
                             }),
                         });
                     }
@@ -386,7 +386,7 @@ async fn ingress_task(engine: Engine) {
                             level: event.level,
                             file_name: event.file_name,
                             file_line: event.file_line,
-                            fields: event.fields.inner,
+                            fields: value_map_to_string_map(event.fields),
                         });
                     }
                 };
@@ -476,12 +476,12 @@ struct CreateData {
     level: i32,
     file_name: Option<String>,
     file_line: Option<u32>,
-    fields: Fields,
+    fields: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UpdateData {
-    fields: Fields,
+    fields: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -496,12 +496,7 @@ struct EventData {
     level: i32,
     file_name: Option<String>,
     file_line: Option<u32>,
-    fields: Fields,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Fields {
-    inner: BTreeMap<String, String>,
+    fields: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -523,4 +518,31 @@ impl FilterPredicateView {
             value: inner.value,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum Value {
+    F64(f64),
+    I64(i64),
+    U64(u64),
+    I128(i128),
+    U128(u128),
+    Bool(bool),
+    Str(String),
+    Format(String),
+}
+
+fn value_map_to_string_map(vmap: BTreeMap<String, Value>) -> BTreeMap<String, String> {
+    vmap.into_iter()
+        .map(|(k, v)| match v {
+            Value::F64(v) => (k, format!("{v}")),
+            Value::I64(v) => (k, format!("{v}")),
+            Value::U64(v) => (k, format!("{v}")),
+            Value::I128(v) => (k, format!("{v}")),
+            Value::U128(v) => (k, format!("{v}")),
+            Value::Bool(v) => (k, format!("{v}")),
+            Value::Str(v) => (k, v),
+            Value::Format(v) => (k, v),
+        })
+        .collect()
 }

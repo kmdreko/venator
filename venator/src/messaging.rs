@@ -1,11 +1,9 @@
 use std::collections::BTreeMap;
-use std::fmt::Debug;
 use std::num::NonZeroU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bincode::{DefaultOptions, Error as BincodeError, Options};
 use serde::Serialize;
-use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Record};
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
@@ -51,29 +49,29 @@ pub struct Handshake {
 }
 
 #[derive(Serialize)]
-pub struct Message {
+pub struct Message<'a, 'callsite> {
     timestamp: NonZeroU64,
     span_id: Option<NonZeroU64>,
-    data: MessageData,
+    data: MessageData<'a, 'callsite>,
 }
 
 #[derive(Serialize)]
-enum MessageData {
-    Create(CreateData),
-    Update(UpdateData),
+enum MessageData<'a, 'callsite> {
+    Create(CreateData<'a, 'callsite>),
+    Update(UpdateData<'a, 'callsite>),
     Follows(FollowsData),
     Enter,
     Exit,
     Close,
-    Event(EventData),
+    Event(EventData<'a, 'callsite>),
 }
 
-impl Message {
-    pub(crate) fn from_new_span<S: Subscriber + for<'lookup> LookupSpan<'lookup>>(
-        attrs: &Attributes<'_>,
+impl Message<'_, '_> {
+    pub(crate) fn from_new_span<'a, 'callsite, S: Subscriber + for<'lookup> LookupSpan<'lookup>>(
+        attrs: &'a Attributes<'callsite>,
         id: &VenatorId,
         ctx: &Context<'_, S>,
-    ) -> Message {
+    ) -> Message<'a, 'callsite> {
         let timestamp = now();
         let metadata = attrs.metadata();
         let parent_id = ctx.current_span().id().cloned();
@@ -81,9 +79,6 @@ impl Message {
         let parent_id = parent_id
             .and_then(|id| ctx.span(&id))
             .and_then(|span| span.extensions().get::<VenatorId>().copied());
-
-        let mut fields = Fields::new();
-        attrs.record(&mut fields);
 
         Message {
             timestamp,
@@ -101,25 +96,28 @@ impl Message {
                 },
                 file_name: metadata.file(),
                 file_line: metadata.line(),
-                fields,
+                fields: attrs,
             }),
         }
     }
 
-    pub(crate) fn from_record(id: &VenatorId, values: &Record<'_>) -> Message {
+    pub(crate) fn from_record<'a, 'callsite>(
+        id: &VenatorId,
+        values: &'a Record<'callsite>,
+    ) -> Message<'a, 'callsite> {
         let timestamp = now();
-
-        let mut fields = Fields::new();
-        values.record(&mut fields);
 
         Message {
             timestamp,
             span_id: Some(id.0),
-            data: MessageData::Update(UpdateData { fields }),
+            data: MessageData::Update(UpdateData { fields: values }),
         }
     }
 
-    pub(crate) fn from_follows(id: &VenatorId, follows_id: &VenatorId) -> Message {
+    pub(crate) fn from_follows(
+        id: &VenatorId,
+        follows_id: &VenatorId,
+    ) -> Message<'static, 'static> {
         let timestamp = now();
 
         Message {
@@ -131,7 +129,7 @@ impl Message {
         }
     }
 
-    pub(crate) fn from_enter(id: &VenatorId) -> Message {
+    pub(crate) fn from_enter(id: &VenatorId) -> Message<'static, 'static> {
         let timestamp = now();
 
         Message {
@@ -141,7 +139,7 @@ impl Message {
         }
     }
 
-    pub(crate) fn from_exit(id: &VenatorId) -> Message {
+    pub(crate) fn from_exit(id: &VenatorId) -> Message<'static, 'static> {
         let timestamp = now();
 
         Message {
@@ -151,7 +149,7 @@ impl Message {
         }
     }
 
-    pub(crate) fn from_close(id: &VenatorId) -> Message {
+    pub(crate) fn from_close(id: &VenatorId) -> Message<'static, 'static> {
         let timestamp = now();
 
         Message {
@@ -161,19 +159,16 @@ impl Message {
         }
     }
 
-    pub(crate) fn from_event<S: Subscriber + for<'lookup> LookupSpan<'lookup>>(
-        event: &Event<'_>,
+    pub(crate) fn from_event<'a, 'callsite, S: Subscriber + for<'lookup> LookupSpan<'lookup>>(
+        event: &'a Event<'callsite>,
         ctx: &Context<'_, S>,
-    ) -> Message {
+    ) -> Message<'a, 'callsite> {
         let timestamp = now();
         let metadata = event.metadata();
 
         let parent_id = ctx
             .event_span(event)
             .and_then(|span| span.extensions().get::<VenatorId>().copied());
-
-        let mut fields = Fields::new();
-        event.record(&mut fields);
 
         Message {
             timestamp,
@@ -184,26 +179,28 @@ impl Message {
                 level: level_to_number(*metadata.level()),
                 file_name: metadata.file(),
                 file_line: metadata.line(),
-                fields,
+                fields: event,
             }),
         }
     }
 }
 
 #[derive(Serialize)]
-struct CreateData {
+struct CreateData<'a, 'callsite> {
     parent_id: Option<NonZeroU64>,
     target: &'static str,
     name: &'static str,
     level: i32,
     file_name: Option<&'static str>,
     file_line: Option<u32>,
-    fields: Fields,
+    #[serde(serialize_with = "crate::fields::attributes_as_fields")]
+    fields: &'a Attributes<'callsite>,
 }
 
 #[derive(Serialize)]
-struct UpdateData {
-    fields: Fields,
+struct UpdateData<'a, 'callsite> {
+    #[serde(serialize_with = "crate::fields::record_as_fields")]
+    fields: &'a Record<'callsite>,
 }
 
 #[derive(Serialize)]
@@ -212,36 +209,14 @@ struct FollowsData {
 }
 
 #[derive(Serialize)]
-struct EventData {
+struct EventData<'a, 'callsite> {
     target: &'static str,
     name: &'static str,
     level: i32,
     file_name: Option<&'static str>,
     file_line: Option<u32>,
-    fields: Fields,
-}
-
-#[derive(Serialize)]
-struct Fields {
-    inner: BTreeMap<&'static str, String>,
-}
-
-impl Fields {
-    fn new() -> Fields {
-        Fields {
-            inner: BTreeMap::new(),
-        }
-    }
-}
-
-impl Visit for Fields {
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.inner.insert(field.name(), value.to_owned());
-    }
-
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        self.inner.insert(field.name(), format!("{value:?}"));
-    }
+    #[serde(serialize_with = "crate::fields::event_as_fields")]
+    fields: &'a Event<'callsite>,
 }
 
 fn level_to_number(level: Level) -> i32 {

@@ -10,8 +10,9 @@ use tracing::{debug, error, Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
-pub mod ids;
-pub mod messaging;
+mod fields;
+mod ids;
+mod messaging;
 
 use ids::VenatorId;
 use messaging::{Handshake, Message};
