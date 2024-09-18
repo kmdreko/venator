@@ -25,8 +25,7 @@ use index::{EventIndexes, SpanIndexes};
 
 pub use filter::input::{FilterPredicate, FilterPropertyKind, FilterValueOperator};
 pub use filter::{
-    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, EventQuery, InstanceQuery, Order,
-    SpanQuery,
+    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, InstanceQuery, Order, Query,
 };
 pub use models::{
     AncestorView, AttributeKindView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
@@ -166,7 +165,7 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
-    pub fn query_span(&self, query: SpanQuery) -> impl Future<Output = Vec<SpanView>> {
+    pub fn query_span(&self, query: Query) -> impl Future<Output = Vec<SpanView>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -175,7 +174,7 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
-    pub fn query_span_event(&self, query: EventQuery) -> impl Future<Output = Vec<SpanEvent>> {
+    pub fn query_span_event(&self, query: Query) -> impl Future<Output = Vec<SpanEvent>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -184,7 +183,7 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
-    pub fn query_event(&self, query: EventQuery) -> impl Future<Output = Vec<EventView>> {
+    pub fn query_event(&self, query: Query) -> impl Future<Output = Vec<EventView>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -193,7 +192,7 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
-    pub fn query_event_count(&self, query: EventQuery) -> impl Future<Output = usize> {
+    pub fn query_event_count(&self, query: Query) -> impl Future<Output = usize> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -280,10 +279,10 @@ impl Engine {
 
 enum EngineCommand {
     QueryInstance(InstanceQuery, OneshotSender<Vec<InstanceView>>),
-    QuerySpan(SpanQuery, OneshotSender<Vec<SpanView>>),
-    QuerySpanEvent(EventQuery, OneshotSender<Vec<SpanEvent>>),
-    QueryEvent(EventQuery, OneshotSender<Vec<EventView>>),
-    QueryEventCount(EventQuery, OneshotSender<usize>),
+    QuerySpan(Query, OneshotSender<Vec<SpanView>>),
+    QuerySpanEvent(Query, OneshotSender<Vec<SpanEvent>>),
+    QueryEvent(Query, OneshotSender<Vec<EventView>>),
+    QueryEventCount(Query, OneshotSender<usize>),
     QueryStats(OneshotSender<StatsView>),
     InsertInstance(
         NewInstance,
@@ -496,7 +495,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
     }
 
-    pub fn query_event(&self, query: EventQuery) -> Vec<EventView> {
+    pub fn query_event(&self, query: Query) -> Vec<EventView> {
         let limit = query.limit;
         IndexedEventFilterIterator::new(query, self)
             .take(limit)
@@ -505,7 +504,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             .collect()
     }
 
-    pub fn query_event_count(&self, query: EventQuery) -> usize {
+    pub fn query_event_count(&self, query: Query) -> usize {
         let event_iter = IndexedEventFilterIterator::new(query, self);
 
         match event_iter.size_hint() {
@@ -585,7 +584,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
     }
 
-    pub fn query_span(&self, query: SpanQuery) -> Vec<SpanView> {
+    pub fn query_span(&self, query: Query) -> Vec<SpanView> {
         let limit = query.limit;
         IndexedSpanFilterIterator::new(query, self)
             .take(limit)
@@ -666,7 +665,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
     }
 
-    pub fn query_span_event(&self, _query: EventQuery) -> Vec<SpanEvent> {
+    pub fn query_span_event(&self, _query: Query) -> Vec<SpanEvent> {
         unimplemented!()
     }
 
@@ -1296,7 +1295,7 @@ mod tests {
             engine.insert_event(simple(8, 4, "test", "C")).unwrap(); // excluded by "C"
             engine.insert_event(simple(9, 4, "test", "A")).unwrap(); // excluded by timestamp
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![
                     FilterPredicate::new_inherent("level", "WARN")
                         .with_operator(FilterValueOperator::Gte),
@@ -1393,7 +1392,7 @@ mod tests {
                 .insert_span_event(simple_open(13, 4, "test", "A"))
                 .unwrap(); // excluded by timestamp
 
-            let spans = engine.query_span(SpanQuery {
+            let spans = engine.query_span(Query {
                 filter: vec![
                     FilterPredicate::new_inherent("level", "WARN")
                         .with_operator(filter::input::FilterValueOperator::Gte),
@@ -1440,7 +1439,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1451,7 +1450,7 @@ mod tests {
 
             assert_eq!(events.len(), 1);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "B")],
                 order: Order::Asc,
                 limit: 5,
@@ -1493,7 +1492,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1504,7 +1503,7 @@ mod tests {
 
             assert_eq!(events.len(), 1);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "B")],
                 order: Order::Asc,
                 limit: 5,
@@ -1544,7 +1543,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1555,7 +1554,7 @@ mod tests {
 
             assert_eq!(events.len(), 0);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "B")],
                 order: Order::Asc,
                 limit: 5,
@@ -1597,7 +1596,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1608,7 +1607,7 @@ mod tests {
 
             assert_eq!(events.len(), 0);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "B")],
                 order: Order::Asc,
                 limit: 5,
@@ -1665,7 +1664,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1676,7 +1675,7 @@ mod tests {
 
             assert_eq!(events.len(), 0);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "C")],
                 order: Order::Asc,
                 limit: 5,
@@ -1735,7 +1734,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1746,7 +1745,7 @@ mod tests {
 
             assert_eq!(events.len(), 0);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "C")],
                 order: Order::Asc,
                 limit: 5,
@@ -1814,7 +1813,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1825,7 +1824,7 @@ mod tests {
 
             assert_eq!(events.len(), 0);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "C")],
                 order: Order::Asc,
                 limit: 5,
@@ -1895,7 +1894,7 @@ mod tests {
                 })
                 .unwrap();
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "A")],
                 order: Order::Asc,
                 limit: 5,
@@ -1906,7 +1905,7 @@ mod tests {
 
             assert_eq!(events.len(), 0);
 
-            let events = engine.query_event(EventQuery {
+            let events = engine.query_event(Query {
                 filter: vec![FilterPredicate::new_attribute("attr1", "C")],
                 order: Order::Asc,
                 limit: 5,

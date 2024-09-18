@@ -14,7 +14,7 @@ use crate::{Ancestors, Event, InstanceId, InstanceKey, RawEngine, SpanId};
 pub mod input;
 
 #[derive(Deserialize)]
-pub struct EventQuery {
+pub struct Query {
     pub filter: Vec<FilterPredicate>,
     pub order: Order,
     pub limit: usize,
@@ -579,7 +579,7 @@ pub struct IndexedEventFilterIterator<'i, 'b, S> {
 
 impl<'i, 'b, S> IndexedEventFilterIterator<'i, 'b, S> {
     pub fn new(
-        query: EventQuery,
+        query: Query,
         engine: &'i RawEngine<'b, S>,
     ) -> IndexedEventFilterIterator<'i, 'b, S> {
         let mut filter = BasicEventFilter::And(
@@ -657,16 +657,6 @@ where
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.filter.size_hint()
     }
-}
-
-#[derive(Deserialize)]
-pub struct SpanQuery {
-    pub filter: Vec<FilterPredicate>,
-    pub order: Order,
-    pub limit: usize,
-    pub start: Timestamp,
-    pub end: Timestamp,
-    pub previous: Option<Timestamp>,
 }
 
 #[derive(Debug)]
@@ -1492,10 +1482,7 @@ pub struct IndexedSpanFilterIterator<'i, 'b, S> {
 }
 
 impl<'i, 'b, S> IndexedSpanFilterIterator<'i, 'b, S> {
-    pub fn new(
-        query: SpanQuery,
-        engine: &'i RawEngine<'b, S>,
-    ) -> IndexedSpanFilterIterator<'i, 'b, S> {
+    pub fn new(query: Query, engine: &'i RawEngine<'b, S>) -> IndexedSpanFilterIterator<'i, 'b, S> {
         let mut filter = BasicSpanFilter::And(
             query
                 .filter

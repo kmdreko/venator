@@ -13,11 +13,10 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpListener;
 use venator_engine::{
-    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventQuery, EventView,
-    FileStorage, FilterPredicate, FilterPropertyKind, FilterValueOperator, InstanceQuery,
-    InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent, NewInstance, NewSpanEvent,
-    NewSpanEventKind, NewUpdateSpanEvent, Order, SpanQuery, SpanView, StatsView, SubscriptionId,
-    Timestamp,
+    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventView, FileStorage,
+    FilterPredicate, FilterPropertyKind, FilterValueOperator, InstanceQuery, InstanceView,
+    NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent, NewInstance, NewSpanEvent, NewSpanEventKind,
+    NewUpdateSpanEvent, Order, Query, SpanView, StatsView, SubscriptionId, Timestamp,
 };
 
 #[tauri::command]
@@ -66,7 +65,7 @@ async fn get_events(
     end: Option<Timestamp>,
 ) -> Result<Vec<EventView>, ()> {
     let events = engine
-        .query_event(EventQuery {
+        .query_event(Query {
             filter,
             order,
             limit: 50,
@@ -87,7 +86,7 @@ async fn get_event_count(
     end: Timestamp,
 ) -> Result<usize, ()> {
     let events = engine
-        .query_event_count(EventQuery {
+        .query_event_count(Query {
             filter,
             order: Order::Asc, // this doesn't matter
             limit: 20,         // this doesn't matter
@@ -123,7 +122,7 @@ async fn get_spans(
     end: Option<Timestamp>,
 ) -> Result<Vec<SpanView>, ()> {
     let spans = engine
-        .query_span(SpanQuery {
+        .query_span(Query {
             filter,
             order,
             limit: 50,
