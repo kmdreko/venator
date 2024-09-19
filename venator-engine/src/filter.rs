@@ -2,15 +2,17 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ops::{Add, Range};
 
+use attribute::ValueFilter;
 use ghost_cell::GhostToken;
 use input::{FilterPredicate, FilterPropertyKind, FilterValueOperator};
 use serde::Deserialize;
 
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
-use crate::models::{parse_full_span_id, EventKey, Level, SpanKey, Timestamp};
+use crate::models::{parse_full_span_id, EventKey, Level, SpanKey, Timestamp, ValueOperator};
 use crate::storage::Storage;
 use crate::{Ancestors, Event, InstanceId, InstanceKey, RawEngine, SpanId};
 
+pub mod attribute;
 pub mod input;
 
 #[derive(Deserialize)]
@@ -57,18 +59,29 @@ impl IndexedEventFilter<'_> {
 
                 IndexedEventFilter::Single(index, None)
             }
-            BasicEventFilter::Attribute(attribute, value) => {
+            BasicEventFilter::Attribute(attribute, value_filter) => {
                 if let Some(attr_index) = event_indexes.attributes.get(&attribute) {
-                    let value_index = attr_index
-                        .get(&value)
-                        .map(Vec::as_slice)
-                        .unwrap_or_default();
+                    let filters = attr_index
+                        .make_indexed_filter(value_filter)
+                        .into_iter()
+                        .map(|(i, f)| {
+                            IndexedEventFilter::Single(
+                                i,
+                                f.map(|f| {
+                                    NonIndexedEventFilter::Attribute(attribute.clone(), Box::new(f))
+                                }),
+                            )
+                        })
+                        .collect();
 
-                    IndexedEventFilter::Single(value_index, None)
+                    IndexedEventFilter::Or(filters)
                 } else {
                     IndexedEventFilter::Single(
                         &event_indexes.all,
-                        Some(NonIndexedEventFilter::Attribute(attribute, value)),
+                        Some(NonIndexedEventFilter::Attribute(
+                            attribute,
+                            Box::new(value_filter),
+                        )),
                     )
                 }
             }
@@ -321,12 +334,12 @@ pub enum InputError {
     InvalidStackOperator,
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug)]
 pub enum BasicEventFilter {
     Level(Level),
     Instance(InstanceKey),
     Ancestor(SpanKey),
-    Attribute(String, String),
+    Attribute(String, ValueFilter),
     And(Vec<BasicEventFilter>),
     Or(Vec<BasicEventFilter>),
 }
@@ -511,7 +524,9 @@ impl BasicEventFilter {
                     return Err(InputError::InvalidAttributeOperator);
                 }
 
-                BasicEventFilter::Attribute(name.to_owned(), predicate.value)
+                let value_filter = ValueFilter::from_input(ValueOperator::Eq, &predicate.value);
+
+                BasicEventFilter::Attribute(name.to_owned(), value_filter)
             }
         };
 
@@ -530,9 +545,9 @@ impl BasicEventFilter {
             BasicEventFilter::Ancestor(span_key) => {
                 event_ancestors[&event.key()].has_parent(*span_key)
             }
-            BasicEventFilter::Attribute(attribute, value) => event_ancestors[&event.key()]
+            BasicEventFilter::Attribute(attribute, value_filter) => event_ancestors[&event.key()]
                 .get_value(attribute, token)
-                .map(|v| v == value)
+                .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
             BasicEventFilter::And(filters) => filters
                 .iter()
@@ -544,9 +559,8 @@ impl BasicEventFilter {
     }
 }
 
-#[derive(Deserialize)]
 pub enum NonIndexedEventFilter {
-    Attribute(String, String),
+    Attribute(String, Box<ValueFilter>),
 }
 
 impl NonIndexedEventFilter {
@@ -559,9 +573,10 @@ impl NonIndexedEventFilter {
     ) -> bool {
         let log = storage.get_event(entry).unwrap();
         match self {
-            NonIndexedEventFilter::Attribute(attribute, value) => event_ancestors[&log.timestamp]
+            NonIndexedEventFilter::Attribute(attribute, value_filter) => event_ancestors
+                [&log.timestamp]
                 .get_value(attribute, token)
-                .map(|v| v == value)
+                .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
         }
     }
@@ -746,17 +761,25 @@ impl IndexedSpanFilter<'_> {
             }
             BasicSpanFilter::Root => IndexedSpanFilter::Single(&span_indexes.roots, None),
             BasicSpanFilter::Attribute(attribute, value) => {
-                if let Some(attr_index) = span_indexes.attributes.get(&attribute) {
-                    let value_index = attr_index
-                        .get(&value)
-                        .map(Vec::as_slice)
-                        .unwrap_or_default();
+                let value_filter = ValueFilter::from_input(ValueOperator::Eq, &value);
 
-                    IndexedSpanFilter::Single(value_index, None)
+                if let Some(attr_index) = span_indexes.attributes.get(&attribute) {
+                    let filters = attr_index
+                        .make_indexed_filter(value_filter)
+                        .into_iter()
+                        .map(|(i, f)| {
+                            IndexedSpanFilter::Single(
+                                i,
+                                f.map(|f| NonIndexedSpanFilter::Attribute(attribute.clone(), f)),
+                            )
+                        })
+                        .collect();
+
+                    IndexedSpanFilter::Or(filters)
                 } else {
                     IndexedSpanFilter::Single(
                         &span_indexes.all,
-                        Some(NonIndexedSpanFilter::Attribute(attribute, value)),
+                        Some(NonIndexedSpanFilter::Attribute(attribute, value_filter)),
                     )
                 }
             }
@@ -1418,10 +1441,10 @@ impl BasicSpanFilter {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
-    Attribute(String, String),
+    Attribute(String, ValueFilter),
 }
 
 impl NonIndexedSpanFilter {
@@ -1441,9 +1464,10 @@ impl NonIndexedSpanFilter {
                     DurationFilter::Lt(measure) => duration < *measure,
                 })
                 .unwrap_or(false),
-            NonIndexedSpanFilter::Attribute(attribute, value) => span_ancestors[&span.created_at]
+            NonIndexedSpanFilter::Attribute(attribute, value_filter) => span_ancestors
+                [&span.created_at]
                 .get_value(attribute, token)
-                .map(|v| v == value)
+                .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
         }
     }
@@ -1606,22 +1630,12 @@ where
     // }
 }
 
-#[derive(Deserialize)]
-pub struct InstanceQuery {
-    pub filter: Vec<FilterPredicate>,
-    pub order: Order,
-    pub limit: usize,
-    pub start: Timestamp,
-    pub end: Timestamp,
-    pub previous: Option<Timestamp>,
-}
-
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug)]
 pub enum BasicInstanceFilter {
     Duration(DurationFilter),
     Connected(TimestampComparisonFilter),
     Disconnected(TimestampComparisonFilter),
-    Attribute(String, String),
+    Attribute(String, ValueFilter),
     And(Vec<BasicInstanceFilter>),
     Or(Vec<BasicInstanceFilter>),
 }
@@ -1794,7 +1808,9 @@ impl BasicInstanceFilter {
                     return Err(InputError::InvalidAttributeOperator);
                 }
 
-                BasicInstanceFilter::Attribute(name.to_owned(), predicate.value)
+                let value_filter = ValueFilter::from_input(ValueOperator::Eq, &predicate.value);
+
+                BasicInstanceFilter::Attribute(name.to_owned(), value_filter)
             }
         };
 
@@ -1829,10 +1845,10 @@ impl BasicInstanceFilter {
                     TimestampComparisonFilter::Lt(timestamp) => disconnected_at < *timestamp,
                 }
             }
-            BasicInstanceFilter::Attribute(attribute, value) => instance
+            BasicInstanceFilter::Attribute(attribute, value_filter) => instance
                 .fields
                 .get(attribute)
-                .map(|v| v == value)
+                .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
             BasicInstanceFilter::And(filters) => filters.iter().all(|f| f.matches(storage, entry)),
             BasicInstanceFilter::Or(filters) => filters.iter().any(|f| f.matches(storage, entry)),

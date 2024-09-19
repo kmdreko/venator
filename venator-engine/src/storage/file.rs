@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+
 use rusqlite::{Connection, Error as DbError, Params, Row};
 
+use crate::models::Value;
 use crate::{Event, Instance, Span, SpanEvent, SpanEventKind, SpanId, SpanKey, Timestamp};
 
 use super::{Boo, Storage};
@@ -235,11 +238,7 @@ impl Storage for FileStorage {
         stmt.execute((at, closed)).unwrap();
     }
 
-    fn update_span_fields(
-        &mut self,
-        at: Timestamp,
-        fields: std::collections::BTreeMap<String, String>,
-    ) {
+    fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")

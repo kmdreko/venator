@@ -5,7 +5,7 @@ use std::ops::Deref;
 mod file;
 mod transient;
 
-use crate::models::{Event, Instance, Span, SpanEvent, Timestamp};
+use crate::models::{Event, Instance, Span, SpanEvent, Timestamp, Value};
 use crate::SpanKey;
 
 #[cfg(feature = "persist")]
@@ -66,6 +66,6 @@ pub trait Storage {
 
     fn update_instance_disconnected(&mut self, at: Timestamp, disconnected: Timestamp);
     fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp);
-    fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, String>);
+    fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>);
     fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey);
 }

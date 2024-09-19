@@ -4,8 +4,12 @@ use std::ops::Range;
 use ghost_cell::GhostToken;
 
 use crate::filter::BoundSearch;
-use crate::models::{Event, Span, Timestamp};
+use crate::models::{Event, Span, Timestamp, Value};
 use crate::{Ancestors, InstanceKey};
+
+mod attribute;
+
+pub(crate) use attribute::AttributeIndex;
 
 pub struct EventIndexes {
     pub all: Vec<Timestamp>,
@@ -14,7 +18,7 @@ pub struct EventIndexes {
     // filenames: ...,
     // targets: ...,
     pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
-    pub attributes: BTreeMap<String, BTreeMap<String, Vec<Timestamp>>>,
+    pub attributes: BTreeMap<String, AttributeIndex>,
 }
 
 impl EventIndexes {
@@ -55,9 +59,7 @@ impl EventIndexes {
 
         for (attribute, attr_index) in &mut self.attributes {
             if let Some(value) = event_ancestors.get_value(attribute, token) {
-                let value_index = attr_index.entry(value.to_owned()).or_default();
-                let idx = value_index.upper_bound_via_expansion(&event_key);
-                value_index.insert(idx, event_key);
+                attr_index.add_entry(event_key, value);
             }
         }
     }
@@ -68,29 +70,19 @@ impl EventIndexes {
         event_key: Timestamp,
         event_ancestors: &Ancestors<'b>,
         parent_key: Timestamp,
-        parent_fields: &BTreeMap<String, String>,
+        parent_fields: &BTreeMap<String, Value>,
     ) {
         for (attribute, attribute_index) in &mut self.attributes {
             if let Some(new_value) = parent_fields.get(attribute) {
                 if let Some((old_value, key)) = event_ancestors.get_value_and_key(attribute, token)
                 {
                     if key <= parent_key && new_value != old_value {
-                        let old_value_index = &mut attribute_index.get_mut(old_value).unwrap();
-                        let idx = old_value_index.lower_bound(&event_key);
-                        if old_value_index[idx] == event_key {
-                            old_value_index.remove(idx);
-                        }
-
-                        let new_value_index = attribute_index.entry(new_value.clone()).or_default();
-                        let idx = new_value_index.lower_bound(&event_key);
-                        new_value_index.insert(idx, event_key);
+                        attribute_index.remove_entry(event_key, old_value);
+                        attribute_index.add_entry(event_key, new_value);
                     }
                 } else {
                     // there was no old value, just insert
-
-                    let new_value_index = &mut attribute_index.get_mut(new_value).unwrap();
-                    let idx = new_value_index.lower_bound(&event_key);
-                    new_value_index.insert(idx, event_key);
+                    attribute_index.add_entry(event_key, new_value);
                 }
             }
         }
@@ -107,7 +99,7 @@ pub struct SpanIndexes {
     // targets: ...,
     pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
     pub roots: Vec<Timestamp>,
-    pub attributes: BTreeMap<String, BTreeMap<String, Vec<Timestamp>>>,
+    pub attributes: BTreeMap<String, AttributeIndex>,
 }
 
 impl SpanIndexes {
@@ -176,9 +168,7 @@ impl SpanIndexes {
 
         for (attribute, attr_index) in &mut self.attributes {
             if let Some(value) = span_ancestors.get_value(attribute, token) {
-                let value_index = attr_index.entry(value.to_owned()).or_default();
-                let idx = value_index.upper_bound_via_expansion(&span_key);
-                value_index.insert(idx, span_key);
+                attr_index.add_entry(span_key, value);
             }
         }
     }
@@ -189,28 +179,18 @@ impl SpanIndexes {
         span_key: Timestamp,
         span_ancestors: &Ancestors<'b>,
         parent_key: Timestamp,
-        parent_fields: &BTreeMap<String, String>,
+        parent_fields: &BTreeMap<String, Value>,
     ) {
         for (attribute, attribute_index) in &mut self.attributes {
             if let Some(new_value) = parent_fields.get(attribute) {
                 if let Some((old_value, key)) = span_ancestors.get_value_and_key(attribute, token) {
                     if key <= parent_key && new_value != old_value {
-                        let old_value_index = &mut attribute_index.get_mut(old_value).unwrap();
-                        let idx = old_value_index.lower_bound(&span_key);
-                        if old_value_index[idx] == span_key {
-                            old_value_index.remove(idx);
-                        }
-
-                        let new_value_index = &mut attribute_index.get_mut(new_value).unwrap();
-                        let idx = new_value_index.lower_bound(&span_key);
-                        new_value_index.insert(idx, span_key);
+                        attribute_index.remove_entry(span_key, old_value);
+                        attribute_index.add_entry(span_key, new_value);
                     }
                 } else {
                     // there was no old value, just insert
-
-                    let new_value_index = &mut attribute_index.get_mut(new_value).unwrap();
-                    let idx = new_value_index.lower_bound(&span_key);
-                    new_value_index.insert(idx, span_key);
+                    attribute_index.add_entry(span_key, new_value);
                 }
             }
         }

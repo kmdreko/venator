@@ -21,18 +21,16 @@ use tokio::sync::oneshot::{self, Sender as OneshotSender};
 use filter::{
     BoundSearch, IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator,
 };
-use index::{EventIndexes, SpanIndexes};
+use index::{AttributeIndex, EventIndexes, SpanIndexes};
 
 pub use filter::input::{FilterPredicate, FilterPropertyKind, FilterValueOperator};
-pub use filter::{
-    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, InstanceQuery, Order, Query,
-};
+pub use filter::{BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Order, Query};
 pub use models::{
     AncestorView, AttributeKindView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
     InstanceId, InstanceKey, InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent,
     NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent, SpanEventKey,
     SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
-    UpdateSpanEvent,
+    UpdateSpanEvent, Value,
 };
 pub use storage::{Boo, Storage, TransientStorage};
 
@@ -156,7 +154,7 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
-    pub fn query_instance(&self, query: InstanceQuery) -> impl Future<Output = Vec<InstanceView>> {
+    pub fn query_instance(&self, query: Query) -> impl Future<Output = Vec<InstanceView>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -278,7 +276,7 @@ impl Engine {
 }
 
 enum EngineCommand {
-    QueryInstance(InstanceQuery, OneshotSender<Vec<InstanceView>>),
+    QueryInstance(Query, OneshotSender<Vec<InstanceView>>),
     QuerySpan(Query, OneshotSender<Vec<SpanView>>),
     QuerySpanEvent(Query, OneshotSender<Vec<SpanEvent>>),
     QueryEvent(Query, OneshotSender<Vec<EventView>>),
@@ -309,7 +307,7 @@ struct RawEngine<'b, S> {
     keys: KeyCache,
     instance_key_map: HashMap<InstanceId, InstanceKey>,
     #[allow(clippy::type_complexity)]
-    instances: BTreeMap<InstanceKey, (Instance, Rc<GhostCell<'b, BTreeMap<String, String>>>)>,
+    instances: BTreeMap<InstanceKey, (Instance, Rc<GhostCell<'b, BTreeMap<String, Value>>>)>,
     span_key_map: HashMap<(InstanceKey, SpanId), SpanKey>,
     span_id_map: HashMap<SpanKey, SpanId>,
     span_indexes: SpanIndexes,
@@ -418,7 +416,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         engine
     }
 
-    pub fn query_instance(&self, query: InstanceQuery) -> Vec<InstanceView> {
+    pub fn query_instance(&self, query: Query) -> Vec<InstanceView> {
         let limit = query.limit;
 
         let mut filter = BasicInstanceFilter::And(
@@ -488,7 +486,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 .iter()
                 .map(|(name, value)| AttributeView {
                     name: name.to_owned(),
-                    value: value.to_owned(),
+                    value: value.to_string(),
                     kind: AttributeKindView::Instance { instance_id },
                 })
                 .collect(),
@@ -523,7 +521,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
             attributes.insert(
                 attribute.to_owned(),
-                (AttributeKindView::Inherent, value.to_owned()),
+                (AttributeKindView::Inherent, value.to_string()),
             );
         }
         for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
@@ -536,7 +534,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                             AttributeKindView::Span {
                                 span_id: (instance_id, parent_id),
                             },
-                            value.to_owned(),
+                            value.to_string(),
                         ),
                     );
                 }
@@ -548,7 +546,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     attribute.to_owned(),
                     (
                         AttributeKindView::Instance { instance_id },
-                        value.to_owned(),
+                        value.to_string(),
                     ),
                 );
             }
@@ -603,7 +601,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
             attributes.insert(
                 attribute.to_owned(),
-                (AttributeKindView::Inherent, value.to_owned()),
+                (AttributeKindView::Inherent, value.to_string()),
             );
         }
         for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
@@ -616,7 +614,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                             AttributeKindView::Span {
                                 span_id: (instance_id, parent_id),
                             },
-                            value.to_owned(),
+                            value.to_string(),
                         ),
                     );
                 }
@@ -628,7 +626,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     attribute.to_owned(),
                     (
                         AttributeKindView::Instance { instance_id },
-                        value.to_owned(),
+                        value.to_string(),
                     ),
                 );
             }
@@ -1088,14 +1086,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
     pub fn add_attribute_index(&mut self, name: String) {
         if !self.span_indexes.attributes.contains_key(&name) {
-            let mut attr_index = BTreeMap::<String, Vec<Timestamp>>::new();
+            let mut attr_index = AttributeIndex::new();
             for span in self.storage.get_all_spans() {
                 let span_key = span.created_at;
 
                 if let Some(value) = span.fields.get(&name) {
-                    let value_index = attr_index.entry(value.to_owned()).or_default();
-                    let idx = value_index.upper_bound_via_expansion(&span_key);
-                    value_index.insert(idx, span_key);
+                    attr_index.add_entry(span_key, value);
                 }
             }
 
@@ -1105,14 +1101,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
 
         if !self.event_indexes.attributes.contains_key(&name) {
-            let mut attr_index = BTreeMap::<String, Vec<Timestamp>>::new();
+            let mut attr_index = AttributeIndex::new();
             for event in self.storage.get_all_events() {
                 let event_key = event.timestamp;
 
                 if let Some(value) = event.fields.get(&name) {
-                    let value_index = attr_index.entry(value.to_owned()).or_default();
-                    let idx = value_index.upper_bound_via_expansion(&event_key);
-                    value_index.insert(idx, event_key);
+                    attr_index.add_entry(event_key, value);
                 }
             }
 
@@ -1198,30 +1192,27 @@ fn saturating_sub(a: Timestamp, b: u64) -> Timestamp {
 
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]
-struct Ancestors<'b>(Vec<(Timestamp, Rc<GhostCell<'b, BTreeMap<String, String>>>)>);
+struct Ancestors<'b>(Vec<(Timestamp, Rc<GhostCell<'b, BTreeMap<String, Value>>>)>);
 
 impl<'b> Ancestors<'b> {
     fn new() -> Ancestors<'b> {
         Ancestors(Vec::new())
     }
 
-    fn get_value<'a>(&'a self, attribute: &str, token: &'a GhostToken<'b>) -> Option<&'a str> {
+    fn get_value<'a>(&'a self, attribute: &str, token: &'a GhostToken<'b>) -> Option<&'a Value> {
         self.0
             .iter()
             .rev()
-            .find_map(move |(_, attributes)| attributes.borrow(token).get(attribute).map(|v| &**v))
+            .find_map(move |(_, attributes)| attributes.borrow(token).get(attribute))
     }
 
     fn get_value_and_key<'a>(
         &'a self,
         attribute: &str,
         token: &'a GhostToken<'b>,
-    ) -> Option<(&'a str, Timestamp)> {
+    ) -> Option<(&'a Value, Timestamp)> {
         self.0.iter().rev().find_map(move |(key, attributes)| {
-            attributes
-                .borrow(token)
-                .get(attribute)
-                .map(|v| (&**v, *key))
+            attributes.borrow(token).get(attribute).map(|v| (v, *key))
         })
     }
 
@@ -1276,8 +1267,8 @@ mod tests {
                     file_name: None,
                     file_line: None,
                     fields: BTreeMap::from_iter([
-                        ("attribute1".to_owned(), attribute1.to_owned()),
-                        ("attribute2".to_owned(), attribute2.to_owned()),
+                        ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
+                        ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
                     ]),
                 }
             };
@@ -1341,8 +1332,8 @@ mod tests {
                             file_name: None,
                             file_line: None,
                             fields: BTreeMap::from_iter([
-                                ("attribute1".to_owned(), attribute1.to_owned()),
-                                ("attribute2".to_owned(), attribute2.to_owned()),
+                                ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
+                                ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
                             ]),
                         }),
                     }
@@ -1420,7 +1411,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1473,7 +1464,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1524,7 +1515,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1539,7 +1530,7 @@ mod tests {
                     level: 4,
                     file_name: None,
                     file_line: None,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "B".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1577,7 +1568,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1592,7 +1583,7 @@ mod tests {
                     level: 4,
                     file_name: None,
                     file_line: None,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "B".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1628,7 +1619,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1644,7 +1635,10 @@ mod tests {
                         level: 4,
                         file_name: None,
                         file_line: None,
-                        fields: BTreeMap::from_iter([("attr1".to_owned(), "C".to_owned())]),
+                        fields: BTreeMap::from_iter([(
+                            "attr1".to_owned(),
+                            Value::Str("C".to_owned()),
+                        )]),
                     }),
                 })
                 .unwrap();
@@ -1698,7 +1692,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1714,7 +1708,10 @@ mod tests {
                         level: 4,
                         file_name: None,
                         file_line: None,
-                        fields: BTreeMap::from_iter([("attr1".to_owned(), "C".to_owned())]),
+                        fields: BTreeMap::from_iter([(
+                            "attr1".to_owned(),
+                            Value::Str("C".to_owned()),
+                        )]),
                     }),
                 })
                 .unwrap();
@@ -1766,7 +1763,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1808,7 +1805,10 @@ mod tests {
                     timestamp: super::now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                        fields: BTreeMap::from_iter([("attr1".to_owned(), "C".to_owned())]),
+                        fields: BTreeMap::from_iter([(
+                            "attr1".to_owned(),
+                            Value::Str("C".to_owned()),
+                        )]),
                     }),
                 })
                 .unwrap();
@@ -1847,7 +1847,7 @@ mod tests {
             let instance_key = engine
                 .insert_instance(NewInstance {
                     id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), "A".to_owned())]),
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
                 .unwrap();
 
@@ -1889,7 +1889,10 @@ mod tests {
                     timestamp: super::now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                        fields: BTreeMap::from_iter([("attr1".to_owned(), "C".to_owned())]),
+                        fields: BTreeMap::from_iter([(
+                            "attr1".to_owned(),
+                            Value::Str("C".to_owned()),
+                        )]),
                     }),
                 })
                 .unwrap();

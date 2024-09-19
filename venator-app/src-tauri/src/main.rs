@@ -14,9 +14,9 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpListener;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventView, FileStorage,
-    FilterPredicate, FilterPropertyKind, FilterValueOperator, InstanceQuery, InstanceView,
-    NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent, NewInstance, NewSpanEvent, NewSpanEventKind,
-    NewUpdateSpanEvent, Order, Query, SpanView, StatsView, SubscriptionId, Timestamp,
+    FilterPredicate, FilterPropertyKind, FilterValueOperator, InstanceView, NewCreateSpanEvent,
+    NewEvent, NewFollowsSpanEvent, NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent,
+    Order, Query, SpanView, StatsView, SubscriptionId, Timestamp,
 };
 
 #[tauri::command]
@@ -29,7 +29,7 @@ async fn get_instances(
     end: Option<Timestamp>,
 ) -> Result<Vec<InstanceView>, ()> {
     let events = engine
-        .query_instance(InstanceQuery {
+        .query_instance(Query {
             filter,
             order,
             limit: 50,
@@ -257,7 +257,11 @@ async fn ingress_task(engine: Engine) {
             let instance_id = RandomState::new().hash_one(0u64);
             let instance = NewInstance {
                 id: instance_id,
-                fields: handshake.fields,
+                fields: handshake
+                    .fields
+                    .into_iter()
+                    .map(|(k, v)| (k, venator_engine::Value::Str(v)))
+                    .collect(),
             };
 
             let instance_key = match engine.insert_instance(instance).await {
@@ -309,7 +313,7 @@ async fn ingress_task(engine: Engine) {
                                 level: create_data.level,
                                 file_name: create_data.file_name,
                                 file_line: create_data.file_line,
-                                fields: value_map_to_string_map(create_data.fields),
+                                fields: conv_value_map(create_data.fields),
                             }),
                         });
                     }
@@ -322,7 +326,7 @@ async fn ingress_task(engine: Engine) {
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                                fields: value_map_to_string_map(update_data.fields),
+                                fields: conv_value_map(update_data.fields),
                             }),
                         });
                     }
@@ -385,7 +389,7 @@ async fn ingress_task(engine: Engine) {
                             level: event.level,
                             file_name: event.file_name,
                             file_line: event.file_line,
-                            fields: value_map_to_string_map(event.fields),
+                            fields: conv_value_map(event.fields),
                         });
                     }
                 };
@@ -531,17 +535,17 @@ pub enum Value {
     Format(String),
 }
 
-fn value_map_to_string_map(vmap: BTreeMap<String, Value>) -> BTreeMap<String, String> {
+fn conv_value_map(vmap: BTreeMap<String, Value>) -> BTreeMap<String, venator_engine::Value> {
     vmap.into_iter()
         .map(|(k, v)| match v {
-            Value::F64(v) => (k, format!("{v}")),
-            Value::I64(v) => (k, format!("{v}")),
-            Value::U64(v) => (k, format!("{v}")),
-            Value::I128(v) => (k, format!("{v}")),
-            Value::U128(v) => (k, format!("{v}")),
-            Value::Bool(v) => (k, format!("{v}")),
-            Value::Str(v) => (k, v),
-            Value::Format(v) => (k, v),
+            Value::F64(v) => (k, venator_engine::Value::F64(v)),
+            Value::I64(v) => (k, venator_engine::Value::I64(v)),
+            Value::U64(v) => (k, venator_engine::Value::U64(v)),
+            Value::I128(v) => (k, venator_engine::Value::I128(v)),
+            Value::U128(v) => (k, venator_engine::Value::U128(v)),
+            Value::Bool(v) => (k, venator_engine::Value::Bool(v)),
+            Value::Str(v) => (k, venator_engine::Value::Str(v)),
+            Value::Format(v) => (k, venator_engine::Value::Str(v)),
         })
         .collect()
 }

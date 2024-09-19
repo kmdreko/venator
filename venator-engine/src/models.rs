@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::{Display, Error as FmtError, Formatter};
 use std::num::NonZeroU64;
 
 use serde::{Deserialize, Serialize};
@@ -74,7 +75,7 @@ impl TryFrom<i32> for Level {
 
 pub struct NewInstance {
     pub id: InstanceId,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 #[derive(Clone)]
@@ -82,7 +83,7 @@ pub struct Instance {
     pub id: InstanceId,
     pub connected_at: Timestamp,
     pub disconnected_at: Option<Timestamp>,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 impl Instance {
@@ -149,7 +150,7 @@ pub struct NewCreateSpanEvent {
     pub level: i32,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -160,16 +161,16 @@ pub struct CreateSpanEvent {
     pub level: Level,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 pub struct NewUpdateSpanEvent {
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UpdateSpanEvent {
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 pub struct NewFollowsSpanEvent {
@@ -190,7 +191,7 @@ pub struct NewEvent {
     pub level: i32,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Serialize)]
@@ -203,7 +204,7 @@ pub struct Event {
     pub level: Level,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 impl Event {
@@ -237,7 +238,7 @@ pub struct Span {
     pub level: Level,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 impl Span {
@@ -263,6 +264,52 @@ pub struct SpanView {
 pub struct AncestorView {
     pub id: FullSpanIdView,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub enum Value {
+    F64(f64),
+    I64(i64),
+    U64(u64),
+    I128(i128),
+    U128(u128),
+    Bool(bool),
+    Str(String),
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            Value::F64(value) => write!(f, "{value}"),
+            Value::I64(value) => write!(f, "{value}"),
+            Value::U64(value) => write!(f, "{value}"),
+            Value::I128(value) => write!(f, "{value}"),
+            Value::U128(value) => write!(f, "{value}"),
+            Value::Bool(value) => write!(f, "{value}"),
+            Value::Str(value) => write!(f, "{value}"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ValueOperator {
+    Gt,
+    Gte,
+    Eq,
+    Lt,
+    Lte,
+}
+
+impl ValueOperator {
+    pub fn compare<T: PartialOrd>(&self, lhs: T, rhs: T) -> bool {
+        match self {
+            ValueOperator::Gt => lhs > rhs,
+            ValueOperator::Gte => lhs >= rhs,
+            ValueOperator::Eq => lhs == rhs,
+            ValueOperator::Lt => lhs < rhs,
+            ValueOperator::Lte => lhs <= rhs,
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
