@@ -291,7 +291,7 @@ impl Display for Value {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueOperator {
     Gt,
     Gte,

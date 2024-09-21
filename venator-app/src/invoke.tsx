@@ -12,13 +12,19 @@ export type Stats = {
     total_events: number;
 };
 
+export type Comparator = 'Gt' | 'Gte' | 'Eq' | 'Lt' | 'Lte';
+
+export type ValuePredicate =
+    { value_kind: 'not', value: ValuePredicate } |
+    { value_kind: 'comparison', value: [Comparator, string] } |
+    { value_kind: 'and', value: ValuePredicate[] } |
+    { value_kind: 'or', value: ValuePredicate[] };
+
 export type FilterPredicate = {
     text: string,
     property_kind?: string,
     property: string,
-    value_operator?: string,
-    value: string,
-};
+} & ValuePredicate;
 
 export type InstanceFilter = {
     filter: FilterPredicate[];

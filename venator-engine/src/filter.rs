@@ -4,7 +4,7 @@ use std::ops::{Add, Range};
 
 use attribute::ValueFilter;
 use ghost_cell::GhostToken;
-use input::{FilterPredicate, FilterPropertyKind, FilterValueOperator};
+use input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
 use serde::Deserialize;
 
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
@@ -317,21 +317,25 @@ impl IndexedEventFilter<'_> {
 pub enum InputError {
     InvalidLevelValue,
     InvalidLevelOperator,
+    InvalidNameValue,
     InvalidNameOperator,
     InvalidInstanceValue,
     InvalidInstanceOperator,
-    InvalidAttributeOperator,
+    InvalidAttributeValue,
     InvalidInherentProperty,
     InvalidDurationValue,
     MissingDurationOperator,
     InvalidDurationOperator,
     InvalidCreatedValue,
     MissingCreatedOperator,
-    InvalidCreatedOperator,
     InvalidParentValue,
     InvalidParentOperator,
     InvalidStackValue,
     InvalidStackOperator,
+    InvalidConnectedValue,
+    MissingConnectedOperator,
+    InvalidDisconnectedValue,
+    MissingDisconnectedOperator,
 }
 
 #[derive(Debug)]
@@ -378,7 +382,7 @@ impl BasicEventFilter {
 
     pub fn validate(predicate: FilterPredicate) -> Result<FilterPredicate, InputError> {
         use FilterPropertyKind::*;
-        use FilterValueOperator::*;
+        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -389,7 +393,12 @@ impl BasicEventFilter {
 
         match (property_kind, predicate.property.as_str()) {
             (Inherent, "level") => {
-                let _level = match predicate.value.as_str() {
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidLevelValue),
+                };
+
+                let _level = match value.as_str() {
                     "TRACE" => Level::Trace,
                     "DEBUG" => Level::Debug,
                     "INFO" => Level::Info,
@@ -398,27 +407,35 @@ impl BasicEventFilter {
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
-                let _above = match predicate.value_operator {
-                    Some(Gte) => true,
-                    None => false,
+                let _above = match op {
+                    Eq => false,
+                    Gte => true,
                     _ => return Err(InputError::InvalidLevelOperator),
                 };
             }
             (Inherent, "instance") => {
-                let _: InstanceId = predicate
-                    .value
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidInstanceValue),
+                };
+
+                let _: InstanceId = value
                     .parse()
                     .map_err(|_| InputError::InvalidInstanceValue)?;
 
-                if predicate.value_operator.is_some() {
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidInstanceOperator);
                 }
             }
             (Inherent, "stack") => {
-                let _ =
-                    parse_full_span_id(&predicate.value).ok_or(InputError::InvalidStackValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidStackValue),
+                };
 
-                if predicate.value_operator.is_some() {
+                let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidStackOperator);
                 }
             }
@@ -426,9 +443,10 @@ impl BasicEventFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                if predicate.value_operator.is_some() {
-                    return Err(InputError::InvalidAttributeOperator);
-                }
+                let (_op, _value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidAttributeValue),
+                };
             }
         };
 
@@ -444,7 +462,7 @@ impl BasicEventFilter {
         span_key_map: &HashMap<(InstanceKey, SpanId), SpanKey>,
     ) -> Result<BasicEventFilter, InputError> {
         use FilterPropertyKind::*;
-        use FilterValueOperator::*;
+        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -455,7 +473,12 @@ impl BasicEventFilter {
 
         let filter = match (property_kind, predicate.property.as_str()) {
             (Inherent, "level") => {
-                let level = match predicate.value.as_str() {
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidLevelValue),
+                };
+
+                let level = match value.as_str() {
                     "TRACE" => Level::Trace,
                     "DEBUG" => Level::Debug,
                     "INFO" => Level::Info,
@@ -464,9 +487,9 @@ impl BasicEventFilter {
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
-                let above = match predicate.value_operator {
-                    Some(Gte) => true,
-                    None => false,
+                let above = match op {
+                    Eq => false,
+                    Gte => true,
                     _ => return Err(InputError::InvalidLevelOperator),
                 };
 
@@ -481,12 +504,16 @@ impl BasicEventFilter {
                 }
             }
             (Inherent, "instance") => {
-                let instance_id: InstanceId = predicate
-                    .value
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidInstanceValue),
+                };
+
+                let instance_id: InstanceId = value
                     .parse()
                     .map_err(|_| InputError::InvalidInstanceValue)?;
 
-                if predicate.value_operator.is_some() {
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidInstanceOperator);
                 }
 
@@ -498,10 +525,15 @@ impl BasicEventFilter {
                 BasicEventFilter::Instance(instance_key)
             }
             (Inherent, "stack") => {
-                let (instance_id, span_id) =
-                    parse_full_span_id(&predicate.value).ok_or(InputError::InvalidStackValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidStackValue),
+                };
 
-                if predicate.value_operator.is_some() {
+                let (instance_id, span_id) =
+                    parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidStackOperator);
                 }
 
@@ -520,11 +552,12 @@ impl BasicEventFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, name) => {
-                if predicate.value_operator.is_some() {
-                    return Err(InputError::InvalidAttributeOperator);
-                }
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidAttributeValue),
+                };
 
-                let value_filter = ValueFilter::from_input(ValueOperator::Eq, &predicate.value);
+                let value_filter = ValueFilter::from_input(*op, value);
 
                 BasicEventFilter::Attribute(name.to_owned(), value_filter)
             }
@@ -760,9 +793,7 @@ impl IndexedSpanFilter<'_> {
                 IndexedSpanFilter::Single(index, None)
             }
             BasicSpanFilter::Root => IndexedSpanFilter::Single(&span_indexes.roots, None),
-            BasicSpanFilter::Attribute(attribute, value) => {
-                let value_filter = ValueFilter::from_input(ValueOperator::Eq, &value);
-
+            BasicSpanFilter::Attribute(attribute, value_filter) => {
                 if let Some(attr_index) = span_indexes.attributes.get(&attribute) {
                     let filters = attr_index
                         .make_indexed_filter(value_filter)
@@ -1145,7 +1176,7 @@ pub enum TimestampComparisonFilter {
     Lt(Timestamp),
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug)]
 pub enum BasicSpanFilter {
     Level(Level),
     Duration(DurationFilter),
@@ -1154,7 +1185,7 @@ pub enum BasicSpanFilter {
     Name(String),
     Ancestor(SpanKey),
     Root,
-    Attribute(String, String),
+    Attribute(String, ValueFilter),
     And(Vec<BasicSpanFilter>),
     Or(Vec<BasicSpanFilter>),
 }
@@ -1197,7 +1228,7 @@ impl BasicSpanFilter {
 
     pub fn validate(predicate: FilterPredicate) -> Result<FilterPredicate, InputError> {
         use FilterPropertyKind::*;
-        use FilterValueOperator::*;
+        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -1210,7 +1241,12 @@ impl BasicSpanFilter {
 
         match (property_kind, predicate.property.as_str()) {
             (Inherent, "level") => {
-                let _level = match predicate.value.as_str() {
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidLevelValue),
+                };
+
+                let _level = match value.as_str() {
                     "TRACE" => Level::Trace,
                     "DEBUG" => Level::Debug,
                     "INFO" => Level::Info,
@@ -1219,63 +1255,90 @@ impl BasicSpanFilter {
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
-                let _above = match predicate.value_operator {
-                    Some(Gte) => true,
-                    None => false,
+                let _above = match op {
+                    Eq => false,
+                    Gte => true,
                     _ => return Err(InputError::InvalidLevelOperator),
                 };
             }
             (Inherent, "duration") => {
-                let _: u64 = predicate
-                    .value
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidDurationValue),
+                };
+
+                let _: u64 = value
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
 
-                match predicate.value_operator {
-                    Some(Gt) => {}
-                    Some(Lt) => {}
-                    None => return Err(InputError::MissingDurationOperator),
+                match op {
+                    Gt => {}
+                    Lt => {}
+                    Eq => return Err(InputError::MissingDurationOperator),
                     _ => return Err(InputError::InvalidDurationOperator),
                 }
             }
             (Inherent, "name") => {
-                if predicate.value_operator.is_some() {
+                let (op, _value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidNameValue),
+                };
+
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidNameOperator);
                 }
             }
             (Inherent, "instance") => {
-                let _: InstanceId = predicate
-                    .value
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidInstanceValue),
+                };
+
+                if *op != ValueOperator::Eq {
+                    return Err(InputError::InvalidInstanceOperator);
+                }
+
+                let _: InstanceId = value
                     .parse()
                     .map_err(|_| InputError::InvalidInstanceValue)?;
             }
             (Inherent, "created") => {
-                let _: Timestamp = predicate
-                    .value
-                    .parse()
-                    .map_err(|_| InputError::InvalidCreatedValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidCreatedValue),
+                };
 
-                match predicate.value_operator {
-                    Some(Gt | Gte) => {}
-                    Some(Lt | Lte) => {}
-                    None => return Err(InputError::MissingCreatedOperator),
-                    _ => return Err(InputError::InvalidCreatedOperator),
+                let _: Timestamp = value.parse().map_err(|_| InputError::InvalidCreatedValue)?;
+
+                match op {
+                    Gt | Gte => {}
+                    Lt | Lte => {}
+                    Eq => return Err(InputError::MissingCreatedOperator),
                 }
             }
             (Inherent, "parent") => {
-                if predicate.value != "none" {
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidParentValue),
+                };
+
+                if value != "none" {
                     return Err(InputError::InvalidParentValue);
                 }
 
-                if predicate.value_operator.is_some() {
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidParentOperator);
                 }
             }
             (Inherent, "stack") => {
-                let _ =
-                    parse_full_span_id(&predicate.value).ok_or(InputError::InvalidStackValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidStackValue),
+                };
 
-                if predicate.value_operator.is_some() {
+                let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidStackOperator);
                 }
             }
@@ -1283,9 +1346,10 @@ impl BasicSpanFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                if predicate.value_operator.is_some() {
-                    return Err(InputError::InvalidAttributeOperator);
-                }
+                let (_op, _value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidAttributeValue),
+                };
             }
         }
 
@@ -1301,7 +1365,7 @@ impl BasicSpanFilter {
         span_key_map: &HashMap<(InstanceKey, SpanId), SpanKey>,
     ) -> Result<BasicSpanFilter, InputError> {
         use FilterPropertyKind::*;
-        use FilterValueOperator::*;
+        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -1314,7 +1378,12 @@ impl BasicSpanFilter {
 
         let filter = match (property_kind, predicate.property.as_str()) {
             (Inherent, "level") => {
-                let level = match predicate.value.as_str() {
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidLevelValue),
+                };
+
+                let level = match value.as_str() {
                     "TRACE" => Level::Trace,
                     "DEBUG" => Level::Debug,
                     "INFO" => Level::Info,
@@ -1323,9 +1392,9 @@ impl BasicSpanFilter {
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
-                let above = match predicate.value_operator {
-                    Some(Gte) => true,
-                    None => false,
+                let above = match op {
+                    Gte => true,
+                    Eq => false,
                     _ => return Err(InputError::InvalidLevelOperator),
                 };
 
@@ -1340,36 +1409,49 @@ impl BasicSpanFilter {
                 }
             }
             (Inherent, "duration") => {
-                let measure: u64 = predicate
-                    .value
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidDurationValue),
+                };
+
+                let measure: u64 = value
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
 
-                let filter = match predicate.value_operator {
-                    Some(Gt) => DurationFilter::Gt(measure),
-                    Some(Lt) => DurationFilter::Lt(measure),
-                    None => return Err(InputError::MissingDurationOperator),
+                let filter = match op {
+                    Gt => DurationFilter::Gt(measure),
+                    Lt => DurationFilter::Lt(measure),
+                    Eq => return Err(InputError::MissingDurationOperator),
                     _ => return Err(InputError::InvalidDurationOperator),
                 };
 
                 BasicSpanFilter::Duration(filter)
             }
             (Inherent, "name") => {
-                if predicate.value_operator.is_some() {
+                let (op, value) = match predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidNameValue),
+                };
+
+                if op != ValueOperator::Eq {
                     return Err(InputError::InvalidNameOperator);
                 }
 
-                BasicSpanFilter::Name(predicate.value)
+                BasicSpanFilter::Name(value)
             }
             (Inherent, "instance") => {
-                let instance_id: InstanceId = predicate
-                    .value
-                    .parse()
-                    .map_err(|_| InputError::InvalidInstanceValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidInstanceValue),
+                };
 
-                if predicate.value_operator.is_some() {
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidInstanceOperator);
                 }
+
+                let instance_id: InstanceId = value
+                    .parse()
+                    .map_err(|_| InputError::InvalidInstanceValue)?;
 
                 let instance_key = instance_key_map
                     .get(&instance_id)
@@ -1379,38 +1461,49 @@ impl BasicSpanFilter {
                 BasicSpanFilter::Instance(instance_key)
             }
             (Inherent, "created") => {
-                let at: Timestamp = predicate
-                    .value
-                    .parse()
-                    .map_err(|_| InputError::InvalidCreatedValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidCreatedValue),
+                };
 
-                let filter = match predicate.value_operator {
-                    Some(Gte) => TimestampComparisonFilter::Gte(at),
-                    Some(Gt) => TimestampComparisonFilter::Gt(at),
-                    Some(Lte) => TimestampComparisonFilter::Lte(at),
-                    Some(Lt) => TimestampComparisonFilter::Lt(at),
-                    None => return Err(InputError::MissingCreatedOperator),
-                    _ => return Err(InputError::InvalidCreatedOperator),
+                let at: Timestamp = value.parse().map_err(|_| InputError::InvalidCreatedValue)?;
+
+                let filter = match op {
+                    Gte => TimestampComparisonFilter::Gte(at),
+                    Gt => TimestampComparisonFilter::Gt(at),
+                    Lte => TimestampComparisonFilter::Lte(at),
+                    Lt => TimestampComparisonFilter::Lt(at),
+                    Eq => return Err(InputError::MissingCreatedOperator),
                 };
 
                 BasicSpanFilter::Created(filter)
             }
             (Inherent, "parent") => {
-                if predicate.value != "none" {
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidParentValue),
+                };
+
+                if value != "none" {
                     return Err(InputError::InvalidParentValue);
                 }
 
-                if predicate.value_operator.is_some() {
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidParentOperator);
                 }
 
                 BasicSpanFilter::Root
             }
             (Inherent, "stack") => {
-                let (instance_id, span_id) =
-                    parse_full_span_id(&predicate.value).ok_or(InputError::InvalidStackValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidStackValue),
+                };
 
-                if predicate.value_operator.is_some() {
+                let (instance_id, span_id) =
+                    parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+
+                if *op != ValueOperator::Eq {
                     return Err(InputError::InvalidStackOperator);
                 }
 
@@ -1429,11 +1522,14 @@ impl BasicSpanFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, name) => {
-                if predicate.value_operator.is_some() {
-                    return Err(InputError::InvalidAttributeOperator);
-                }
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidAttributeValue),
+                };
 
-                BasicSpanFilter::Attribute(name.to_owned(), predicate.value)
+                let value_filter = ValueFilter::from_input(*op, value);
+
+                BasicSpanFilter::Attribute(name.to_owned(), value_filter)
             }
         };
 
@@ -1674,7 +1770,7 @@ impl BasicInstanceFilter {
 
     pub fn validate(predicate: FilterPredicate) -> Result<FilterPredicate, InputError> {
         use FilterPropertyKind::*;
-        use FilterValueOperator::*;
+        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -1685,51 +1781,62 @@ impl BasicInstanceFilter {
 
         match (property_kind, predicate.property.as_str()) {
             (Inherent, "duration") => {
-                let _: u64 = predicate
-                    .value
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidDurationValue),
+                };
+
+                let _: u64 = value
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
 
-                match predicate.value_operator {
-                    Some(Gt) => {}
-                    Some(Lt) => {}
-                    None => return Err(InputError::MissingDurationOperator),
+                match op {
+                    Gt => {}
+                    Lt => {}
+                    Eq => return Err(InputError::MissingDurationOperator),
                     _ => return Err(InputError::InvalidDurationOperator),
                 }
             }
             (Inherent, "connected") => {
-                let _: Timestamp = predicate
-                    .value
-                    .parse()
-                    .map_err(|_| InputError::InvalidCreatedValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidConnectedValue),
+                };
 
-                match predicate.value_operator {
-                    Some(Gt | Gte) => {}
-                    Some(Lt | Lte) => {}
-                    None => return Err(InputError::MissingCreatedOperator),
-                    _ => return Err(InputError::InvalidCreatedOperator),
+                let _: Timestamp = value
+                    .parse()
+                    .map_err(|_| InputError::InvalidConnectedValue)?;
+
+                match op {
+                    Gt | Gte => {}
+                    Lt | Lte => {}
+                    Eq => return Err(InputError::MissingConnectedOperator),
                 }
             }
             (Inherent, "disconnected") => {
-                let _: Timestamp = predicate
-                    .value
-                    .parse()
-                    .map_err(|_| InputError::InvalidCreatedValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidDisconnectedValue),
+                };
 
-                match predicate.value_operator {
-                    Some(Gt | Gte) => {}
-                    Some(Lt | Lte) => {}
-                    None => return Err(InputError::MissingCreatedOperator),
-                    _ => return Err(InputError::InvalidCreatedOperator),
+                let _: Timestamp = value
+                    .parse()
+                    .map_err(|_| InputError::InvalidDisconnectedValue)?;
+
+                match op {
+                    Gt | Gte => {}
+                    Lt | Lte => {}
+                    Eq => return Err(InputError::MissingDisconnectedOperator),
                 }
             }
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                if predicate.value_operator.is_some() {
-                    return Err(InputError::InvalidAttributeOperator);
-                }
+                let (_op, _value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidAttributeValue),
+                };
             }
         }
 
@@ -1741,7 +1848,7 @@ impl BasicInstanceFilter {
 
     pub fn from_predicate(predicate: FilterPredicate) -> Result<BasicInstanceFilter, InputError> {
         use FilterPropertyKind::*;
-        use FilterValueOperator::*;
+        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -1752,50 +1859,60 @@ impl BasicInstanceFilter {
 
         let filter = match (property_kind, predicate.property.as_str()) {
             (Inherent, "duration") => {
-                let measure: u64 = predicate
-                    .value
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidDurationValue),
+                };
+
+                let measure: u64 = value
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
 
-                let filter = match predicate.value_operator {
-                    Some(Gt) => DurationFilter::Gt(measure),
-                    Some(Lt) => DurationFilter::Lt(measure),
-                    None => return Err(InputError::MissingDurationOperator),
+                let filter = match op {
+                    Gt => DurationFilter::Gt(measure),
+                    Lt => DurationFilter::Lt(measure),
+                    Eq => return Err(InputError::MissingDurationOperator),
                     _ => return Err(InputError::InvalidDurationOperator),
                 };
 
                 BasicInstanceFilter::Duration(filter)
             }
             (Inherent, "connected") => {
-                let at: Timestamp = predicate
-                    .value
-                    .parse()
-                    .map_err(|_| InputError::InvalidCreatedValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidConnectedValue),
+                };
 
-                let filter = match predicate.value_operator {
-                    Some(Gte) => TimestampComparisonFilter::Gte(at),
-                    Some(Gt) => TimestampComparisonFilter::Gt(at),
-                    Some(Lte) => TimestampComparisonFilter::Lte(at),
-                    Some(Lt) => TimestampComparisonFilter::Lt(at),
-                    None => return Err(InputError::MissingCreatedOperator),
-                    _ => return Err(InputError::InvalidCreatedOperator),
+                let at: Timestamp = value
+                    .parse()
+                    .map_err(|_| InputError::InvalidConnectedValue)?;
+
+                let filter = match op {
+                    Gte => TimestampComparisonFilter::Gte(at),
+                    Gt => TimestampComparisonFilter::Gt(at),
+                    Lte => TimestampComparisonFilter::Lte(at),
+                    Lt => TimestampComparisonFilter::Lt(at),
+                    Eq => return Err(InputError::MissingConnectedOperator),
                 };
 
                 BasicInstanceFilter::Connected(filter)
             }
             (Inherent, "disconnected") => {
-                let at: Timestamp = predicate
-                    .value
-                    .parse()
-                    .map_err(|_| InputError::InvalidCreatedValue)?;
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidDisconnectedValue),
+                };
 
-                let filter = match predicate.value_operator {
-                    Some(Gte) => TimestampComparisonFilter::Gte(at),
-                    Some(Gt) => TimestampComparisonFilter::Gt(at),
-                    Some(Lte) => TimestampComparisonFilter::Lte(at),
-                    Some(Lt) => TimestampComparisonFilter::Lt(at),
-                    None => return Err(InputError::MissingCreatedOperator),
-                    _ => return Err(InputError::InvalidCreatedOperator),
+                let at: Timestamp = value
+                    .parse()
+                    .map_err(|_| InputError::InvalidDisconnectedValue)?;
+
+                let filter = match op {
+                    Gte => TimestampComparisonFilter::Gte(at),
+                    Gt => TimestampComparisonFilter::Gt(at),
+                    Lte => TimestampComparisonFilter::Lte(at),
+                    Lt => TimestampComparisonFilter::Lt(at),
+                    Eq => return Err(InputError::MissingDisconnectedOperator),
                 };
 
                 BasicInstanceFilter::Disconnected(filter)
@@ -1804,11 +1921,12 @@ impl BasicInstanceFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, name) => {
-                if predicate.value_operator.is_some() {
-                    return Err(InputError::InvalidAttributeOperator);
-                }
+                let (op, value) = match &predicate.value {
+                    ValuePredicate::Comparison(op, value) => (op, value),
+                    _ => return Err(InputError::InvalidAttributeValue),
+                };
 
-                let value_filter = ValueFilter::from_input(ValueOperator::Eq, &predicate.value);
+                let value_filter = ValueFilter::from_input(*op, value);
 
                 BasicInstanceFilter::Attribute(name.to_owned(), value_filter)
             }

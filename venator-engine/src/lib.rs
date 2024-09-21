@@ -23,14 +23,14 @@ use filter::{
 };
 use index::{AttributeIndex, EventIndexes, SpanIndexes};
 
-pub use filter::input::{FilterPredicate, FilterPropertyKind, FilterValueOperator};
+pub use filter::input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
 pub use filter::{BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Order, Query};
 pub use models::{
     AncestorView, AttributeKindView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
     InstanceId, InstanceKey, InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent,
     NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent, SpanEventKey,
     SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
-    UpdateSpanEvent, Value,
+    UpdateSpanEvent, Value, ValueOperator,
 };
 pub use storage::{Boo, Storage, TransientStorage};
 
@@ -1238,7 +1238,6 @@ fn now() -> Timestamp {
 
 #[cfg(test)]
 mod tests {
-    use filter::input::FilterValueOperator;
     use filter::Order;
     use models::{NewCreateSpanEvent, NewUpdateSpanEvent};
 
@@ -1287,12 +1286,8 @@ mod tests {
             engine.insert_event(simple(9, 4, "test", "A")).unwrap(); // excluded by timestamp
 
             let events = engine.query_event(Query {
-                filter: vec![
-                    FilterPredicate::new_inherent("level", "WARN")
-                        .with_operator(FilterValueOperator::Gte),
-                    FilterPredicate::new_attribute("attribute1", "test"),
-                    FilterPredicate::new_attribute("attribute2", "A"),
-                ],
+                filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
+                    .unwrap(),
                 order: Order::Asc,
                 limit: 3,
                 start: Timestamp::new(2).unwrap(),
@@ -1384,12 +1379,8 @@ mod tests {
                 .unwrap(); // excluded by timestamp
 
             let spans = engine.query_span(Query {
-                filter: vec![
-                    FilterPredicate::new_inherent("level", "WARN")
-                        .with_operator(filter::input::FilterValueOperator::Gte),
-                    FilterPredicate::new_attribute("attribute1", "test"),
-                    FilterPredicate::new_attribute("attribute2", "A"),
-                ],
+                filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
+                    .unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: Timestamp::new(2).unwrap(),
@@ -1431,7 +1422,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1442,7 +1433,7 @@ mod tests {
             assert_eq!(events.len(), 1);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "B")],
+                filter: FilterPredicate::parse("@attr1: B").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1484,7 +1475,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1495,7 +1486,7 @@ mod tests {
             assert_eq!(events.len(), 1);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "B")],
+                filter: FilterPredicate::parse("@attr1: B").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1535,7 +1526,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1546,7 +1537,7 @@ mod tests {
             assert_eq!(events.len(), 0);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "B")],
+                filter: FilterPredicate::parse("@attr1: B").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1588,7 +1579,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1599,7 +1590,7 @@ mod tests {
             assert_eq!(events.len(), 0);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "B")],
+                filter: FilterPredicate::parse("@attr1: B").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1659,7 +1650,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1670,7 +1661,7 @@ mod tests {
             assert_eq!(events.len(), 0);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "C")],
+                filter: FilterPredicate::parse("@attr1: C").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1732,7 +1723,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1743,7 +1734,7 @@ mod tests {
             assert_eq!(events.len(), 0);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "C")],
+                filter: FilterPredicate::parse("@attr1: C").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1814,7 +1805,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1825,7 +1816,7 @@ mod tests {
             assert_eq!(events.len(), 0);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "C")],
+                filter: FilterPredicate::parse("@attr1: C").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1898,7 +1889,7 @@ mod tests {
                 .unwrap();
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "A")],
+                filter: FilterPredicate::parse("@attr1: A").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,
@@ -1909,7 +1900,7 @@ mod tests {
             assert_eq!(events.len(), 0);
 
             let events = engine.query_event(Query {
-                filter: vec![FilterPredicate::new_attribute("attr1", "C")],
+                filter: FilterPredicate::parse("@attr1: C").unwrap(),
                 order: Order::Asc,
                 limit: 5,
                 start: now,

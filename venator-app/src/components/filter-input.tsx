@@ -45,7 +45,7 @@ export function FilterInput(props: FilterInputProps) {
 export function FilterInputPredicate(props: { predicate: FilterPredicate, remove: () => void, update: (p: FilterPredicate[]) => void, parse: (p: string) => Promise<FilterPredicate[]> }) {
     return (<Switch>
         <Match when={props.predicate.property == "level" && props.predicate.property_kind == 'Inherent'}>
-            <FilterInputLevelPredicate predicate={props.predicate} remove={props.remove} update={props.update} />
+            <FilterInputLevelPredicate predicate={props.predicate as any} remove={props.remove} update={props.update} />
         </Match>
         <Match when={props.predicate.property_kind == 'Inherent'}>
             <FilterInputMetaPredicate predicate={props.predicate} remove={props.remove} update={props.update} parse={props.parse} />
@@ -56,53 +56,53 @@ export function FilterInputPredicate(props: { predicate: FilterPredicate, remove
     </Switch>);
 }
 
-export function FilterInputLevelPredicate(props: { predicate: FilterPredicate, remove: () => void, update: (p: FilterPredicate[]) => void }) {
+export function FilterInputLevelPredicate(props: { predicate: FilterPredicate & { value_kind: 'comparison' }, remove: () => void, update: (p: FilterPredicate[]) => void }) {
     function wheel(e: WheelEvent) {
         if (e.deltaY < 0.0) {
-            if (props.predicate.value == "TRACE") {
-                props.update([{ ...props.predicate, value: "DEBUG", text: ">=DEBUG" }])
-            } else if (props.predicate.value == "DEBUG") {
-                props.update([{ ...props.predicate, value: "INFO", text: ">=INFO" }])
-            } else if (props.predicate.value == "INFO") {
-                props.update([{ ...props.predicate, value: "WARN", text: ">=WARN" }])
-            } else if (props.predicate.value == "WARN") {
-                props.update([{ ...props.predicate, value: "ERROR", text: ">=ERROR" }])
+            if (props.predicate.value[1] == "TRACE") {
+                props.update([{ ...props.predicate, value: ['Gte', "DEBUG"], text: ">=DEBUG" }])
+            } else if (props.predicate.value[1] == "DEBUG") {
+                props.update([{ ...props.predicate, value: ['Gte', "INFO"], text: ">=INFO" }])
+            } else if (props.predicate.value[1] == "INFO") {
+                props.update([{ ...props.predicate, value: ['Gte', "WARN"], text: ">=WARN" }])
+            } else if (props.predicate.value[1] == "WARN") {
+                props.update([{ ...props.predicate, value: ['Gte', "ERROR"], text: ">=ERROR" }])
             }
         } else if (e.deltaY > 0.0) {
-            if (props.predicate.value == "DEBUG") {
-                props.update([{ ...props.predicate, value: "TRACE", text: ">=TRACE" }])
-            } else if (props.predicate.value == "INFO") {
-                props.update([{ ...props.predicate, value: "DEBUG", text: ">=DEBUG" }])
-            } else if (props.predicate.value == "WARN") {
-                props.update([{ ...props.predicate, value: "INFO", text: ">=INFO" }])
-            } else if (props.predicate.value == "ERROR") {
-                props.update([{ ...props.predicate, value: "WARN", text: ">=WARN" }])
+            if (props.predicate.value[1] == "DEBUG") {
+                props.update([{ ...props.predicate, value: ['Gte', "TRACE"], text: ">=TRACE" }])
+            } else if (props.predicate.value[1] == "INFO") {
+                props.update([{ ...props.predicate, value: ['Gte', "DEBUG"], text: ">=DEBUG" }])
+            } else if (props.predicate.value[1] == "WARN") {
+                props.update([{ ...props.predicate, value: ['Gte', "INFO"], text: ">=INFO" }])
+            } else if (props.predicate.value[1] == "ERROR") {
+                props.update([{ ...props.predicate, value: ['Gte', "WARN"], text: ">=WARN" }])
             }
         }
     }
 
     return (<Switch>
-        <Match when={props.predicate.value == "TRACE"}>
+        <Match when={props.predicate.value[1] == "TRACE"}>
             <div class="predicate level-predicate-0" onwheel={wheel}>
                 {props.predicate.text}
             </div>
         </Match>
-        <Match when={props.predicate.value == "DEBUG"}>
+        <Match when={props.predicate.value[1] == "DEBUG"}>
             <div class="predicate level-predicate-1" onwheel={wheel}>
                 {props.predicate.text}
             </div>
         </Match>
-        <Match when={props.predicate.value == "INFO"}>
+        <Match when={props.predicate.value[1] == "INFO"}>
             <div class="predicate level-predicate-2" onwheel={wheel}>
                 {props.predicate.text}
             </div>
         </Match>
-        <Match when={props.predicate.value == "WARN"}>
+        <Match when={props.predicate.value[1] == "WARN"}>
             <div class="predicate level-predicate-3" onwheel={wheel}>
                 {props.predicate.text}
             </div>
         </Match>
-        <Match when={props.predicate.value == "ERROR"}>
+        <Match when={props.predicate.value[1] == "ERROR"}>
             <div class="predicate level-predicate-4" onwheel={wheel}>
                 {props.predicate.text}
             </div>

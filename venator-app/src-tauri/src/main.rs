@@ -14,9 +14,9 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpListener;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventView, FileStorage,
-    FilterPredicate, FilterPropertyKind, FilterValueOperator, InstanceView, NewCreateSpanEvent,
-    NewEvent, NewFollowsSpanEvent, NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent,
-    Order, Query, SpanView, StatsView, SubscriptionId, Timestamp,
+    FilterPredicate, FilterPropertyKind, InstanceView, NewCreateSpanEvent, NewEvent,
+    NewFollowsSpanEvent, NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Order,
+    Query, SpanView, StatsView, SubscriptionId, Timestamp, ValuePredicate,
 };
 
 #[tauri::command]
@@ -507,8 +507,8 @@ struct FilterPredicateView {
     text: String,
     property_kind: Option<FilterPropertyKind>,
     property: String,
-    value_operator: Option<FilterValueOperator>,
-    value: String,
+    #[serde(flatten)]
+    value: ValuePredicate,
 }
 
 impl FilterPredicateView {
@@ -517,7 +517,6 @@ impl FilterPredicateView {
             text: inner.to_string(),
             property_kind: inner.property_kind,
             property: inner.property,
-            value_operator: inner.value_operator,
             value: inner.value,
         }
     }

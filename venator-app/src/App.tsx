@@ -71,12 +71,12 @@ export async function defaultEventsScreen(): Promise<EventsScreenData> {
         end = stats.end!;
     }
 
-    let filter = [{
+    let filter: FilterPredicate[] = [{
         text: ">=TRACE",
         property_kind: 'Inherent',
         property: "level",
-        value_operator: "Gte",
-        value: "TRACE",
+        value_kind: 'comparison',
+        value: ['Gte', "TRACE"],
     }];
     let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
     let columnWidths = columns.map(def => def.defaultWidth);
@@ -106,17 +106,18 @@ export async function defaultSpansScreen(): Promise<SpansScreenData> {
         end = stats.end!;
     }
 
-    let filter = [{
+    let filter: FilterPredicate[] = [{
         text: ">=TRACE",
         property_kind: 'Inherent',
         property: "level",
-        value_operator: "Gte",
-        value: "TRACE",
+        value_kind: 'comparison',
+        value: ['Gte', "TRACE"],
     }, {
         text: "#parent: none",
         property_kind: 'Inherent',
         property: "parent",
-        value: "none",
+        value_kind: 'comparison',
+        value: ['Eq', "none"],
     }];
     let columns = [LEVEL, CREATED, INHERENT('name')];
     let columnWidths = columns.map(def => def.defaultWidth);
@@ -363,12 +364,12 @@ function App() {
         updated_screens.splice(idx, 1);
 
         if (updated_screens.length == 0) {
-            let filter = [{
+            let filter: FilterPredicate[] = [{
                 text: ">=TRACE",
                 property_kind: 'Inherent',
                 property: "level",
-                value_operator: "Gte",
-                value: "TRACE",
+                value_kind: 'comparison',
+                value: ['Gte', "TRACE"],
             }];
             let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
             let columnWidths = columns.map(def => def.defaultWidth);

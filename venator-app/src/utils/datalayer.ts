@@ -292,11 +292,11 @@ export class EventDataLayer {
         }
 
         let counts = await Promise.all([
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value: "TRACE" }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value: "DEBUG" }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value: "INFO" }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value: "WARN" }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value: "ERROR" }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "TRACE"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "DEBUG"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "INFO"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "WARN"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "ERROR"] }], ...filter }),
         ]);
 
         // cache if enabled and not within a second of current time
@@ -652,8 +652,8 @@ export class SpanDataLayer {
                 filter: [...this.#filter, {
                     text: "",
                     property: 'created',
-                    value_operator: 'Gte',
-                    value: `${range[0] - duration}`,
+                    value_kind: 'comparison',
+                    value: ['Gte', `${range[0] - duration}`],
                 }],
                 order: 'desc',
                 // limit: 100, // TODO: use client-side limits
@@ -670,8 +670,8 @@ export class SpanDataLayer {
                 filter: [...this.#filter, {
                     text: "",
                     property: 'created',
-                    value_operator: `Lt`,
-                    value: `${range[0] - duration}`,
+                    value_kind: 'comparison',
+                    value: ['Lt', `${range[0] - duration}`],
                 }],
                 start: retrievedRange[0],
             });
@@ -708,8 +708,8 @@ export class SpanDataLayer {
                 filter: [...this.#filter, {
                     text: "",
                     property: 'created',
-                    value_operator: `Gt`,
-                    value: `${range[1]}`,
+                    value_kind: 'comparison',
+                    value: ['Gt', `${range[1]}`],
                 }],
                 order: 'asc',
                 // limit: 100, // TODO: use client-side limits
