@@ -31,35 +31,35 @@ impl Display for ValuePredicate {
             ValuePredicate::Comparison(value_operator, value) => match value_operator {
                 ValueOperator::Gt => {
                     if needs_escapes(value) {
-                        write!(f, ">\"{value:?}\"")
+                        write!(f, ">{value:?}")
                     } else {
                         write!(f, ">{value}")
                     }
                 }
                 ValueOperator::Gte => {
                     if needs_escapes(value) {
-                        write!(f, ">=\"{value:?}\"")
+                        write!(f, ">={value:?}")
                     } else {
                         write!(f, ">={value}")
                     }
                 }
                 ValueOperator::Eq => {
                     if needs_escapes(value) {
-                        write!(f, "\"{value:?}\"")
+                        write!(f, "{value:?}")
                     } else {
                         write!(f, "{value}")
                     }
                 }
                 ValueOperator::Lt => {
                     if needs_escapes(value) {
-                        write!(f, "<\"{value:?}\"")
+                        write!(f, "<{value:?}")
                     } else {
                         write!(f, "<{value}")
                     }
                 }
                 ValueOperator::Lte => {
                     if needs_escapes(value) {
-                        write!(f, "<=\"{value:?}\"")
+                        write!(f, "<={value:?}")
                     } else {
                         write!(f, "<={value}")
                     }
@@ -125,7 +125,7 @@ mod parsers {
     use nom::bytes::complete::{escaped, tag, take_while, take_while1};
     use nom::character::complete::{char, none_of, one_of};
     use nom::combinator::{cut, eof, map, opt};
-    use nom::multi::separated_list0;
+    use nom::multi::{many0_count, separated_list0};
     use nom::sequence::delimited;
     use nom::IResult;
 
@@ -138,7 +138,7 @@ mod parsers {
     }
 
     fn unquoted_name(input: &str) -> IResult<&str, &str> {
-        take_while(|c: char| c.is_alphabetic() || c == '.')(input)
+        take_while(|c: char| c.is_alphabetic() || c == '.' || c == '_')(input)
     }
 
     fn inherent_name(input: &str) -> IResult<&str, &str> {
@@ -167,7 +167,13 @@ mod parsers {
         ))(input)
     }
 
-    fn value(input: &str) -> IResult<&str, (Option<ValueOperator>, String)> {
+    fn not(input: &str) -> IResult<&str, &str> {
+        let (input, _) = whitespace(input)?;
+        tag("!")(input)
+    }
+
+    fn value(input: &str) -> IResult<&str, (bool, Option<ValueOperator>, String)> {
+        let (input, not_count) = many0_count(not)(input)?;
         let (input, op) = opt(alt((
             map(tag(">="), |_| ValueOperator::Gte),
             map(tag(">"), |_| ValueOperator::Gt),
@@ -179,7 +185,7 @@ mod parsers {
             map(unquoted_value, |v| v.to_owned()),
         ))(input)?;
 
-        Ok((input, (op, value)))
+        Ok((input, (not_count % 2 == 1, op, value)))
     }
 
     fn escaped_value(input: &str) -> IResult<&str, &str> {
@@ -201,12 +207,19 @@ mod parsers {
         let (input, _) = whitespace(input)?;
         let (input, _) = char(':')(input)?;
         let (input, _) = whitespace(input)?;
-        let (input, (op, value)) = value(input)?;
+        let (input, (not, op, value)) = value(input)?;
+
+        let value = ValuePredicate::Comparison(op.unwrap_or(ValueOperator::Eq), value);
+        let value = if not {
+            ValuePredicate::Not(Box::new(value))
+        } else {
+            value
+        };
 
         let predicate = FilterPredicate {
             property_kind: kind,
             property: property.to_owned(),
-            value: ValuePredicate::Comparison(op.unwrap_or(ValueOperator::Eq), value),
+            value,
         };
 
         Ok((input, predicate))

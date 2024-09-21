@@ -28,6 +28,7 @@ pub struct Query {
 
 pub enum IndexedEventFilter<'i> {
     Single(&'i [Timestamp], Option<NonIndexedEventFilter>),
+    Not(&'i [Timestamp], Box<IndexedEventFilter<'i>>),
     And(Vec<IndexedEventFilter<'i>>),
     Or(Vec<IndexedEventFilter<'i>>),
 }
@@ -85,6 +86,10 @@ impl IndexedEventFilter<'_> {
                     )
                 }
             }
+            BasicEventFilter::Not(filter) => IndexedEventFilter::Not(
+                &event_indexes.all,
+                Box::new(IndexedEventFilter::build(Some(*filter), event_indexes)),
+            ),
             BasicEventFilter::And(filters) => IndexedEventFilter::And(
                 filters
                     .into_iter()
@@ -150,6 +155,58 @@ impl IndexedEventFilter<'_> {
                         }
                     } else {
                         return Some(found_entry);
+                    }
+                },
+            },
+            IndexedEventFilter::Not(entries, filter) => match order {
+                Order::Asc => loop {
+                    let idx = entries.lower_bound(&entry);
+                    *entries = &entries[idx..];
+                    let found_entry = entries.first().cloned();
+
+                    let found_entry = found_entry?;
+                    if found_entry > bound {
+                        return None;
+                    }
+
+                    let nested_entry = filter.search(
+                        token,
+                        storage,
+                        event_ancestors,
+                        found_entry,
+                        order,
+                        found_entry,
+                    );
+
+                    if nested_entry != Some(found_entry) {
+                        return Some(found_entry);
+                    } else {
+                        entry = found_entry.saturating_add(1);
+                    }
+                },
+                Order::Desc => loop {
+                    let idx = entries.upper_bound(&entry);
+                    *entries = &entries[..idx];
+                    let found_entry = entries.last().cloned();
+
+                    let found_entry = found_entry?;
+                    if found_entry < bound {
+                        return None;
+                    }
+
+                    let nested_entry = filter.search(
+                        token,
+                        storage,
+                        event_ancestors,
+                        found_entry,
+                        order,
+                        found_entry,
+                    );
+
+                    if nested_entry != Some(found_entry) {
+                        return Some(found_entry);
+                    } else {
+                        entry = Timestamp::new(found_entry.get() - 1).unwrap();
                     }
                 },
             },
@@ -232,6 +289,11 @@ impl IndexedEventFilter<'_> {
                 // guess how many elements it will select
                 index.len()
             }
+            IndexedEventFilter::Not(index, _) => {
+                // there may be a better solution, but this assumes that the
+                // filter never matches
+                index.len()
+            }
             IndexedEventFilter::And(filters) => {
                 // since an element must pass all filters, we can only select
                 // the minimum from a single filter
@@ -256,6 +318,10 @@ impl IndexedEventFilter<'_> {
                 // Without a non-indexed filter, this will always yield the
                 // number of elements it contains.
                 (index.len(), Some(index.len()))
+            }
+            IndexedEventFilter::Not(index, _) => {
+                // The fill range is possible
+                (0, Some(index.len()))
             }
             IndexedEventFilter::And(filters) => match filters.len() {
                 0 => (0, Some(0)),
@@ -295,6 +361,14 @@ impl IndexedEventFilter<'_> {
 
                 *index = &index[start_idx..end_idx];
             }
+            IndexedEventFilter::Not(index, inner_filter) => {
+                let start_idx = index.lower_bound(&start);
+                let end_idx = index.upper_bound(&end);
+
+                *index = &index[start_idx..end_idx];
+
+                inner_filter.trim_to_timeframe(start, end);
+            }
             IndexedEventFilter::And(filters) => filters
                 .iter_mut()
                 .for_each(|f| f.trim_to_timeframe(start, end)),
@@ -307,6 +381,7 @@ impl IndexedEventFilter<'_> {
     pub fn optimize(&mut self) {
         match self {
             IndexedEventFilter::Single(_, _) => { /* nothing to do */ }
+            IndexedEventFilter::Not(_, _) => { /* nothing to do */ }
             IndexedEventFilter::And(filters) => filters.sort_by_key(Self::estimate_count),
             IndexedEventFilter::Or(filters) => filters.sort_by_key(Self::estimate_count),
         }
@@ -344,6 +419,7 @@ pub enum BasicEventFilter {
     Instance(InstanceKey),
     Ancestor(SpanKey),
     Attribute(String, ValueFilter),
+    Not(Box<BasicEventFilter>),
     And(Vec<BasicEventFilter>),
     Or(Vec<BasicEventFilter>),
 }
@@ -355,6 +431,7 @@ impl BasicEventFilter {
             BasicEventFilter::Instance(_) => {}
             BasicEventFilter::Ancestor(_) => {}
             BasicEventFilter::Attribute(_, _) => {}
+            BasicEventFilter::Not(_) => {}
             BasicEventFilter::And(filters) => {
                 for filter in &mut *filters {
                     filter.simplify()
@@ -443,10 +520,7 @@ impl BasicEventFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                let (_op, _value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidAttributeValue),
-                };
+                validate_value_predicate(&predicate.value, |_op, _value| Ok(()))?;
             }
         };
 
@@ -551,16 +625,10 @@ impl BasicEventFilter {
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
-            (Attribute, name) => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidAttributeValue),
-                };
-
-                let value_filter = ValueFilter::from_input(*op, value);
-
-                BasicEventFilter::Attribute(name.to_owned(), value_filter)
-            }
+            (Attribute, name) => filterify_event_filter(predicate.value, |op, value| {
+                let value_filter = ValueFilter::from_input(op, &value);
+                Ok(BasicEventFilter::Attribute(name.to_owned(), value_filter))
+            })?,
         };
 
         Ok(filter)
@@ -582,6 +650,9 @@ impl BasicEventFilter {
                 .get_value(attribute, token)
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
+            BasicEventFilter::Not(inner_filter) => {
+                !inner_filter.matches(token, event_ancestors, event)
+            }
             BasicEventFilter::And(filters) => filters
                 .iter()
                 .all(|f| f.matches(token, event_ancestors, event)),
@@ -711,6 +782,7 @@ where
 pub enum IndexedSpanFilter<'i> {
     Single(&'i [Timestamp], Option<NonIndexedSpanFilter>),
     Stratified(&'i [Timestamp], Range<u64>, Option<NonIndexedSpanFilter>),
+    Not(&'i [Timestamp], Box<IndexedSpanFilter<'i>>),
     And(Vec<IndexedSpanFilter<'i>>),
     Or(Vec<IndexedSpanFilter<'i>>),
 }
@@ -814,6 +886,10 @@ impl IndexedSpanFilter<'_> {
                     )
                 }
             }
+            BasicSpanFilter::Not(filter) => IndexedSpanFilter::Not(
+                &span_indexes.all,
+                Box::new(IndexedSpanFilter::build(Some(*filter), span_indexes)),
+            ),
             BasicSpanFilter::And(filters) => IndexedSpanFilter::And(
                 filters
                     .into_iter()
@@ -836,6 +912,7 @@ impl IndexedSpanFilter<'_> {
         match self {
             IndexedSpanFilter::Single(_, _) => false,
             IndexedSpanFilter::Stratified(_, _, _) => true,
+            IndexedSpanFilter::Not(_, _) => false,
             IndexedSpanFilter::And(filters) => filters.iter().any(|f| f.is_stratified()),
             IndexedSpanFilter::Or(filters) => filters.iter().all(|f| f.is_stratified()),
         }
@@ -979,6 +1056,82 @@ impl IndexedSpanFilter<'_> {
                     }
                 },
             },
+            IndexedSpanFilter::Not(entries, filter) => match order {
+                Order::Asc => loop {
+                    let idx = entries.lower_bound(&entry);
+                    *entries = &entries[idx..];
+                    let found_entry = entries.first().cloned();
+
+                    let found_entry = found_entry?;
+                    if found_entry > bound {
+                        return None;
+                    }
+
+                    if found_entry < start {
+                        let span = storage.get_span(found_entry).unwrap();
+                        if let Some(closed_at) = span.closed_at {
+                            if closed_at <= start {
+                                entry = found_entry.saturating_add(1);
+                                continue;
+                            }
+                        }
+                    }
+
+                    let nested_entry = filter.search(
+                        token,
+                        storage,
+                        span_ancestors,
+                        found_entry,
+                        order,
+                        found_entry,
+                        start,
+                    );
+
+                    if nested_entry != Some(found_entry) {
+                        return Some(found_entry);
+                    } else {
+                        entry = found_entry.saturating_add(1);
+                    }
+                },
+                Order::Desc => loop {
+                    let idx = entries.upper_bound(&entry);
+                    *entries = &entries[..idx];
+                    let found_entry = entries.last().cloned();
+
+                    let found_entry = found_entry?;
+                    if found_entry < bound {
+                        return None;
+                    }
+
+                    // even if we're negating the filter, the span needs to be
+                    // in range
+                    if found_entry < start {
+                        let span = storage.get_span(found_entry).unwrap();
+                        if let Some(closed_at) = span.closed_at {
+                            if closed_at <= start {
+                                entry = Timestamp::new(found_entry.get() - 1).unwrap();
+                                continue;
+                            }
+                        }
+                    }
+
+                    let nested_entry = filter.search(
+                        token,
+                        storage,
+                        span_ancestors,
+                        found_entry,
+                        order,
+                        found_entry,
+                        start,
+                    );
+
+                    if nested_entry != Some(found_entry) {
+                        return Some(found_entry);
+                    } else {
+                        entry = Timestamp::new(found_entry.get() - 1).unwrap();
+                    }
+                },
+            },
             IndexedSpanFilter::And(indexed_filters) => {
                 let mut current = entry;
                 'outer: loop {
@@ -1077,6 +1230,11 @@ impl IndexedSpanFilter<'_> {
                 // many elements it will select
                 index.len()
             }
+            IndexedSpanFilter::Not(index, _) => {
+                // there may be a better solution, but this assumes that the
+                // filter never matches
+                index.len()
+            }
             IndexedSpanFilter::And(filters) => {
                 // since an element must pass all filters, we can only select
                 // the minimum from a single filter
@@ -1094,6 +1252,9 @@ impl IndexedSpanFilter<'_> {
         match self {
             IndexedSpanFilter::Single(_, _) => { /* nothing to do */ }
             IndexedSpanFilter::Stratified(_, _, _) => { /* TODO: convert to AND and sort */ }
+            IndexedSpanFilter::Not(_, inner_filter) => {
+                inner_filter.optimize();
+            }
             IndexedSpanFilter::And(filters) => filters.sort_by_key(Self::estimate_count),
             IndexedSpanFilter::Or(filters) => filters.sort_by_key(Self::estimate_count),
         }
@@ -1121,6 +1282,16 @@ impl IndexedSpanFilter<'_> {
                 let end_idx = index.upper_bound(&trim_end);
 
                 *index = &index[start_idx..end_idx];
+            }
+            IndexedSpanFilter::Not(index, inner_filter) => {
+                // we can trim the end
+                let trim_end = end;
+
+                let end_idx = index.upper_bound(&trim_end);
+
+                *index = &index[..end_idx];
+
+                inner_filter.trim_to_timeframe(start, end);
             }
             IndexedSpanFilter::And(filters) => filters
                 .iter_mut()
@@ -1186,6 +1357,7 @@ pub enum BasicSpanFilter {
     Ancestor(SpanKey),
     Root,
     Attribute(String, ValueFilter),
+    Not(Box<BasicSpanFilter>),
     And(Vec<BasicSpanFilter>),
     Or(Vec<BasicSpanFilter>),
 }
@@ -1201,6 +1373,7 @@ impl BasicSpanFilter {
             BasicSpanFilter::Ancestor(_) => {}
             BasicSpanFilter::Root => {}
             BasicSpanFilter::Attribute(_, _) => {}
+            BasicSpanFilter::Not(_) => {}
             BasicSpanFilter::And(filters) => {
                 for filter in &mut *filters {
                     filter.simplify()
@@ -1346,10 +1519,7 @@ impl BasicSpanFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                let (_op, _value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidAttributeValue),
-                };
+                validate_value_predicate(&predicate.value, |_op, _value| Ok(()))?;
             }
         }
 
@@ -1521,16 +1691,10 @@ impl BasicSpanFilter {
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
-            (Attribute, name) => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidAttributeValue),
-                };
-
-                let value_filter = ValueFilter::from_input(*op, value);
-
-                BasicSpanFilter::Attribute(name.to_owned(), value_filter)
-            }
+            (Attribute, name) => filterify_span_filter(predicate.value, |op, value| {
+                let value_filter = ValueFilter::from_input(op, &value);
+                Ok(BasicSpanFilter::Attribute(name.to_owned(), value_filter))
+            })?,
         };
 
         Ok(filter)
@@ -1732,6 +1896,7 @@ pub enum BasicInstanceFilter {
     Connected(TimestampComparisonFilter),
     Disconnected(TimestampComparisonFilter),
     Attribute(String, ValueFilter),
+    Not(Box<BasicInstanceFilter>),
     And(Vec<BasicInstanceFilter>),
     Or(Vec<BasicInstanceFilter>),
 }
@@ -1743,6 +1908,7 @@ impl BasicInstanceFilter {
             BasicInstanceFilter::Connected(_) => {}
             BasicInstanceFilter::Disconnected(_) => {}
             BasicInstanceFilter::Attribute(_, _) => {}
+            BasicInstanceFilter::Not(_) => {}
             BasicInstanceFilter::And(filters) => {
                 for filter in &mut *filters {
                     filter.simplify()
@@ -1833,10 +1999,7 @@ impl BasicInstanceFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                let (_op, _value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidAttributeValue),
-                };
+                validate_value_predicate(&predicate.value, |_op, _value| Ok(()))?;
             }
         }
 
@@ -1920,16 +2083,13 @@ impl BasicInstanceFilter {
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
-            (Attribute, name) => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidAttributeValue),
-                };
-
-                let value_filter = ValueFilter::from_input(*op, value);
-
-                BasicInstanceFilter::Attribute(name.to_owned(), value_filter)
-            }
+            (Attribute, name) => filterify_instance_filter(predicate.value, |op, value| {
+                let value_filter = ValueFilter::from_input(op, &value);
+                Ok(BasicInstanceFilter::Attribute(
+                    name.to_owned(),
+                    value_filter,
+                ))
+            })?,
         };
 
         Ok(filter)
@@ -1968,9 +2128,101 @@ impl BasicInstanceFilter {
                 .get(attribute)
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
+            BasicInstanceFilter::Not(inner_filter) => !inner_filter.matches(storage, entry),
             BasicInstanceFilter::And(filters) => filters.iter().all(|f| f.matches(storage, entry)),
             BasicInstanceFilter::Or(filters) => filters.iter().any(|f| f.matches(storage, entry)),
         }
+    }
+}
+
+fn validate_value_predicate(
+    value: &ValuePredicate,
+    comparison_validator: impl Fn(&ValueOperator, &String) -> Result<(), InputError> + Clone,
+) -> Result<(), InputError> {
+    match value {
+        ValuePredicate::Not(predicate) => validate_value_predicate(predicate, comparison_validator),
+        ValuePredicate::Comparison(op, value) => comparison_validator(op, value),
+        ValuePredicate::And(predicates) => predicates
+            .iter()
+            .try_for_each(|p| validate_value_predicate(p, comparison_validator.clone())),
+        ValuePredicate::Or(predicates) => predicates
+            .iter()
+            .try_for_each(|p| validate_value_predicate(p, comparison_validator.clone())),
+    }
+}
+
+fn filterify_event_filter(
+    value: ValuePredicate,
+    comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicEventFilter, InputError>
+        + Clone,
+) -> Result<BasicEventFilter, InputError> {
+    match value {
+        ValuePredicate::Not(predicate) => Ok(BasicEventFilter::Not(Box::new(
+            filterify_event_filter(*predicate, comparison_filterifier)?,
+        ))),
+        ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
+        ValuePredicate::And(predicates) => Ok(BasicEventFilter::And(
+            predicates
+                .into_iter()
+                .map(|p| filterify_event_filter(p, comparison_filterifier.clone()))
+                .collect::<Result<_, _>>()?,
+        )),
+        ValuePredicate::Or(predicates) => Ok(BasicEventFilter::Or(
+            predicates
+                .into_iter()
+                .map(|p| filterify_event_filter(p, comparison_filterifier.clone()))
+                .collect::<Result<_, _>>()?,
+        )),
+    }
+}
+
+fn filterify_span_filter(
+    value: ValuePredicate,
+    comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicSpanFilter, InputError>
+        + Clone,
+) -> Result<BasicSpanFilter, InputError> {
+    match value {
+        ValuePredicate::Not(predicate) => Ok(BasicSpanFilter::Not(Box::new(
+            filterify_span_filter(*predicate, comparison_filterifier)?,
+        ))),
+        ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
+        ValuePredicate::And(predicates) => Ok(BasicSpanFilter::And(
+            predicates
+                .into_iter()
+                .map(|p| filterify_span_filter(p, comparison_filterifier.clone()))
+                .collect::<Result<_, _>>()?,
+        )),
+        ValuePredicate::Or(predicates) => Ok(BasicSpanFilter::Or(
+            predicates
+                .into_iter()
+                .map(|p| filterify_span_filter(p, comparison_filterifier.clone()))
+                .collect::<Result<_, _>>()?,
+        )),
+    }
+}
+
+fn filterify_instance_filter(
+    value: ValuePredicate,
+    comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicInstanceFilter, InputError>
+        + Clone,
+) -> Result<BasicInstanceFilter, InputError> {
+    match value {
+        ValuePredicate::Not(predicate) => Ok(BasicInstanceFilter::Not(Box::new(
+            filterify_instance_filter(*predicate, comparison_filterifier)?,
+        ))),
+        ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
+        ValuePredicate::And(predicates) => Ok(BasicInstanceFilter::And(
+            predicates
+                .into_iter()
+                .map(|p| filterify_instance_filter(p, comparison_filterifier.clone()))
+                .collect::<Result<_, _>>()?,
+        )),
+        ValuePredicate::Or(predicates) => Ok(BasicInstanceFilter::Or(
+            predicates
+                .into_iter()
+                .map(|p| filterify_instance_filter(p, comparison_filterifier.clone()))
+                .collect::<Result<_, _>>()?,
+        )),
     }
 }
 
