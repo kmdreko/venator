@@ -125,9 +125,14 @@ mod parsers {
     use nom::bytes::complete::{escaped, tag, take_while, take_while1};
     use nom::character::complete::{char, none_of, one_of};
     use nom::combinator::{cut, eof, map, opt};
-    use nom::multi::{many0_count, separated_list0};
-    use nom::sequence::delimited;
+    use nom::multi::{many0, many0_count, separated_list0};
+    use nom::sequence::{delimited, tuple};
     use nom::IResult;
+
+    enum GroupSeparator {
+        And,
+        Or,
+    }
 
     fn whitespace(input: &str) -> IResult<&str, &str> {
         take_while(|c: char| c.is_whitespace())(input)
@@ -172,8 +177,7 @@ mod parsers {
         tag("!")(input)
     }
 
-    fn value(input: &str) -> IResult<&str, (bool, Option<ValueOperator>, String)> {
-        let (input, not_count) = many0_count(not)(input)?;
+    fn bare_value(input: &str) -> IResult<&str, ValuePredicate> {
         let (input, op) = opt(alt((
             map(tag(">="), |_| ValueOperator::Gte),
             map(tag(">"), |_| ValueOperator::Gt),
@@ -185,7 +189,96 @@ mod parsers {
             map(unquoted_value, |v| v.to_owned()),
         ))(input)?;
 
-        Ok((input, (not_count % 2 == 1, op, value)))
+        let value = ValuePredicate::Comparison(op.unwrap_or(ValueOperator::Eq), value);
+
+        Ok((input, value))
+    }
+
+    fn group_list(input: &str) -> IResult<&str, ValuePredicate> {
+        let (input, _) = whitespace(input)?;
+        let (input, first) = value(input)?;
+        let (input, list) = many0(tuple((
+            whitespace,
+            alt((
+                map(tag("AND"), |_| GroupSeparator::And),
+                map(tag("OR"), |_| GroupSeparator::Or),
+            )),
+            whitespace,
+            value,
+        )))(input)?;
+        let (input, _) = whitespace(input)?;
+
+        if list.is_empty() {
+            return Ok((input, first));
+        }
+
+        // TODO: I'm sure this can be done better, but the clean solution isn't
+        // coming to me at the moment
+
+        let (mut separators, mut values) = list
+            .into_iter()
+            .map(|(_, sep, _, value)| (sep, value))
+            .collect::<(Vec<_>, Vec<_>)>();
+
+        values.insert(0, first);
+
+        let mut i = 0;
+        loop {
+            if let GroupSeparator::And = separators[i] {
+                let lhs = values.remove(i);
+                let rhs = values.remove(i);
+
+                let pred = match (lhs, rhs) {
+                    (ValuePredicate::And(mut lhs_ands), ValuePredicate::And(rhs_ands)) => {
+                        lhs_ands.extend(rhs_ands);
+                        ValuePredicate::And(lhs_ands)
+                    }
+                    (ValuePredicate::And(mut lhs_ands), rhs) => {
+                        lhs_ands.push(rhs);
+                        ValuePredicate::And(lhs_ands)
+                    }
+                    (lhs, ValuePredicate::And(mut rhs_ands)) => {
+                        rhs_ands.insert(0, lhs);
+                        ValuePredicate::And(rhs_ands)
+                    }
+                    (lhs, rhs) => ValuePredicate::And(vec![lhs, rhs]),
+                };
+
+                values.insert(i, pred);
+                separators.remove(i);
+
+                if i == separators.len() {
+                    break;
+                }
+            } else if i == separators.len() - 1 {
+                break;
+            } else {
+                i += 1;
+            }
+        }
+
+        if values.len() == 1 {
+            return Ok((input, values.pop().unwrap()));
+        }
+
+        Ok((input, ValuePredicate::Or(values)))
+    }
+
+    fn grouped_value(input: &str) -> IResult<&str, ValuePredicate> {
+        delimited(char('('), group_list, char(')'))(input)
+    }
+
+    fn value(input: &str) -> IResult<&str, ValuePredicate> {
+        let (input, not_count) = many0_count(not)(input)?;
+        let (input, value) = alt((grouped_value, bare_value))(input)?;
+
+        let value = if not_count % 2 == 1 {
+            ValuePredicate::Not(Box::new(value))
+        } else {
+            value
+        };
+
+        Ok((input, value))
     }
 
     fn escaped_value(input: &str) -> IResult<&str, &str> {
@@ -197,9 +290,15 @@ mod parsers {
     }
 
     fn unquoted_value(input: &str) -> IResult<&str, &str> {
-        take_while1(|c: char| !c.is_whitespace() && c != '"' && c != '@' && c != '#' && c != ':')(
-            input,
-        )
+        take_while1(|c: char| {
+            !c.is_whitespace()
+                && c != '"'
+                && c != '@'
+                && c != '#'
+                && c != ':'
+                && c != '('
+                && c != ')'
+        })(input)
     }
 
     fn predicate(input: &str) -> IResult<&str, FilterPredicate> {
@@ -207,14 +306,7 @@ mod parsers {
         let (input, _) = whitespace(input)?;
         let (input, _) = char(':')(input)?;
         let (input, _) = whitespace(input)?;
-        let (input, (not, op, value)) = value(input)?;
-
-        let value = ValuePredicate::Comparison(op.unwrap_or(ValueOperator::Eq), value);
-        let value = if not {
-            ValuePredicate::Not(Box::new(value))
-        } else {
-            value
-        };
+        let (input, value) = value(input)?;
 
         let predicate = FilterPredicate {
             property_kind: kind,
