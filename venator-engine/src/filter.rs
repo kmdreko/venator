@@ -6,6 +6,7 @@ use attribute::ValueFilter;
 use ghost_cell::GhostToken;
 use input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
 use serde::Deserialize;
+use wildcard::WildcardBuilder;
 
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
 use crate::models::{parse_full_span_id, EventKey, Level, SpanKey, Timestamp, ValueOperator};
@@ -411,9 +412,9 @@ pub enum InputError {
     MissingConnectedOperator,
     InvalidDisconnectedValue,
     MissingDisconnectedOperator,
+    InvalidWildcardValue,
 }
 
-#[derive(Debug)]
 pub enum BasicEventFilter {
     Level(Level),
     Instance(InstanceKey),
@@ -520,7 +521,17 @@ impl BasicEventFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                validate_value_predicate(&predicate.value, |_op, _value| Ok(()))?;
+                validate_value_predicate(
+                    &predicate.value,
+                    |_op, _value| Ok(()),
+                    |wildcard| {
+                        WildcardBuilder::new(wildcard.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                        Ok(())
+                    },
+                )?;
             }
         };
 
@@ -625,10 +636,17 @@ impl BasicEventFilter {
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
-            (Attribute, name) => filterify_event_filter(predicate.value, |op, value| {
-                let value_filter = ValueFilter::from_input(op, &value);
-                Ok(BasicEventFilter::Attribute(name.to_owned(), value_filter))
-            })?,
+            (Attribute, name) => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    let value_filter = ValueFilter::from_input(op, &value);
+                    Ok(BasicEventFilter::Attribute(name.to_owned(), value_filter))
+                },
+                |wildcard| {
+                    let value_filter = ValueFilter::from_wildcard(wildcard)?;
+                    Ok(BasicEventFilter::Attribute(name.to_owned(), value_filter))
+                },
+            )?,
         };
 
         Ok(filter)
@@ -778,7 +796,6 @@ where
     }
 }
 
-#[derive(Debug)]
 pub enum IndexedSpanFilter<'i> {
     Single(&'i [Timestamp], Option<NonIndexedSpanFilter>),
     Stratified(&'i [Timestamp], Range<u64>, Option<NonIndexedSpanFilter>),
@@ -1347,7 +1364,6 @@ pub enum TimestampComparisonFilter {
     Lt(Timestamp),
 }
 
-#[derive(Debug)]
 pub enum BasicSpanFilter {
     Level(Level),
     Duration(DurationFilter),
@@ -1519,7 +1535,17 @@ impl BasicSpanFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                validate_value_predicate(&predicate.value, |_op, _value| Ok(()))?;
+                validate_value_predicate(
+                    &predicate.value,
+                    |_op, _value| Ok(()),
+                    |wildcard| {
+                        WildcardBuilder::new(wildcard.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                        Ok(())
+                    },
+                )?;
             }
         }
 
@@ -1691,17 +1717,23 @@ impl BasicSpanFilter {
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
-            (Attribute, name) => filterify_span_filter(predicate.value, |op, value| {
-                let value_filter = ValueFilter::from_input(op, &value);
-                Ok(BasicSpanFilter::Attribute(name.to_owned(), value_filter))
-            })?,
+            (Attribute, name) => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    let value_filter = ValueFilter::from_input(op, &value);
+                    Ok(BasicSpanFilter::Attribute(name.to_owned(), value_filter))
+                },
+                |wildcard| {
+                    let value_filter = ValueFilter::from_wildcard(wildcard)?;
+                    Ok(BasicSpanFilter::Attribute(name.to_owned(), value_filter))
+                },
+            )?,
         };
 
         Ok(filter)
     }
 }
 
-#[derive(Debug)]
 pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Attribute(String, ValueFilter),
@@ -1890,7 +1922,6 @@ where
     // }
 }
 
-#[derive(Debug)]
 pub enum BasicInstanceFilter {
     Duration(DurationFilter),
     Connected(TimestampComparisonFilter),
@@ -1999,7 +2030,17 @@ impl BasicInstanceFilter {
                 return Err(InputError::InvalidInherentProperty);
             }
             (Attribute, _) => {
-                validate_value_predicate(&predicate.value, |_op, _value| Ok(()))?;
+                validate_value_predicate(
+                    &predicate.value,
+                    |_op, _value| Ok(()),
+                    |wildcard| {
+                        WildcardBuilder::new(wildcard.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                        Ok(())
+                    },
+                )?;
             }
         }
 
@@ -2083,13 +2124,23 @@ impl BasicInstanceFilter {
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
-            (Attribute, name) => filterify_instance_filter(predicate.value, |op, value| {
-                let value_filter = ValueFilter::from_input(op, &value);
-                Ok(BasicInstanceFilter::Attribute(
-                    name.to_owned(),
-                    value_filter,
-                ))
-            })?,
+            (Attribute, name) => filterify_instance_filter(
+                predicate.value,
+                |op, value| {
+                    let value_filter = ValueFilter::from_input(op, &value);
+                    Ok(BasicInstanceFilter::Attribute(
+                        name.to_owned(),
+                        value_filter,
+                    ))
+                },
+                |wildcard| {
+                    let value_filter = ValueFilter::from_wildcard(wildcard)?;
+                    Ok(BasicInstanceFilter::Attribute(
+                        name.to_owned(),
+                        value_filter,
+                    ))
+                },
+            )?,
         };
 
         Ok(filter)
@@ -2137,17 +2188,21 @@ impl BasicInstanceFilter {
 
 fn validate_value_predicate(
     value: &ValuePredicate,
-    comparison_validator: impl Fn(&ValueOperator, &String) -> Result<(), InputError> + Clone,
+    comparison_validator: impl Fn(&ValueOperator, &str) -> Result<(), InputError> + Clone,
+    wildcard_validator: impl Fn(&str) -> Result<(), InputError> + Clone,
 ) -> Result<(), InputError> {
     match value {
-        ValuePredicate::Not(predicate) => validate_value_predicate(predicate, comparison_validator),
+        ValuePredicate::Not(predicate) => {
+            validate_value_predicate(predicate, comparison_validator, wildcard_validator)
+        }
         ValuePredicate::Comparison(op, value) => comparison_validator(op, value),
-        ValuePredicate::And(predicates) => predicates
-            .iter()
-            .try_for_each(|p| validate_value_predicate(p, comparison_validator.clone())),
-        ValuePredicate::Or(predicates) => predicates
-            .iter()
-            .try_for_each(|p| validate_value_predicate(p, comparison_validator.clone())),
+        ValuePredicate::Wildcard(wildcard) => wildcard_validator(wildcard),
+        ValuePredicate::And(predicates) => predicates.iter().try_for_each(|p| {
+            validate_value_predicate(p, comparison_validator.clone(), wildcard_validator.clone())
+        }),
+        ValuePredicate::Or(predicates) => predicates.iter().try_for_each(|p| {
+            validate_value_predicate(p, comparison_validator.clone(), wildcard_validator.clone())
+        }),
     }
 }
 
@@ -2155,22 +2210,36 @@ fn filterify_event_filter(
     value: ValuePredicate,
     comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicEventFilter, InputError>
         + Clone,
+    wildcard_filterifier: impl Fn(String) -> Result<BasicEventFilter, InputError> + Clone,
 ) -> Result<BasicEventFilter, InputError> {
     match value {
         ValuePredicate::Not(predicate) => Ok(BasicEventFilter::Not(Box::new(
-            filterify_event_filter(*predicate, comparison_filterifier)?,
+            filterify_event_filter(*predicate, comparison_filterifier, wildcard_filterifier)?,
         ))),
         ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
+        ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
         ValuePredicate::And(predicates) => Ok(BasicEventFilter::And(
             predicates
                 .into_iter()
-                .map(|p| filterify_event_filter(p, comparison_filterifier.clone()))
+                .map(|p| {
+                    filterify_event_filter(
+                        p,
+                        comparison_filterifier.clone(),
+                        wildcard_filterifier.clone(),
+                    )
+                })
                 .collect::<Result<_, _>>()?,
         )),
         ValuePredicate::Or(predicates) => Ok(BasicEventFilter::Or(
             predicates
                 .into_iter()
-                .map(|p| filterify_event_filter(p, comparison_filterifier.clone()))
+                .map(|p| {
+                    filterify_event_filter(
+                        p,
+                        comparison_filterifier.clone(),
+                        wildcard_filterifier.clone(),
+                    )
+                })
                 .collect::<Result<_, _>>()?,
         )),
     }
@@ -2180,22 +2249,36 @@ fn filterify_span_filter(
     value: ValuePredicate,
     comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicSpanFilter, InputError>
         + Clone,
+    wildcard_filterifier: impl Fn(String) -> Result<BasicSpanFilter, InputError> + Clone,
 ) -> Result<BasicSpanFilter, InputError> {
     match value {
         ValuePredicate::Not(predicate) => Ok(BasicSpanFilter::Not(Box::new(
-            filterify_span_filter(*predicate, comparison_filterifier)?,
+            filterify_span_filter(*predicate, comparison_filterifier, wildcard_filterifier)?,
         ))),
         ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
+        ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
         ValuePredicate::And(predicates) => Ok(BasicSpanFilter::And(
             predicates
                 .into_iter()
-                .map(|p| filterify_span_filter(p, comparison_filterifier.clone()))
+                .map(|p| {
+                    filterify_span_filter(
+                        p,
+                        comparison_filterifier.clone(),
+                        wildcard_filterifier.clone(),
+                    )
+                })
                 .collect::<Result<_, _>>()?,
         )),
         ValuePredicate::Or(predicates) => Ok(BasicSpanFilter::Or(
             predicates
                 .into_iter()
-                .map(|p| filterify_span_filter(p, comparison_filterifier.clone()))
+                .map(|p| {
+                    filterify_span_filter(
+                        p,
+                        comparison_filterifier.clone(),
+                        wildcard_filterifier.clone(),
+                    )
+                })
                 .collect::<Result<_, _>>()?,
         )),
     }
@@ -2205,22 +2288,36 @@ fn filterify_instance_filter(
     value: ValuePredicate,
     comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicInstanceFilter, InputError>
         + Clone,
+    wildcard_filterifier: impl Fn(String) -> Result<BasicInstanceFilter, InputError> + Clone,
 ) -> Result<BasicInstanceFilter, InputError> {
     match value {
         ValuePredicate::Not(predicate) => Ok(BasicInstanceFilter::Not(Box::new(
-            filterify_instance_filter(*predicate, comparison_filterifier)?,
+            filterify_instance_filter(*predicate, comparison_filterifier, wildcard_filterifier)?,
         ))),
         ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
+        ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
         ValuePredicate::And(predicates) => Ok(BasicInstanceFilter::And(
             predicates
                 .into_iter()
-                .map(|p| filterify_instance_filter(p, comparison_filterifier.clone()))
+                .map(|p| {
+                    filterify_instance_filter(
+                        p,
+                        comparison_filterifier.clone(),
+                        wildcard_filterifier.clone(),
+                    )
+                })
                 .collect::<Result<_, _>>()?,
         )),
         ValuePredicate::Or(predicates) => Ok(BasicInstanceFilter::Or(
             predicates
                 .into_iter()
-                .map(|p| filterify_instance_filter(p, comparison_filterifier.clone()))
+                .map(|p| {
+                    filterify_instance_filter(
+                        p,
+                        comparison_filterifier.clone(),
+                        wildcard_filterifier.clone(),
+                    )
+                })
                 .collect::<Result<_, _>>()?,
         )),
     }

@@ -1,6 +1,29 @@
 use std::str::FromStr;
 
+use wildcard::{Wildcard, WildcardBuilder};
+
 use crate::models::{Value, ValueOperator};
+
+use super::InputError;
+
+#[derive(Clone)]
+pub enum ValueStringComparison {
+    None,
+    Compare(ValueOperator, String),
+    Wildcard(Wildcard<'static, u8>),
+    All,
+}
+
+impl ValueStringComparison {
+    fn compare(&self, lhs: &str) -> bool {
+        match self {
+            ValueStringComparison::None => false,
+            ValueStringComparison::Compare(op, rhs) => op.compare(lhs, rhs),
+            ValueStringComparison::Wildcard(wildcard) => wildcard.is_match(lhs.as_bytes()),
+            ValueStringComparison::All => true,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum ValueComparison<T> {
@@ -22,7 +45,7 @@ impl<T> ValueComparison<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ValueFilter {
     pub f64s: ValueComparison<f64>,
     pub i64s: ValueComparison<i64>,
@@ -30,15 +53,14 @@ pub struct ValueFilter {
     pub i128s: ValueComparison<i128>,
     pub u128s: ValueComparison<u128>,
     pub bools: ValueComparison<bool>,
-    pub strings: ValueComparison<String>,
+    pub strings: ValueStringComparison,
 }
 
 impl ValueFilter {
     pub fn from_input(operator: ValueOperator, value: &str) -> ValueFilter {
-        // TODO: check if value has wildcards
         // TODO: check if value is a regex
 
-        let strings = ValueComparison::Compare(operator, value.to_owned());
+        let strings = ValueStringComparison::Compare(operator, value.to_owned());
 
         let f64s = if let Ok(f64_value) = f64::from_str(value) {
             ValueComparison::Compare(operator, f64_value)
@@ -247,6 +269,35 @@ impl ValueFilter {
             bools,
             strings,
         }
+    }
+
+    pub fn from_wildcard(wildcard: String) -> Result<ValueFilter, InputError> {
+        if wildcard == "*" {
+            return Ok(ValueFilter {
+                f64s: ValueComparison::All,
+                i64s: ValueComparison::All,
+                u64s: ValueComparison::All,
+                i128s: ValueComparison::All,
+                u128s: ValueComparison::All,
+                bools: ValueComparison::All,
+                strings: ValueStringComparison::All,
+            });
+        }
+
+        let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+            .without_one_metasymbol()
+            .build()
+            .map_err(|_| InputError::InvalidWildcardValue)?;
+
+        Ok(ValueFilter {
+            f64s: ValueComparison::None,
+            i64s: ValueComparison::None,
+            u64s: ValueComparison::None,
+            i128s: ValueComparison::None,
+            u128s: ValueComparison::None,
+            bools: ValueComparison::None,
+            strings: ValueStringComparison::Wildcard(wildcard),
+        })
     }
 
     pub fn matches(&self, value: &Value) -> bool {

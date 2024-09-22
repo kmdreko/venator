@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::filter::attribute::{ValueComparison, ValueFilter};
+use crate::filter::attribute::{ValueComparison, ValueFilter, ValueStringComparison};
 use crate::filter::BoundSearch;
 use crate::models::ValueOperator;
 use crate::{Timestamp, Value};
@@ -184,14 +184,17 @@ impl AttributeIndex {
         }
 
         match &filter.strings {
-            ValueComparison::None => {}
-            ValueComparison::Compare(ValueOperator::Eq, value) => {
+            ValueStringComparison::None => {}
+            ValueStringComparison::Compare(ValueOperator::Eq, value) => {
                 filters.push((self.strings.value_index(value), None));
             }
-            ValueComparison::Compare(_, _) => {
+            ValueStringComparison::Compare(_, _) => {
                 filters.push((&self.strings.total, Some(filter.clone())));
             }
-            ValueComparison::All => filters.push((&self.strings.total, None)),
+            ValueStringComparison::Wildcard(_) => {
+                filters.push((&self.strings.total, Some(filter.clone())));
+            }
+            ValueStringComparison::All => filters.push((&self.strings.total, None)),
         }
 
         filters

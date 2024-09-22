@@ -13,13 +13,13 @@ pub enum FilterPropertyKind {
     Attribute,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "value_kind", content = "value", rename_all = "camelCase")]
 pub enum ValuePredicate {
     Not(Box<ValuePredicate>),
     Comparison(ValueOperator, String),
     // Regex(String),
-    // Wildcard(String),
+    Wildcard(String),
     And(Vec<ValuePredicate>),
     Or(Vec<ValuePredicate>),
 }
@@ -65,6 +65,13 @@ impl Display for ValuePredicate {
                     }
                 }
             },
+            ValuePredicate::Wildcard(wildcard) => {
+                if needs_escapes(wildcard) {
+                    write!(f, "\"{}\"", escape_wildcard(wildcard))
+                } else {
+                    write!(f, "{wildcard}")
+                }
+            }
             ValuePredicate::And(inners) => {
                 write!(f, "({}", inners[0])?;
                 for inner in &inners[1..] {
@@ -83,7 +90,7 @@ impl Display for ValuePredicate {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct FilterPredicate {
     pub property_kind: Option<FilterPropertyKind>,
     pub property: String,
@@ -118,13 +125,17 @@ fn needs_escapes(s: &str) -> bool {
         || s.contains(|c: char| c.is_whitespace())
 }
 
+fn escape_wildcard(s: &str) -> String {
+    s.replace('\"', "\\\"")
+}
+
 mod parsers {
     use super::*;
 
     use nom::branch::alt;
     use nom::bytes::complete::{escaped, tag, take_while, take_while1};
     use nom::character::complete::{char, none_of, one_of};
-    use nom::combinator::{cut, eof, map, opt};
+    use nom::combinator::{cut, eof, map, map_res, opt};
     use nom::multi::{many0, many0_count, separated_list0};
     use nom::sequence::{delimited, tuple};
     use nom::IResult;
@@ -178,6 +189,8 @@ mod parsers {
     }
 
     fn bare_value(input: &str) -> IResult<&str, ValuePredicate> {
+        let orig = input;
+
         let (input, op) = opt(alt((
             map(tag(">="), |_| ValueOperator::Gte),
             map(tag(">"), |_| ValueOperator::Gt),
@@ -185,11 +198,42 @@ mod parsers {
             map(tag("<"), |_| ValueOperator::Lt),
         )))(input)?;
         let (input, value) = alt((
-            map(quoted_value, |v| v.map(unescape).unwrap_or_default()),
-            map(unquoted_value, |v| v.to_owned()),
-        ))(input)?;
+            map_res(quoted_value, |v| {
+                let Some(v) = v else {
+                    return Ok(ValuePredicate::Comparison(
+                        op.unwrap_or(ValueOperator::Eq),
+                        String::new(),
+                    ));
+                };
 
-        let value = ValuePredicate::Comparison(op.unwrap_or(ValueOperator::Eq), value);
+                if v.contains('*') {
+                    if op.is_some() {
+                        Err(nom::error::Error::new(orig, nom::error::ErrorKind::Fail))
+                    } else {
+                        Ok(ValuePredicate::Wildcard(unescape_wildcard(v)))
+                    }
+                } else {
+                    Ok(ValuePredicate::Comparison(
+                        op.unwrap_or(ValueOperator::Eq),
+                        unescape(v),
+                    ))
+                }
+            }),
+            map_res(unquoted_value, |v| {
+                if v.contains('*') {
+                    if op.is_some() {
+                        Err(nom::error::Error::new(orig, nom::error::ErrorKind::Fail))
+                    } else {
+                        Ok(ValuePredicate::Wildcard(v.to_owned()))
+                    }
+                } else {
+                    Ok(ValuePredicate::Comparison(
+                        op.unwrap_or(ValueOperator::Eq),
+                        v.to_owned(),
+                    ))
+                }
+            }),
+        ))(input)?;
 
         Ok((input, value))
     }
@@ -282,7 +326,7 @@ mod parsers {
     }
 
     fn escaped_value(input: &str) -> IResult<&str, &str> {
-        escaped(none_of("\\\""), '\\', one_of("\"\\"))(input)
+        escaped(none_of("\\\""), '\\', one_of("\"\\*"))(input)
     }
 
     fn quoted_value(input: &str) -> IResult<&str, Option<&str>> {
@@ -342,6 +386,10 @@ mod parsers {
         });
 
         input
+    }
+
+    fn unescape_wildcard(input: &str) -> String {
+        input.replace("\\\"", "\"")
     }
 }
 

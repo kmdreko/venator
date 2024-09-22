@@ -50,7 +50,7 @@ async fn parse_instance_filter(
     FilterPredicate::parse(filter)
         .map_err(|e| format!("{e:?}"))?
         .into_iter()
-        .map(|p| BasicInstanceFilter::validate(p).map(FilterPredicateView::from_inner))
+        .map(|p| BasicInstanceFilter::validate(p).map(FilterPredicateView::from))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("{e:?}"))
 }
@@ -107,7 +107,7 @@ async fn parse_event_filter(
     FilterPredicate::parse(filter)
         .map_err(|e| format!("{e:?}"))?
         .into_iter()
-        .map(|p| BasicEventFilter::validate(p).map(FilterPredicateView::from_inner))
+        .map(|p| BasicEventFilter::validate(p).map(FilterPredicateView::from))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("{e:?}"))
 }
@@ -143,7 +143,7 @@ async fn parse_span_filter(
     FilterPredicate::parse(filter)
         .map_err(|e| format!("{e:?}"))?
         .into_iter()
-        .map(|p| BasicSpanFilter::validate(p).map(FilterPredicateView::from_inner))
+        .map(|p| BasicSpanFilter::validate(p).map(FilterPredicateView::from))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("{e:?}"))
 }
@@ -502,7 +502,7 @@ struct EventData {
     fields: BTreeMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct FilterPredicateView {
     text: String,
     property_kind: Option<FilterPropertyKind>,
@@ -511,8 +511,8 @@ struct FilterPredicateView {
     value: ValuePredicate,
 }
 
-impl FilterPredicateView {
-    fn from_inner(inner: FilterPredicate) -> FilterPredicateView {
+impl From<FilterPredicate> for FilterPredicateView {
+    fn from(inner: FilterPredicate) -> FilterPredicateView {
         FilterPredicateView {
             text: inner.to_string(),
             property_kind: inner.property_kind,
