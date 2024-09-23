@@ -494,18 +494,22 @@ impl BasicEventFilter {
                 };
             }
             (Inherent, "instance") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidInstanceValue),
-                };
+                validate_value_predicate(
+                    &predicate.value,
+                    |op, value| {
+                        if *op != ValueOperator::Eq {
+                            return Err(InputError::InvalidInstanceOperator);
+                        }
 
-                let _: InstanceId = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidInstanceValue)?;
+                        let _: InstanceId = value
+                            .parse()
+                            .map_err(|_| InputError::InvalidInstanceValue)?;
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidInstanceOperator);
-                }
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidInstanceValue),
+                    |_| Err(InputError::InvalidInstanceValue),
+                )?;
             }
             (Inherent, "stack") => {
                 let (op, value) = match &predicate.value {
@@ -594,27 +598,27 @@ impl BasicEventFilter {
                     BasicEventFilter::Level(level)
                 }
             }
-            (Inherent, "instance") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidInstanceValue),
-                };
+            (Inherent, "instance") => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidInstanceOperator);
+                    }
 
-                let instance_id: InstanceId = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidInstanceValue)?;
+                    let instance_id: InstanceId = value
+                        .parse()
+                        .map_err(|_| InputError::InvalidInstanceValue)?;
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidInstanceOperator);
-                }
+                    let instance_key = instance_key_map
+                        .get(&instance_id)
+                        .copied()
+                        .unwrap_or(InstanceKey::MIN);
 
-                let instance_key = instance_key_map
-                    .get(&instance_id)
-                    .copied()
-                    .unwrap_or(InstanceKey::MIN);
-
-                BasicEventFilter::Instance(instance_key)
-            }
+                    Ok(BasicEventFilter::Instance(instance_key))
+                },
+                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidInstanceValue),
+            )?,
             (Inherent, "stack") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
@@ -1480,18 +1484,22 @@ impl BasicSpanFilter {
                 }
             }
             (Inherent, "instance") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidInstanceValue),
-                };
+                validate_value_predicate(
+                    &predicate.value,
+                    |op, value| {
+                        if *op != ValueOperator::Eq {
+                            return Err(InputError::InvalidInstanceOperator);
+                        }
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidInstanceOperator);
-                }
+                        let _: InstanceId = value
+                            .parse()
+                            .map_err(|_| InputError::InvalidInstanceValue)?;
 
-                let _: InstanceId = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidInstanceValue)?;
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidInstanceValue),
+                    |_| Err(InputError::InvalidInstanceValue),
+                )?;
             }
             (Inherent, "created") => {
                 let (op, value) = match &predicate.value {
@@ -1632,27 +1640,27 @@ impl BasicSpanFilter {
 
                 BasicSpanFilter::Name(value)
             }
-            (Inherent, "instance") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidInstanceValue),
-                };
+            (Inherent, "instance") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidInstanceOperator);
+                    }
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidInstanceOperator);
-                }
+                    let instance_id: InstanceId = value
+                        .parse()
+                        .map_err(|_| InputError::InvalidInstanceValue)?;
 
-                let instance_id: InstanceId = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidInstanceValue)?;
+                    let instance_key = instance_key_map
+                        .get(&instance_id)
+                        .copied()
+                        .unwrap_or(InstanceKey::MIN);
 
-                let instance_key = instance_key_map
-                    .get(&instance_id)
-                    .copied()
-                    .unwrap_or(InstanceKey::MIN);
-
-                BasicSpanFilter::Instance(instance_key)
-            }
+                    Ok(BasicSpanFilter::Instance(instance_key))
+                },
+                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidInstanceValue),
+            )?,
             (Inherent, "created") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
