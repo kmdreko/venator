@@ -57,6 +57,34 @@ impl IndexedEventFilter<'_> {
 
                 IndexedEventFilter::Single(instance_index, None)
             }
+            BasicEventFilter::Target(filter) => match filter {
+                ValueStringComparison::None => IndexedEventFilter::Single(&[], None),
+                ValueStringComparison::Compare(ValueOperator::Eq, value) => {
+                    let target_index = event_indexes
+                        .targets
+                        .get(&value)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+
+                    IndexedEventFilter::Single(target_index, None)
+                }
+                ValueStringComparison::Compare(_, _) => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::Target(filter)),
+                ),
+                ValueStringComparison::Wildcard(_) => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::Target(filter)),
+                ),
+                ValueStringComparison::Regex(_) => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::Target(filter)),
+                ),
+                ValueStringComparison::All => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::Target(filter)),
+                ),
+            },
             BasicEventFilter::Ancestor(ancestor_key) => {
                 let index = &event_indexes.descendents[&ancestor_key];
 
@@ -426,6 +454,7 @@ pub enum InputError {
 pub enum BasicEventFilter {
     Level(Level),
     Instance(InstanceKey),
+    Target(ValueStringComparison),
     Ancestor(SpanKey),
     Root,
     Parent(SpanKey),
@@ -440,6 +469,7 @@ impl BasicEventFilter {
         match self {
             BasicEventFilter::Level(_) => {}
             BasicEventFilter::Instance(_) => {}
+            BasicEventFilter::Target(_) => {}
             BasicEventFilter::Ancestor(_) => {}
             BasicEventFilter::Root => {}
             BasicEventFilter::Parent(_) => {}
@@ -477,7 +507,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "parent" | "stack" => Inherent,
+                "level" | "instance" | "parent" | "target" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -540,6 +570,21 @@ impl BasicEventFilter {
                     |_| Err(InputError::InvalidParentValue),
                 )?;
             }
+            (Inherent, "target") => validate_value_predicate(
+                &predicate.value,
+                |_op, _value| Ok(()),
+                |wildcard| {
+                    WildcardBuilder::new(wildcard.as_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
+                    Ok(())
+                },
+                |regex| {
+                    Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                    Ok(())
+                },
+            )?,
             (Inherent, "stack") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
@@ -591,7 +636,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "parent" | "stack" => Inherent,
+                "level" | "instance" | "parent" | "target" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -677,6 +722,28 @@ impl BasicEventFilter {
                 |_| Err(InputError::InvalidInstanceValue),
                 |_| Err(InputError::InvalidInstanceValue),
             )?,
+            (Inherent, "target") => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    let filter = ValueStringComparison::Compare(op, value);
+                    Ok(BasicEventFilter::Target(filter))
+                },
+                |wildcard| {
+                    let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Wildcard(wildcard);
+                    Ok(BasicEventFilter::Target(filter))
+                },
+                |regex| {
+                    let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Regex(regex);
+                    Ok(BasicEventFilter::Target(filter))
+                },
+            )?,
             (Inherent, "stack") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
@@ -733,6 +800,7 @@ impl BasicEventFilter {
         match self {
             BasicEventFilter::Level(level) => event.level == *level,
             BasicEventFilter::Instance(instance_key) => event.instance_key == *instance_key,
+            BasicEventFilter::Target(filter) => filter.matches(&event.target),
             BasicEventFilter::Ancestor(span_key) => {
                 event_ancestors[&event.key()].has_parent(*span_key)
             }
@@ -757,6 +825,7 @@ impl BasicEventFilter {
 
 pub enum NonIndexedEventFilter {
     Parent(SpanKey),
+    Target(ValueStringComparison),
     Attribute(String, Box<ValueFilter>),
 }
 
@@ -771,6 +840,7 @@ impl NonIndexedEventFilter {
         let event = storage.get_event(entry).unwrap();
         match self {
             NonIndexedEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
+            NonIndexedEventFilter::Target(filter) => filter.matches(&event.target),
             NonIndexedEventFilter::Attribute(attribute, value_filter) => event_ancestors
                 [&event.timestamp]
                 .get_value(attribute, token)
@@ -969,6 +1039,34 @@ impl IndexedSpanFilter<'_> {
                 ValueStringComparison::All => IndexedSpanFilter::Single(
                     &span_indexes.all,
                     Some(NonIndexedSpanFilter::Name(filter)),
+                ),
+            },
+            BasicSpanFilter::Target(filter) => match filter {
+                ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
+                ValueStringComparison::Compare(ValueOperator::Eq, value) => {
+                    let target_index = span_indexes
+                        .targets
+                        .get(&value)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+
+                    IndexedSpanFilter::Single(target_index, None)
+                }
+                ValueStringComparison::Compare(_, _) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Target(filter)),
+                ),
+                ValueStringComparison::Wildcard(_) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Target(filter)),
+                ),
+                ValueStringComparison::Regex(_) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Target(filter)),
+                ),
+                ValueStringComparison::All => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Target(filter)),
                 ),
             },
             BasicSpanFilter::Ancestor(ancestor_key) => {
@@ -1470,6 +1568,7 @@ pub enum BasicSpanFilter {
     Created(TimestampComparisonFilter),
     Instance(InstanceKey),
     Name(ValueStringComparison),
+    Target(ValueStringComparison),
     Ancestor(SpanKey),
     Root,
     Parent(SpanKey),
@@ -1487,6 +1586,7 @@ impl BasicSpanFilter {
             BasicSpanFilter::Created(_) => {}
             BasicSpanFilter::Instance(_) => {}
             BasicSpanFilter::Name(_) => {}
+            BasicSpanFilter::Target(_) => {}
             BasicSpanFilter::Ancestor(_) => {}
             BasicSpanFilter::Root => {}
             BasicSpanFilter::Parent(_) => {}
@@ -1524,9 +1624,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "duration" | "name" | "parent" | "created" | "stack" => {
-                    Inherent
-                }
+                "level" | "instance" | "duration" | "name" | "target" | "parent" | "created"
+                | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -1562,6 +1661,21 @@ impl BasicSpanFilter {
                 |_| Err(InputError::InvalidDurationValue),
             )?,
             (Inherent, "name") => validate_value_predicate(
+                &predicate.value,
+                |_op, _value| Ok(()),
+                |wildcard| {
+                    WildcardBuilder::new(wildcard.as_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
+                    Ok(())
+                },
+                |regex| {
+                    Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                    Ok(())
+                },
+            )?,
+            (Inherent, "target") => validate_value_predicate(
                 &predicate.value,
                 |_op, _value| Ok(()),
                 |wildcard| {
@@ -1678,9 +1792,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "duration" | "name" | "parent" | "created" | "stack" => {
-                    Inherent
-                }
+                "level" | "instance" | "duration" | "name" | "target" | "parent" | "created"
+                | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -1746,6 +1859,28 @@ impl BasicSpanFilter {
 
                     let filter = ValueStringComparison::Regex(regex);
                     Ok(BasicSpanFilter::Name(filter))
+                },
+            )?,
+            (Inherent, "target") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    let filter = ValueStringComparison::Compare(op, value);
+                    Ok(BasicSpanFilter::Target(filter))
+                },
+                |wildcard| {
+                    let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Wildcard(wildcard);
+                    Ok(BasicSpanFilter::Target(filter))
+                },
+                |regex| {
+                    let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Regex(regex);
+                    Ok(BasicSpanFilter::Target(filter))
                 },
             )?,
             (Inherent, "instance") => filterify_span_filter(
@@ -1867,6 +2002,7 @@ impl BasicSpanFilter {
 pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Name(ValueStringComparison),
+    Target(ValueStringComparison),
     Parent(SpanKey),
     Attribute(String, ValueFilter),
 }
@@ -1883,6 +2019,7 @@ impl NonIndexedSpanFilter {
         match self {
             NonIndexedSpanFilter::Duration(filter) => filter.matches(span.duration()),
             NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
+            NonIndexedSpanFilter::Target(filter) => filter.matches(&span.target),
             NonIndexedSpanFilter::Parent(parent_key) => span.parent_key == Some(*parent_key),
             NonIndexedSpanFilter::Attribute(attribute, value_filter) => span_ancestors
                 [&span.created_at]
