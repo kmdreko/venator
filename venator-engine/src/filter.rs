@@ -1460,16 +1460,15 @@ impl BasicSpanFilter {
                     _ => return Err(InputError::InvalidLevelOperator),
                 };
             }
-            (Inherent, "duration") => {
-                let (_op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidDurationValue),
-                };
-
-                let _: u64 = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidDurationValue)?;
-            }
+            (Inherent, "duration") => validate_value_predicate(
+                &predicate.value,
+                |op, value| {
+                    DurationFilter::from_input(*op, value)?;
+                    Ok(())
+                },
+                |_| Err(InputError::InvalidDurationValue),
+                |_| Err(InputError::InvalidDurationValue),
+            )?,
             (Inherent, "name") => {
                 let (op, _value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
@@ -1611,18 +1610,16 @@ impl BasicSpanFilter {
                     BasicSpanFilter::Level(level)
                 }
             }
-            (Inherent, "duration") => {
-                let (&op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidDurationValue),
-                };
-
-                let measure: u64 = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidDurationValue)?;
-
-                BasicSpanFilter::Duration(DurationFilter { op, measure })
-            }
+            (Inherent, "duration") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    Ok(BasicSpanFilter::Duration(DurationFilter::from_input(
+                        op, &value,
+                    )?))
+                },
+                |_| Err(InputError::InvalidDurationValue),
+                |_| Err(InputError::InvalidDurationValue),
+            )?,
             (Inherent, "name") => {
                 let (op, value) = match predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
@@ -1770,6 +1767,41 @@ pub struct DurationFilter {
 }
 
 impl DurationFilter {
+    pub fn from_input(op: ValueOperator, value: &str) -> Result<DurationFilter, InputError> {
+        use nom::bytes::complete::{take_while, take_while1};
+        use nom::combinator::{eof, opt};
+        use nom::sequence::tuple;
+
+        let (_, (number, maybe_units, _)) = tuple((
+            take_while1(|c: char| c.is_ascii_digit() || c == '.'),
+            opt(tuple((
+                take_while(|c: char| c.is_whitespace()),
+                take_while1(|c: char| c.is_alphabetic()),
+            ))),
+            eof,
+        ))(value)
+        .map_err(|_: nom::Err<nom::error::Error<_>>| InputError::InvalidDurationValue)?;
+
+        let measure: f64 = number
+            .parse()
+            .map_err(|_| InputError::InvalidDurationValue)?;
+
+        let unit_scale = match maybe_units.map(|(_, unit)| unit) {
+            Some("μs" | "us" | "microsecond" | "microseconds") => 1.0,
+            Some("ms" | "millisecond" | "milliseconds") => 1000.0,
+            Some("s" | "second" | "seconds") => 1000000.0,
+            Some("m" | "min" | "minute" | "minutes") => 60.0 * 1000000.0,
+            Some("h" | "hour" | "hours") => 60.0 * 60.0 * 1000000.0,
+            Some("d" | "day" | "days") => 24.0 * 60.0 * 60.0 * 1000000.0,
+            Some(_other) => return Err(InputError::InvalidDurationValue),
+            None => 1.0,
+        };
+
+        let measure = (measure * unit_scale) as u64;
+
+        Ok(DurationFilter { op, measure })
+    }
+
     pub fn matches(&self, duration: Option<u64>) -> bool {
         let Some(duration) = duration else {
             return false; // never match an incomplete duration
@@ -1992,16 +2024,15 @@ impl BasicInstanceFilter {
             });
 
         match (property_kind, predicate.property.as_str()) {
-            (Inherent, "duration") => {
-                let (_op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidDurationValue),
-                };
-
-                let _: u64 = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidDurationValue)?;
-            }
+            (Inherent, "duration") => validate_value_predicate(
+                &predicate.value,
+                |op, value| {
+                    DurationFilter::from_input(*op, value)?;
+                    Ok(())
+                },
+                |_| Err(InputError::InvalidDurationValue),
+                |_| Err(InputError::InvalidDurationValue),
+            )?,
             (Inherent, "connected") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
@@ -2074,18 +2105,16 @@ impl BasicInstanceFilter {
             });
 
         let filter = match (property_kind, predicate.property.as_str()) {
-            (Inherent, "duration") => {
-                let (&op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidDurationValue),
-                };
-
-                let measure: u64 = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidDurationValue)?;
-
-                BasicInstanceFilter::Duration(DurationFilter { op, measure })
-            }
+            (Inherent, "duration") => filterify_instance_filter(
+                predicate.value,
+                |op, value| {
+                    Ok(BasicInstanceFilter::Duration(DurationFilter::from_input(
+                        op, &value,
+                    )?))
+                },
+                |_| Err(InputError::InvalidDurationValue),
+                |_| Err(InputError::InvalidDurationValue),
+            )?,
             (Inherent, "connected") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
