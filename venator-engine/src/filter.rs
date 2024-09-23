@@ -63,6 +63,11 @@ impl IndexedEventFilter<'_> {
                 IndexedEventFilter::Single(index, None)
             }
             BasicEventFilter::Root => IndexedEventFilter::Single(&event_indexes.roots, None),
+            BasicEventFilter::Parent(parent_key) => {
+                let index = &event_indexes.descendents[&parent_key];
+
+                IndexedEventFilter::Single(index, Some(NonIndexedEventFilter::Parent(parent_key)))
+            }
             BasicEventFilter::Attribute(attribute, value_filter) => {
                 if let Some(attr_index) = event_indexes.attributes.get(&attribute) {
                     let filters = attr_index
@@ -423,6 +428,7 @@ pub enum BasicEventFilter {
     Instance(InstanceKey),
     Ancestor(SpanKey),
     Root,
+    Parent(SpanKey),
     Attribute(String, ValueFilter),
     Not(Box<BasicEventFilter>),
     And(Vec<BasicEventFilter>),
@@ -436,6 +442,7 @@ impl BasicEventFilter {
             BasicEventFilter::Instance(_) => {}
             BasicEventFilter::Ancestor(_) => {}
             BasicEventFilter::Root => {}
+            BasicEventFilter::Parent(_) => {}
             BasicEventFilter::Attribute(_, _) => {}
             BasicEventFilter::Not(_) => {}
             BasicEventFilter::And(filters) => {
@@ -523,7 +530,8 @@ impl BasicEventFilter {
                         }
 
                         if value != "none" {
-                            return Err(InputError::InvalidParentValue);
+                            let _ =
+                                parse_full_span_id(value).ok_or(InputError::InvalidParentValue)?;
                         }
 
                         Ok(())
@@ -647,11 +655,24 @@ impl BasicEventFilter {
                         return Err(InputError::InvalidParentOperator);
                     }
 
-                    if value != "none" {
-                        return Err(InputError::InvalidParentValue);
-                    }
+                    if value == "none" {
+                        Ok(BasicEventFilter::Root)
+                    } else {
+                        let (instance_id, parent_id) =
+                            parse_full_span_id(&value).ok_or(InputError::InvalidParentValue)?;
 
-                    Ok(BasicEventFilter::Root)
+                        let instance_key = instance_key_map
+                            .get(&instance_id)
+                            .copied()
+                            .unwrap_or(InstanceKey::MIN);
+
+                        let parent_key = span_key_map
+                            .get(&(instance_key, parent_id))
+                            .copied()
+                            .unwrap_or(SpanKey::MIN);
+
+                        Ok(BasicEventFilter::Parent(parent_key))
+                    }
                 },
                 |_| Err(InputError::InvalidInstanceValue),
                 |_| Err(InputError::InvalidInstanceValue),
@@ -716,6 +737,7 @@ impl BasicEventFilter {
                 event_ancestors[&event.key()].has_parent(*span_key)
             }
             BasicEventFilter::Root => event.span_key.is_none(),
+            BasicEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
             BasicEventFilter::Attribute(attribute, value_filter) => event_ancestors[&event.key()]
                 .get_value(attribute, token)
                 .map(|v| value_filter.matches(v))
@@ -734,6 +756,7 @@ impl BasicEventFilter {
 }
 
 pub enum NonIndexedEventFilter {
+    Parent(SpanKey),
     Attribute(String, Box<ValueFilter>),
 }
 
@@ -745,10 +768,11 @@ impl NonIndexedEventFilter {
         event_ancestors: &HashMap<Timestamp, Ancestors<'b>>,
         entry: Timestamp,
     ) -> bool {
-        let log = storage.get_event(entry).unwrap();
+        let event = storage.get_event(entry).unwrap();
         match self {
+            NonIndexedEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
             NonIndexedEventFilter::Attribute(attribute, value_filter) => event_ancestors
-                [&log.timestamp]
+                [&event.timestamp]
                 .get_value(attribute, token)
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
@@ -934,6 +958,11 @@ impl IndexedSpanFilter<'_> {
                 IndexedSpanFilter::Single(index, None)
             }
             BasicSpanFilter::Root => IndexedSpanFilter::Single(&span_indexes.roots, None),
+            BasicSpanFilter::Parent(parent_key) => {
+                let index = &span_indexes.descendents[&parent_key];
+
+                IndexedSpanFilter::Single(index, Some(NonIndexedSpanFilter::Parent(parent_key)))
+            }
             BasicSpanFilter::Attribute(attribute, value_filter) => {
                 if let Some(attr_index) = span_indexes.attributes.get(&attribute) {
                     let filters = attr_index
@@ -1424,6 +1453,7 @@ pub enum BasicSpanFilter {
     Name(String),
     Ancestor(SpanKey),
     Root,
+    Parent(SpanKey),
     Attribute(String, ValueFilter),
     Not(Box<BasicSpanFilter>),
     And(Vec<BasicSpanFilter>),
@@ -1440,6 +1470,7 @@ impl BasicSpanFilter {
             BasicSpanFilter::Name(_) => {}
             BasicSpanFilter::Ancestor(_) => {}
             BasicSpanFilter::Root => {}
+            BasicSpanFilter::Parent(_) => {}
             BasicSpanFilter::Attribute(_, _) => {}
             BasicSpanFilter::Not(_) => {}
             BasicSpanFilter::And(filters) => {
@@ -1562,7 +1593,8 @@ impl BasicSpanFilter {
                         }
 
                         if value != "none" {
-                            return Err(InputError::InvalidParentValue);
+                            let _ =
+                                parse_full_span_id(value).ok_or(InputError::InvalidParentValue)?;
                         }
 
                         Ok(())
@@ -1728,11 +1760,24 @@ impl BasicSpanFilter {
                         return Err(InputError::InvalidParentOperator);
                     }
 
-                    if value != "none" {
-                        return Err(InputError::InvalidParentValue);
-                    }
+                    if value == "none" {
+                        Ok(BasicSpanFilter::Root)
+                    } else {
+                        let (instance_id, parent_id) =
+                            parse_full_span_id(&value).ok_or(InputError::InvalidParentValue)?;
 
-                    Ok(BasicSpanFilter::Root)
+                        let instance_key = instance_key_map
+                            .get(&instance_id)
+                            .copied()
+                            .unwrap_or(InstanceKey::MIN);
+
+                        let parent_key = span_key_map
+                            .get(&(instance_key, parent_id))
+                            .copied()
+                            .unwrap_or(SpanKey::MIN);
+
+                        Ok(BasicSpanFilter::Parent(parent_key))
+                    }
                 },
                 |_| Err(InputError::InvalidInstanceValue),
                 |_| Err(InputError::InvalidInstanceValue),
@@ -1787,6 +1832,7 @@ impl BasicSpanFilter {
 
 pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
+    Parent(SpanKey),
     Attribute(String, ValueFilter),
 }
 
@@ -1801,6 +1847,7 @@ impl NonIndexedSpanFilter {
         let span = storage.get_span(entry).unwrap();
         match self {
             NonIndexedSpanFilter::Duration(filter) => filter.matches(span.duration()),
+            NonIndexedSpanFilter::Parent(parent_key) => span.parent_key == Some(*parent_key),
             NonIndexedSpanFilter::Attribute(attribute, value_filter) => span_ancestors
                 [&span.created_at]
                 .get_value(attribute, token)
