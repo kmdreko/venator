@@ -18,6 +18,7 @@ pub struct EventIndexes {
     // filenames: ...,
     // targets: ...,
     pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
+    pub roots: Vec<Timestamp>,
     pub attributes: BTreeMap<String, AttributeIndex>,
 }
 
@@ -28,6 +29,7 @@ impl EventIndexes {
             levels: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             instances: BTreeMap::new(),
             descendents: HashMap::new(),
+            roots: Vec::new(),
             attributes: BTreeMap::new(),
         }
     }
@@ -55,6 +57,11 @@ impl EventIndexes {
             let descendent_index = self.descendents.entry(*parent_span_key).or_default();
             let idx = descendent_index.upper_bound_via_expansion(&event_key);
             descendent_index.insert(idx, event_key);
+        }
+
+        if event.span_key.is_none() {
+            let idx = self.roots.upper_bound_via_expansion(&event_key);
+            self.roots.insert(idx, event_key);
         }
 
         for (attribute, attr_index) in &mut self.attributes {

@@ -62,6 +62,7 @@ impl IndexedEventFilter<'_> {
 
                 IndexedEventFilter::Single(index, None)
             }
+            BasicEventFilter::Root => IndexedEventFilter::Single(&event_indexes.roots, None),
             BasicEventFilter::Attribute(attribute, value_filter) => {
                 if let Some(attr_index) = event_indexes.attributes.get(&attribute) {
                     let filters = attr_index
@@ -421,6 +422,7 @@ pub enum BasicEventFilter {
     Level(Level),
     Instance(InstanceKey),
     Ancestor(SpanKey),
+    Root,
     Attribute(String, ValueFilter),
     Not(Box<BasicEventFilter>),
     And(Vec<BasicEventFilter>),
@@ -433,6 +435,7 @@ impl BasicEventFilter {
             BasicEventFilter::Level(_) => {}
             BasicEventFilter::Instance(_) => {}
             BasicEventFilter::Ancestor(_) => {}
+            BasicEventFilter::Root => {}
             BasicEventFilter::Attribute(_, _) => {}
             BasicEventFilter::Not(_) => {}
             BasicEventFilter::And(filters) => {
@@ -467,7 +470,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "stack" => Inherent,
+                "level" | "instance" | "parent" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -509,6 +512,24 @@ impl BasicEventFilter {
                     },
                     |_| Err(InputError::InvalidInstanceValue),
                     |_| Err(InputError::InvalidInstanceValue),
+                )?;
+            }
+            (Inherent, "parent") => {
+                validate_value_predicate(
+                    &predicate.value,
+                    |op, value| {
+                        if *op != ValueOperator::Eq {
+                            return Err(InputError::InvalidParentOperator);
+                        }
+
+                        if value != "none" {
+                            return Err(InputError::InvalidParentValue);
+                        }
+
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidParentValue),
+                    |_| Err(InputError::InvalidParentValue),
                 )?;
             }
             (Inherent, "stack") => {
@@ -562,7 +583,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "stack" => Inherent,
+                "level" | "instance" | "parent" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -615,6 +636,22 @@ impl BasicEventFilter {
                         .unwrap_or(InstanceKey::MIN);
 
                     Ok(BasicEventFilter::Instance(instance_key))
+                },
+                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidInstanceValue),
+            )?,
+            (Inherent, "parent") => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidParentOperator);
+                    }
+
+                    if value != "none" {
+                        return Err(InputError::InvalidParentValue);
+                    }
+
+                    Ok(BasicEventFilter::Root)
                 },
                 |_| Err(InputError::InvalidInstanceValue),
                 |_| Err(InputError::InvalidInstanceValue),
@@ -678,6 +715,7 @@ impl BasicEventFilter {
             BasicEventFilter::Ancestor(span_key) => {
                 event_ancestors[&event.key()].has_parent(*span_key)
             }
+            BasicEventFilter::Root => event.span_key.is_none(),
             BasicEventFilter::Attribute(attribute, value_filter) => event_ancestors[&event.key()]
                 .get_value(attribute, token)
                 .map(|v| value_filter.matches(v))
@@ -1516,18 +1554,22 @@ impl BasicSpanFilter {
                 }
             }
             (Inherent, "parent") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidParentValue),
-                };
+                validate_value_predicate(
+                    &predicate.value,
+                    |op, value| {
+                        if *op != ValueOperator::Eq {
+                            return Err(InputError::InvalidParentOperator);
+                        }
 
-                if value != "none" {
-                    return Err(InputError::InvalidParentValue);
-                }
+                        if value != "none" {
+                            return Err(InputError::InvalidParentValue);
+                        }
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidParentOperator);
-                }
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidParentValue),
+                    |_| Err(InputError::InvalidParentValue),
+                )?;
             }
             (Inherent, "stack") => {
                 let (op, value) = match &predicate.value {
@@ -1679,22 +1721,22 @@ impl BasicSpanFilter {
 
                 BasicSpanFilter::Created(filter)
             }
-            (Inherent, "parent") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidParentValue),
-                };
+            (Inherent, "parent") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidParentOperator);
+                    }
 
-                if value != "none" {
-                    return Err(InputError::InvalidParentValue);
-                }
+                    if value != "none" {
+                        return Err(InputError::InvalidParentValue);
+                    }
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidParentOperator);
-                }
-
-                BasicSpanFilter::Root
-            }
+                    Ok(BasicSpanFilter::Root)
+                },
+                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidInstanceValue),
+            )?,
             (Inherent, "stack") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
