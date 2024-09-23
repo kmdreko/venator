@@ -18,8 +18,8 @@ pub enum FilterPropertyKind {
 pub enum ValuePredicate {
     Not(Box<ValuePredicate>),
     Comparison(ValueOperator, String),
-    // Regex(String),
     Wildcard(String),
+    Regex(String),
     And(Vec<ValuePredicate>),
     Or(Vec<ValuePredicate>),
 }
@@ -72,6 +72,9 @@ impl Display for ValuePredicate {
                     write!(f, "{wildcard}")
                 }
             }
+            ValuePredicate::Regex(regex) => {
+                write!(f, "/{regex}/")
+            }
             ValuePredicate::And(inners) => {
                 write!(f, "({}", inners[0])?;
                 for inner in &inners[1..] {
@@ -121,7 +124,7 @@ impl Display for FilterPredicate {
 }
 
 fn needs_escapes(s: &str) -> bool {
-    s.contains(['"', '\\', '#', '@', ':', '<', '>', '=', '!'])
+    s.contains(['"', '\\', '/', '#', '@', ':', '<', '>', '=', '!'])
         || s.contains(|c: char| c.is_whitespace())
 }
 
@@ -312,9 +315,21 @@ mod parsers {
         delimited(char('('), group_list, char(')'))(input)
     }
 
+    fn regex_inner(input: &str) -> IResult<&str, &str> {
+        escaped(none_of("\\/"), '\\', one_of("/"))(input)
+    }
+
+    fn regex_value(input: &str) -> IResult<&str, ValuePredicate> {
+        let (input, regex) = delimited(char('/'), opt(regex_inner), char('/'))(input)?;
+
+        let regex = regex.unwrap_or_default().to_owned();
+
+        Ok((input, ValuePredicate::Regex(regex)))
+    }
+
     fn value(input: &str) -> IResult<&str, ValuePredicate> {
         let (input, not_count) = many0_count(not)(input)?;
-        let (input, value) = alt((grouped_value, bare_value))(input)?;
+        let (input, value) = alt((grouped_value, regex_value, bare_value))(input)?;
 
         let value = if not_count % 2 == 1 {
             ValuePredicate::Not(Box::new(value))

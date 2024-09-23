@@ -5,6 +5,7 @@ use std::ops::{Add, Range};
 use attribute::ValueFilter;
 use ghost_cell::GhostToken;
 use input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
+use regex::Regex;
 use serde::Deserialize;
 use wildcard::WildcardBuilder;
 
@@ -413,6 +414,7 @@ pub enum InputError {
     InvalidDisconnectedValue,
     MissingDisconnectedOperator,
     InvalidWildcardValue,
+    InvalidRegexValue,
 }
 
 pub enum BasicEventFilter {
@@ -531,6 +533,10 @@ impl BasicEventFilter {
                             .map_err(|_| InputError::InvalidWildcardValue)?;
                         Ok(())
                     },
+                    |regex| {
+                        Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                        Ok(())
+                    },
                 )?;
             }
         };
@@ -644,6 +650,10 @@ impl BasicEventFilter {
                 },
                 |wildcard| {
                     let value_filter = ValueFilter::from_wildcard(wildcard)?;
+                    Ok(BasicEventFilter::Attribute(name.to_owned(), value_filter))
+                },
+                |regex| {
+                    let value_filter = ValueFilter::from_regex(regex)?;
                     Ok(BasicEventFilter::Attribute(name.to_owned(), value_filter))
                 },
             )?,
@@ -1545,6 +1555,10 @@ impl BasicSpanFilter {
                             .map_err(|_| InputError::InvalidWildcardValue)?;
                         Ok(())
                     },
+                    |regex| {
+                        Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                        Ok(())
+                    },
                 )?;
             }
         }
@@ -1725,6 +1739,10 @@ impl BasicSpanFilter {
                 },
                 |wildcard| {
                     let value_filter = ValueFilter::from_wildcard(wildcard)?;
+                    Ok(BasicSpanFilter::Attribute(name.to_owned(), value_filter))
+                },
+                |regex| {
+                    let value_filter = ValueFilter::from_regex(regex)?;
                     Ok(BasicSpanFilter::Attribute(name.to_owned(), value_filter))
                 },
             )?,
@@ -2040,6 +2058,10 @@ impl BasicInstanceFilter {
                             .map_err(|_| InputError::InvalidWildcardValue)?;
                         Ok(())
                     },
+                    |regex| {
+                        Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                        Ok(())
+                    },
                 )?;
             }
         }
@@ -2140,6 +2162,13 @@ impl BasicInstanceFilter {
                         value_filter,
                     ))
                 },
+                |regex| {
+                    let value_filter = ValueFilter::from_regex(regex)?;
+                    Ok(BasicInstanceFilter::Attribute(
+                        name.to_owned(),
+                        value_filter,
+                    ))
+                },
             )?,
         };
 
@@ -2190,18 +2219,33 @@ fn validate_value_predicate(
     value: &ValuePredicate,
     comparison_validator: impl Fn(&ValueOperator, &str) -> Result<(), InputError> + Clone,
     wildcard_validator: impl Fn(&str) -> Result<(), InputError> + Clone,
+    regex_validator: impl Fn(&str) -> Result<(), InputError> + Clone,
 ) -> Result<(), InputError> {
     match value {
-        ValuePredicate::Not(predicate) => {
-            validate_value_predicate(predicate, comparison_validator, wildcard_validator)
-        }
+        ValuePredicate::Not(predicate) => validate_value_predicate(
+            predicate,
+            comparison_validator,
+            wildcard_validator,
+            regex_validator,
+        ),
         ValuePredicate::Comparison(op, value) => comparison_validator(op, value),
         ValuePredicate::Wildcard(wildcard) => wildcard_validator(wildcard),
+        ValuePredicate::Regex(regex) => regex_validator(regex),
         ValuePredicate::And(predicates) => predicates.iter().try_for_each(|p| {
-            validate_value_predicate(p, comparison_validator.clone(), wildcard_validator.clone())
+            validate_value_predicate(
+                p,
+                comparison_validator.clone(),
+                wildcard_validator.clone(),
+                regex_validator.clone(),
+            )
         }),
         ValuePredicate::Or(predicates) => predicates.iter().try_for_each(|p| {
-            validate_value_predicate(p, comparison_validator.clone(), wildcard_validator.clone())
+            validate_value_predicate(
+                p,
+                comparison_validator.clone(),
+                wildcard_validator.clone(),
+                regex_validator.clone(),
+            )
         }),
     }
 }
@@ -2211,13 +2255,20 @@ fn filterify_event_filter(
     comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicEventFilter, InputError>
         + Clone,
     wildcard_filterifier: impl Fn(String) -> Result<BasicEventFilter, InputError> + Clone,
+    regex_filterifier: impl Fn(String) -> Result<BasicEventFilter, InputError> + Clone,
 ) -> Result<BasicEventFilter, InputError> {
     match value {
-        ValuePredicate::Not(predicate) => Ok(BasicEventFilter::Not(Box::new(
-            filterify_event_filter(*predicate, comparison_filterifier, wildcard_filterifier)?,
-        ))),
+        ValuePredicate::Not(predicate) => {
+            Ok(BasicEventFilter::Not(Box::new(filterify_event_filter(
+                *predicate,
+                comparison_filterifier,
+                wildcard_filterifier,
+                regex_filterifier,
+            )?)))
+        }
         ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
         ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
+        ValuePredicate::Regex(regex) => regex_filterifier(regex),
         ValuePredicate::And(predicates) => Ok(BasicEventFilter::And(
             predicates
                 .into_iter()
@@ -2226,6 +2277,7 @@ fn filterify_event_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),
+                        regex_filterifier.clone(),
                     )
                 })
                 .collect::<Result<_, _>>()?,
@@ -2238,6 +2290,7 @@ fn filterify_event_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),
+                        regex_filterifier.clone(),
                     )
                 })
                 .collect::<Result<_, _>>()?,
@@ -2250,13 +2303,20 @@ fn filterify_span_filter(
     comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicSpanFilter, InputError>
         + Clone,
     wildcard_filterifier: impl Fn(String) -> Result<BasicSpanFilter, InputError> + Clone,
+    regex_filterifier: impl Fn(String) -> Result<BasicSpanFilter, InputError> + Clone,
 ) -> Result<BasicSpanFilter, InputError> {
     match value {
-        ValuePredicate::Not(predicate) => Ok(BasicSpanFilter::Not(Box::new(
-            filterify_span_filter(*predicate, comparison_filterifier, wildcard_filterifier)?,
-        ))),
+        ValuePredicate::Not(predicate) => {
+            Ok(BasicSpanFilter::Not(Box::new(filterify_span_filter(
+                *predicate,
+                comparison_filterifier,
+                wildcard_filterifier,
+                regex_filterifier,
+            )?)))
+        }
         ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
         ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
+        ValuePredicate::Regex(regex) => regex_filterifier(regex),
         ValuePredicate::And(predicates) => Ok(BasicSpanFilter::And(
             predicates
                 .into_iter()
@@ -2265,6 +2325,7 @@ fn filterify_span_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),
+                        regex_filterifier.clone(),
                     )
                 })
                 .collect::<Result<_, _>>()?,
@@ -2277,6 +2338,7 @@ fn filterify_span_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),
+                        regex_filterifier.clone(),
                     )
                 })
                 .collect::<Result<_, _>>()?,
@@ -2289,13 +2351,20 @@ fn filterify_instance_filter(
     comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicInstanceFilter, InputError>
         + Clone,
     wildcard_filterifier: impl Fn(String) -> Result<BasicInstanceFilter, InputError> + Clone,
+    regex_filterifier: impl Fn(String) -> Result<BasicInstanceFilter, InputError> + Clone,
 ) -> Result<BasicInstanceFilter, InputError> {
     match value {
         ValuePredicate::Not(predicate) => Ok(BasicInstanceFilter::Not(Box::new(
-            filterify_instance_filter(*predicate, comparison_filterifier, wildcard_filterifier)?,
+            filterify_instance_filter(
+                *predicate,
+                comparison_filterifier,
+                wildcard_filterifier,
+                regex_filterifier,
+            )?,
         ))),
         ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
         ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
+        ValuePredicate::Regex(regex) => regex_filterifier(regex),
         ValuePredicate::And(predicates) => Ok(BasicInstanceFilter::And(
             predicates
                 .into_iter()
@@ -2304,6 +2373,7 @@ fn filterify_instance_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),
+                        regex_filterifier.clone(),
                     )
                 })
                 .collect::<Result<_, _>>()?,
@@ -2316,6 +2386,7 @@ fn filterify_instance_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),
+                        regex_filterifier.clone(),
                     )
                 })
                 .collect::<Result<_, _>>()?,

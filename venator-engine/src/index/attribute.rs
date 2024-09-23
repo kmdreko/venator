@@ -194,6 +194,9 @@ impl AttributeIndex {
             ValueStringComparison::Wildcard(_) => {
                 filters.push((&self.strings.total, Some(filter.clone())));
             }
+            ValueStringComparison::Regex(_) => {
+                filters.push((&self.strings.total, Some(filter.clone())));
+            }
             ValueStringComparison::All => filters.push((&self.strings.total, None)),
         }
 

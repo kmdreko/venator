@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use regex::Regex;
 use wildcard::{Wildcard, WildcardBuilder};
 
 use crate::models::{Value, ValueOperator};
@@ -11,6 +12,7 @@ pub enum ValueStringComparison {
     None,
     Compare(ValueOperator, String),
     Wildcard(Wildcard<'static, u8>),
+    Regex(Regex),
     All,
 }
 
@@ -20,6 +22,7 @@ impl ValueStringComparison {
             ValueStringComparison::None => false,
             ValueStringComparison::Compare(op, rhs) => op.compare(lhs, rhs),
             ValueStringComparison::Wildcard(wildcard) => wildcard.is_match(lhs.as_bytes()),
+            ValueStringComparison::Regex(regex) => regex.is_match(lhs),
             ValueStringComparison::All => true,
         }
     }
@@ -297,6 +300,20 @@ impl ValueFilter {
             u128s: ValueComparison::None,
             bools: ValueComparison::None,
             strings: ValueStringComparison::Wildcard(wildcard),
+        })
+    }
+
+    pub fn from_regex(regex: String) -> Result<ValueFilter, InputError> {
+        let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
+
+        Ok(ValueFilter {
+            f64s: ValueComparison::None,
+            i64s: ValueComparison::None,
+            u64s: ValueComparison::None,
+            i128s: ValueComparison::None,
+            u128s: ValueComparison::None,
+            bools: ValueComparison::None,
+            strings: ValueStringComparison::Regex(regex),
         })
     }
 
