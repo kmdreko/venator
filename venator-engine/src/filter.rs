@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ops::{Add, Range};
 
-use attribute::ValueFilter;
+use attribute::{ValueFilter, ValueStringComparison};
 use ghost_cell::GhostToken;
 use input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
 use regex::Regex;
@@ -943,15 +943,34 @@ impl IndexedSpanFilter<'_> {
 
                 IndexedSpanFilter::Single(instance_index, None)
             }
-            BasicSpanFilter::Name(value) => {
-                let name_index = span_indexes
-                    .names
-                    .get(&value)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
+            BasicSpanFilter::Name(filter) => match filter {
+                ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
+                ValueStringComparison::Compare(ValueOperator::Eq, value) => {
+                    let name_index = span_indexes
+                        .names
+                        .get(&value)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
 
-                IndexedSpanFilter::Single(name_index, None)
-            }
+                    IndexedSpanFilter::Single(name_index, None)
+                }
+                ValueStringComparison::Compare(_, _) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Name(filter)),
+                ),
+                ValueStringComparison::Wildcard(_) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Name(filter)),
+                ),
+                ValueStringComparison::Regex(_) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Name(filter)),
+                ),
+                ValueStringComparison::All => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::Name(filter)),
+                ),
+            },
             BasicSpanFilter::Ancestor(ancestor_key) => {
                 let index = &span_indexes.descendents[&ancestor_key];
 
@@ -1450,7 +1469,7 @@ pub enum BasicSpanFilter {
     Duration(DurationFilter),
     Created(TimestampComparisonFilter),
     Instance(InstanceKey),
-    Name(String),
+    Name(ValueStringComparison),
     Ancestor(SpanKey),
     Root,
     Parent(SpanKey),
@@ -1542,16 +1561,21 @@ impl BasicSpanFilter {
                 |_| Err(InputError::InvalidDurationValue),
                 |_| Err(InputError::InvalidDurationValue),
             )?,
-            (Inherent, "name") => {
-                let (op, _value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidNameValue),
-                };
-
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidNameOperator);
-                }
-            }
+            (Inherent, "name") => validate_value_predicate(
+                &predicate.value,
+                |_op, _value| Ok(()),
+                |wildcard| {
+                    WildcardBuilder::new(wildcard.as_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
+                    Ok(())
+                },
+                |regex| {
+                    Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                    Ok(())
+                },
+            )?,
             (Inherent, "instance") => {
                 validate_value_predicate(
                     &predicate.value,
@@ -1702,18 +1726,28 @@ impl BasicSpanFilter {
                 |_| Err(InputError::InvalidDurationValue),
                 |_| Err(InputError::InvalidDurationValue),
             )?,
-            (Inherent, "name") => {
-                let (op, value) = match predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidNameValue),
-                };
+            (Inherent, "name") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    let filter = ValueStringComparison::Compare(op, value);
+                    Ok(BasicSpanFilter::Name(filter))
+                },
+                |wildcard| {
+                    let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
 
-                if op != ValueOperator::Eq {
-                    return Err(InputError::InvalidNameOperator);
-                }
+                    let filter = ValueStringComparison::Wildcard(wildcard);
+                    Ok(BasicSpanFilter::Name(filter))
+                },
+                |regex| {
+                    let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
 
-                BasicSpanFilter::Name(value)
-            }
+                    let filter = ValueStringComparison::Regex(regex);
+                    Ok(BasicSpanFilter::Name(filter))
+                },
+            )?,
             (Inherent, "instance") => filterify_span_filter(
                 predicate.value,
                 |op, value| {
@@ -1832,6 +1866,7 @@ impl BasicSpanFilter {
 
 pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
+    Name(ValueStringComparison),
     Parent(SpanKey),
     Attribute(String, ValueFilter),
 }
@@ -1847,6 +1882,7 @@ impl NonIndexedSpanFilter {
         let span = storage.get_span(entry).unwrap();
         match self {
             NonIndexedSpanFilter::Duration(filter) => filter.matches(span.duration()),
+            NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
             NonIndexedSpanFilter::Parent(parent_key) => span.parent_key == Some(*parent_key),
             NonIndexedSpanFilter::Attribute(attribute, value_filter) => span_ancestors
                 [&span.created_at]

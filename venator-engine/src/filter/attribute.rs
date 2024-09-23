@@ -17,7 +17,7 @@ pub enum ValueStringComparison {
 }
 
 impl ValueStringComparison {
-    fn compare(&self, lhs: &str) -> bool {
+    pub fn matches(&self, lhs: &str) -> bool {
         match self {
             ValueStringComparison::None => false,
             ValueStringComparison::Compare(op, rhs) => op.compare(lhs, rhs),
@@ -36,7 +36,7 @@ pub enum ValueComparison<T> {
 }
 
 impl<T> ValueComparison<T> {
-    fn compare(&self, lhs: &T) -> bool
+    fn matches(&self, lhs: &T) -> bool
     where
         T: PartialOrd,
     {
@@ -319,13 +319,13 @@ impl ValueFilter {
 
     pub fn matches(&self, value: &Value) -> bool {
         match value {
-            Value::F64(value) => self.f64s.compare(value),
-            Value::I64(value) => self.i64s.compare(value),
-            Value::U64(value) => self.u64s.compare(value),
-            Value::I128(value) => self.i128s.compare(value),
-            Value::U128(value) => self.u128s.compare(value),
-            Value::Bool(value) => self.bools.compare(value),
-            Value::Str(value) => self.strings.compare(value),
+            Value::F64(value) => self.f64s.matches(value),
+            Value::I64(value) => self.i64s.matches(value),
+            Value::U64(value) => self.u64s.matches(value),
+            Value::I128(value) => self.i128s.matches(value),
+            Value::U128(value) => self.u128s.matches(value),
+            Value::Bool(value) => self.bools.matches(value),
+            Value::Str(value) => self.strings.matches(value),
         }
     }
 }
