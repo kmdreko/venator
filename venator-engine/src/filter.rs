@@ -1461,7 +1461,7 @@ impl BasicSpanFilter {
                 };
             }
             (Inherent, "duration") => {
-                let (op, value) = match &predicate.value {
+                let (_op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
                     _ => return Err(InputError::InvalidDurationValue),
                 };
@@ -1469,13 +1469,6 @@ impl BasicSpanFilter {
                 let _: u64 = value
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
-
-                match op {
-                    Gt => {}
-                    Lt => {}
-                    Eq => return Err(InputError::MissingDurationOperator),
-                    _ => return Err(InputError::InvalidDurationOperator),
-                }
             }
             (Inherent, "name") => {
                 let (op, _value) = match &predicate.value {
@@ -1619,7 +1612,7 @@ impl BasicSpanFilter {
                 }
             }
             (Inherent, "duration") => {
-                let (op, value) = match &predicate.value {
+                let (&op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
                     _ => return Err(InputError::InvalidDurationValue),
                 };
@@ -1628,14 +1621,7 @@ impl BasicSpanFilter {
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
 
-                let filter = match op {
-                    Gt => DurationFilter::Gt(measure),
-                    Lt => DurationFilter::Lt(measure),
-                    Eq => return Err(InputError::MissingDurationOperator),
-                    _ => return Err(InputError::InvalidDurationOperator),
-                };
-
-                BasicSpanFilter::Duration(filter)
+                BasicSpanFilter::Duration(DurationFilter { op, measure })
             }
             (Inherent, "name") => {
                 let (op, value) = match predicate.value {
@@ -1767,13 +1753,7 @@ impl NonIndexedSpanFilter {
     ) -> bool {
         let span = storage.get_span(entry).unwrap();
         match self {
-            NonIndexedSpanFilter::Duration(filter) => span
-                .duration()
-                .map(|duration| match filter {
-                    DurationFilter::Gt(measure) => duration > *measure,
-                    DurationFilter::Lt(measure) => duration < *measure,
-                })
-                .unwrap_or(false),
+            NonIndexedSpanFilter::Duration(filter) => filter.matches(span.duration()),
             NonIndexedSpanFilter::Attribute(attribute, value_filter) => span_ancestors
                 [&span.created_at]
                 .get_value(attribute, token)
@@ -1784,22 +1764,39 @@ impl NonIndexedSpanFilter {
 }
 
 #[derive(Debug, PartialEq, Clone, Deserialize)]
-pub enum DurationFilter {
-    Gt(u64),
-    Lt(u64),
+pub struct DurationFilter {
+    op: ValueOperator,
+    measure: u64,
 }
 
 impl DurationFilter {
+    pub fn matches(&self, duration: Option<u64>) -> bool {
+        let Some(duration) = duration else {
+            return false; // never match an incomplete duration
+        };
+
+        self.op.compare(&duration, &self.measure)
+    }
+
     pub fn matches_duration_range(&self, range: &Range<u64>) -> Option<bool> {
-        match self {
+        match self.op {
             // --y--[ p ]--n--
-            DurationFilter::Gt(measure) if *measure <= range.start => Some(true),
-            DurationFilter::Gt(measure) if *measure > range.end => Some(false),
-            DurationFilter::Gt(_) => None,
+            ValueOperator::Gt if self.measure <= range.start => Some(true),
+            ValueOperator::Gt if self.measure >= range.end => Some(false),
+            ValueOperator::Gt => None,
+            ValueOperator::Gte if self.measure < range.start => Some(true),
+            ValueOperator::Gte if self.measure > range.end => Some(false),
+            ValueOperator::Gte => None,
+
+            ValueOperator::Eq => Some(range.contains(&self.measure)),
+
             // --n--[ p ]--y--
-            DurationFilter::Lt(measure) if *measure >= range.end => Some(true),
-            DurationFilter::Lt(measure) if *measure < range.start => Some(false),
-            DurationFilter::Lt(_) => None,
+            ValueOperator::Lt if self.measure >= range.end => Some(true),
+            ValueOperator::Lt if self.measure <= range.start => Some(false),
+            ValueOperator::Lt => None,
+            ValueOperator::Lte if self.measure > range.end => Some(true),
+            ValueOperator::Lte if self.measure < range.start => Some(false),
+            ValueOperator::Lte => None,
         }
     }
 }
@@ -1996,7 +1993,7 @@ impl BasicInstanceFilter {
 
         match (property_kind, predicate.property.as_str()) {
             (Inherent, "duration") => {
-                let (op, value) = match &predicate.value {
+                let (_op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
                     _ => return Err(InputError::InvalidDurationValue),
                 };
@@ -2004,13 +2001,6 @@ impl BasicInstanceFilter {
                 let _: u64 = value
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
-
-                match op {
-                    Gt => {}
-                    Lt => {}
-                    Eq => return Err(InputError::MissingDurationOperator),
-                    _ => return Err(InputError::InvalidDurationOperator),
-                }
             }
             (Inherent, "connected") => {
                 let (op, value) = match &predicate.value {
@@ -2085,7 +2075,7 @@ impl BasicInstanceFilter {
 
         let filter = match (property_kind, predicate.property.as_str()) {
             (Inherent, "duration") => {
-                let (op, value) = match &predicate.value {
+                let (&op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
                     _ => return Err(InputError::InvalidDurationValue),
                 };
@@ -2094,14 +2084,7 @@ impl BasicInstanceFilter {
                     .parse()
                     .map_err(|_| InputError::InvalidDurationValue)?;
 
-                let filter = match op {
-                    Gt => DurationFilter::Gt(measure),
-                    Lt => DurationFilter::Lt(measure),
-                    Eq => return Err(InputError::MissingDurationOperator),
-                    _ => return Err(InputError::InvalidDurationOperator),
-                };
-
-                BasicInstanceFilter::Duration(filter)
+                BasicInstanceFilter::Duration(DurationFilter { op, measure })
             }
             (Inherent, "connected") => {
                 let (op, value) = match &predicate.value {
@@ -2178,13 +2161,7 @@ impl BasicInstanceFilter {
     pub fn matches<S: Storage>(&self, storage: &S, entry: Timestamp) -> bool {
         let instance = storage.get_instance(entry).unwrap();
         match self {
-            BasicInstanceFilter::Duration(filter) => instance
-                .duration()
-                .map(|duration| match filter {
-                    DurationFilter::Gt(measure) => duration > *measure,
-                    DurationFilter::Lt(measure) => duration < *measure,
-                })
-                .unwrap_or(false),
+            BasicInstanceFilter::Duration(filter) => filter.matches(instance.duration()),
             BasicInstanceFilter::Connected(filter) => match filter {
                 TimestampComparisonFilter::Gt(timestamp) => instance.connected_at > *timestamp,
                 TimestampComparisonFilter::Gte(timestamp) => instance.connected_at >= *timestamp,
