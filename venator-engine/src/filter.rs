@@ -85,6 +85,37 @@ impl IndexedEventFilter<'_> {
                     Some(NonIndexedEventFilter::Target(filter)),
                 ),
             },
+            BasicEventFilter::File(filter) => match &filter.name {
+                ValueStringComparison::None => IndexedEventFilter::Single(&[], None),
+                ValueStringComparison::Compare(ValueOperator::Eq, value) => {
+                    let filename_index = event_indexes
+                        .filenames
+                        .get(value)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+
+                    IndexedEventFilter::Single(
+                        filename_index,
+                        filter.line.map(|_| NonIndexedEventFilter::File(filter)),
+                    )
+                }
+                ValueStringComparison::Compare(_, _) => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::File(filter)),
+                ),
+                ValueStringComparison::Wildcard(_) => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::File(filter)),
+                ),
+                ValueStringComparison::Regex(_) => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::File(filter)),
+                ),
+                ValueStringComparison::All => IndexedEventFilter::Single(
+                    &event_indexes.all,
+                    Some(NonIndexedEventFilter::File(filter)),
+                ),
+            },
             BasicEventFilter::Ancestor(ancestor_key) => {
                 let index = &event_indexes.descendents[&ancestor_key];
 
@@ -449,12 +480,37 @@ pub enum InputError {
     MissingDisconnectedOperator,
     InvalidWildcardValue,
     InvalidRegexValue,
+    InvalidFileOperator,
+    InvalidFileValue,
+}
+
+pub struct FileFilter {
+    name: ValueStringComparison,
+    line: Option<u32>,
+}
+
+impl FileFilter {
+    fn matches(&self, file_name: Option<&str>, file_line: Option<u32>) -> bool {
+        let Some(file_name) = file_name else {
+            return false; // entities without a filename cannot match a #file
+        };
+
+        if !self.name.matches(file_name) {
+            return false;
+        }
+
+        match self.line {
+            Some(line) => Some(line) == file_line,
+            None => true,
+        }
+    }
 }
 
 pub enum BasicEventFilter {
     Level(Level),
     Instance(InstanceKey),
     Target(ValueStringComparison),
+    File(FileFilter),
     Ancestor(SpanKey),
     Root,
     Parent(SpanKey),
@@ -470,6 +526,7 @@ impl BasicEventFilter {
             BasicEventFilter::Level(_) => {}
             BasicEventFilter::Instance(_) => {}
             BasicEventFilter::Target(_) => {}
+            BasicEventFilter::File(_) => {}
             BasicEventFilter::Ancestor(_) => {}
             BasicEventFilter::Root => {}
             BasicEventFilter::Parent(_) => {}
@@ -507,7 +564,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "parent" | "target" | "stack" => Inherent,
+                "level" | "instance" | "parent" | "target" | "file" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -578,6 +635,41 @@ impl BasicEventFilter {
                         .without_one_metasymbol()
                         .build()
                         .map_err(|_| InputError::InvalidWildcardValue)?;
+                    Ok(())
+                },
+                |regex| {
+                    Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                    Ok(())
+                },
+            )?,
+            (Inherent, "file") => validate_value_predicate(
+                &predicate.value,
+                |op, value| {
+                    if *op != ValueOperator::Eq {
+                        return Err(InputError::InvalidFileOperator);
+                    }
+
+                    if let Some((_name, line)) = value.rsplit_once(':') {
+                        let _: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+                    }
+
+                    Ok(())
+                },
+                |wildcard| {
+                    if let Some((name, line)) = wildcard.rsplit_once(':') {
+                        let _: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+
+                        WildcardBuilder::new(name.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                    } else {
+                        WildcardBuilder::new(wildcard.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                    }
+
                     Ok(())
                 },
                 |regex| {
@@ -744,6 +836,71 @@ impl BasicEventFilter {
                     Ok(BasicEventFilter::Target(filter))
                 },
             )?,
+            (Inherent, "file") => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidFileOperator);
+                    }
+
+                    let filter = if let Some((name, line)) = value.rsplit_once(':') {
+                        let line: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+
+                        FileFilter {
+                            name: ValueStringComparison::Compare(
+                                ValueOperator::Eq,
+                                name.to_owned(),
+                            ),
+                            line: Some(line),
+                        }
+                    } else {
+                        FileFilter {
+                            name: ValueStringComparison::Compare(
+                                ValueOperator::Eq,
+                                value.to_owned(),
+                            ),
+                            line: None,
+                        }
+                    };
+
+                    Ok(BasicEventFilter::File(filter))
+                },
+                |wildcard| {
+                    let filter = if let Some((name, line)) = wildcard.rsplit_once(':') {
+                        let line: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+
+                        let wildcard = WildcardBuilder::from_owned(name.to_owned().into_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                        FileFilter {
+                            name: ValueStringComparison::Wildcard(wildcard),
+                            line: Some(line),
+                        }
+                    } else {
+                        let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                        FileFilter {
+                            name: ValueStringComparison::Wildcard(wildcard),
+                            line: None,
+                        }
+                    };
+
+                    Ok(BasicEventFilter::File(filter))
+                },
+                |regex| {
+                    let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    Ok(BasicEventFilter::File(FileFilter {
+                        name: ValueStringComparison::Regex(regex),
+                        line: None,
+                    }))
+                },
+            )?,
             (Inherent, "stack") => {
                 let (op, value) = match &predicate.value {
                     ValuePredicate::Comparison(op, value) => (op, value),
@@ -801,6 +958,9 @@ impl BasicEventFilter {
             BasicEventFilter::Level(level) => event.level == *level,
             BasicEventFilter::Instance(instance_key) => event.instance_key == *instance_key,
             BasicEventFilter::Target(filter) => filter.matches(&event.target),
+            BasicEventFilter::File(filter) => {
+                filter.matches(event.file_name.as_deref(), event.file_line)
+            }
             BasicEventFilter::Ancestor(span_key) => {
                 event_ancestors[&event.key()].has_parent(*span_key)
             }
@@ -826,6 +986,7 @@ impl BasicEventFilter {
 pub enum NonIndexedEventFilter {
     Parent(SpanKey),
     Target(ValueStringComparison),
+    File(FileFilter),
     Attribute(String, Box<ValueFilter>),
 }
 
@@ -841,6 +1002,9 @@ impl NonIndexedEventFilter {
         match self {
             NonIndexedEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
             NonIndexedEventFilter::Target(filter) => filter.matches(&event.target),
+            NonIndexedEventFilter::File(filter) => {
+                filter.matches(event.file_name.as_deref(), event.file_line)
+            }
             NonIndexedEventFilter::Attribute(attribute, value_filter) => event_ancestors
                 [&event.timestamp]
                 .get_value(attribute, token)
@@ -1067,6 +1231,37 @@ impl IndexedSpanFilter<'_> {
                 ValueStringComparison::All => IndexedSpanFilter::Single(
                     &span_indexes.all,
                     Some(NonIndexedSpanFilter::Target(filter)),
+                ),
+            },
+            BasicSpanFilter::File(filter) => match &filter.name {
+                ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
+                ValueStringComparison::Compare(ValueOperator::Eq, value) => {
+                    let filename_index = span_indexes
+                        .filenames
+                        .get(value)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default();
+
+                    IndexedSpanFilter::Single(
+                        filename_index,
+                        filter.line.map(|_| NonIndexedSpanFilter::File(filter)),
+                    )
+                }
+                ValueStringComparison::Compare(_, _) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::File(filter)),
+                ),
+                ValueStringComparison::Wildcard(_) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::File(filter)),
+                ),
+                ValueStringComparison::Regex(_) => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::File(filter)),
+                ),
+                ValueStringComparison::All => IndexedSpanFilter::Single(
+                    &span_indexes.all,
+                    Some(NonIndexedSpanFilter::File(filter)),
                 ),
             },
             BasicSpanFilter::Ancestor(ancestor_key) => {
@@ -1569,6 +1764,7 @@ pub enum BasicSpanFilter {
     Instance(InstanceKey),
     Name(ValueStringComparison),
     Target(ValueStringComparison),
+    File(FileFilter),
     Ancestor(SpanKey),
     Root,
     Parent(SpanKey),
@@ -1587,6 +1783,7 @@ impl BasicSpanFilter {
             BasicSpanFilter::Instance(_) => {}
             BasicSpanFilter::Name(_) => {}
             BasicSpanFilter::Target(_) => {}
+            BasicSpanFilter::File(_) => {}
             BasicSpanFilter::Ancestor(_) => {}
             BasicSpanFilter::Root => {}
             BasicSpanFilter::Parent(_) => {}
@@ -1624,8 +1821,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "duration" | "name" | "target" | "parent" | "created"
-                | "stack" => Inherent,
+                "level" | "instance" | "duration" | "name" | "target" | "file" | "parent"
+                | "created" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -1683,6 +1880,41 @@ impl BasicSpanFilter {
                         .without_one_metasymbol()
                         .build()
                         .map_err(|_| InputError::InvalidWildcardValue)?;
+                    Ok(())
+                },
+                |regex| {
+                    Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                    Ok(())
+                },
+            )?,
+            (Inherent, "file") => validate_value_predicate(
+                &predicate.value,
+                |op, value| {
+                    if *op != ValueOperator::Eq {
+                        return Err(InputError::InvalidFileOperator);
+                    }
+
+                    if let Some((_name, line)) = value.rsplit_once(':') {
+                        let _: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+                    }
+
+                    Ok(())
+                },
+                |wildcard| {
+                    if let Some((name, line)) = wildcard.rsplit_once(':') {
+                        let _: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+
+                        WildcardBuilder::new(name.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                    } else {
+                        WildcardBuilder::new(wildcard.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                    }
+
                     Ok(())
                 },
                 |regex| {
@@ -1792,8 +2024,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "duration" | "name" | "target" | "parent" | "created"
-                | "stack" => Inherent,
+                "level" | "instance" | "duration" | "name" | "target" | "file" | "parent"
+                | "created" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -1881,6 +2113,71 @@ impl BasicSpanFilter {
 
                     let filter = ValueStringComparison::Regex(regex);
                     Ok(BasicSpanFilter::Target(filter))
+                },
+            )?,
+            (Inherent, "file") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidFileOperator);
+                    }
+
+                    let filter = if let Some((name, line)) = value.rsplit_once(':') {
+                        let line: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+
+                        FileFilter {
+                            name: ValueStringComparison::Compare(
+                                ValueOperator::Eq,
+                                name.to_owned(),
+                            ),
+                            line: Some(line),
+                        }
+                    } else {
+                        FileFilter {
+                            name: ValueStringComparison::Compare(
+                                ValueOperator::Eq,
+                                value.to_owned(),
+                            ),
+                            line: None,
+                        }
+                    };
+
+                    Ok(BasicSpanFilter::File(filter))
+                },
+                |wildcard| {
+                    let filter = if let Some((name, line)) = wildcard.rsplit_once(':') {
+                        let line: u32 = line.parse().map_err(|_| InputError::InvalidFileValue)?;
+
+                        let wildcard = WildcardBuilder::from_owned(name.to_owned().into_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                        FileFilter {
+                            name: ValueStringComparison::Wildcard(wildcard),
+                            line: Some(line),
+                        }
+                    } else {
+                        let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                        FileFilter {
+                            name: ValueStringComparison::Wildcard(wildcard),
+                            line: None,
+                        }
+                    };
+
+                    Ok(BasicSpanFilter::File(filter))
+                },
+                |regex| {
+                    let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    Ok(BasicSpanFilter::File(FileFilter {
+                        name: ValueStringComparison::Regex(regex),
+                        line: None,
+                    }))
                 },
             )?,
             (Inherent, "instance") => filterify_span_filter(
@@ -2003,6 +2300,7 @@ pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Name(ValueStringComparison),
     Target(ValueStringComparison),
+    File(FileFilter),
     Parent(SpanKey),
     Attribute(String, ValueFilter),
 }
@@ -2020,6 +2318,9 @@ impl NonIndexedSpanFilter {
             NonIndexedSpanFilter::Duration(filter) => filter.matches(span.duration()),
             NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
             NonIndexedSpanFilter::Target(filter) => filter.matches(&span.target),
+            NonIndexedSpanFilter::File(filter) => {
+                filter.matches(span.file_name.as_deref(), span.file_line)
+            }
             NonIndexedSpanFilter::Parent(parent_key) => span.parent_key == Some(*parent_key),
             NonIndexedSpanFilter::Attribute(attribute, value_filter) => span_ancestors
                 [&span.created_at]

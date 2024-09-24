@@ -15,8 +15,8 @@ pub struct EventIndexes {
     pub all: Vec<Timestamp>,
     pub levels: [Vec<Timestamp>; 5],
     pub instances: BTreeMap<InstanceKey, Vec<Timestamp>>,
-    // filenames: ...,
     pub targets: BTreeMap<String, Vec<Timestamp>>,
+    pub filenames: BTreeMap<String, Vec<Timestamp>>,
     pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
     pub roots: Vec<Timestamp>,
     pub attributes: BTreeMap<String, AttributeIndex>,
@@ -29,6 +29,7 @@ impl EventIndexes {
             levels: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             instances: BTreeMap::new(),
             targets: BTreeMap::new(),
+            filenames: BTreeMap::new(),
             descendents: HashMap::new(),
             roots: Vec::new(),
             attributes: BTreeMap::new(),
@@ -57,6 +58,12 @@ impl EventIndexes {
         let target_index = self.targets.entry(event.target.clone()).or_default();
         let idx = target_index.upper_bound_via_expansion(&event_key);
         target_index.insert(idx, event_key);
+
+        if let Some(filename) = &event.file_name {
+            let filename_index = self.filenames.entry(filename.clone()).or_default();
+            let idx = filename_index.upper_bound_via_expansion(&event_key);
+            filename_index.insert(idx, event_key);
+        }
 
         for (parent_span_key, _) in &event_ancestors.0[0..event_ancestors.0.len() - 1] {
             let descendent_index = self.descendents.entry(*parent_span_key).or_default();
@@ -107,8 +114,8 @@ pub struct SpanIndexes {
     pub durations: SpanDurationIndex,
     pub instances: BTreeMap<InstanceKey, Vec<Timestamp>>,
     pub names: BTreeMap<String, Vec<Timestamp>>,
-    // filenames: ...,
     pub targets: BTreeMap<String, Vec<Timestamp>>,
+    pub filenames: BTreeMap<String, Vec<Timestamp>>,
     pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
     pub roots: Vec<Timestamp>,
     pub attributes: BTreeMap<String, AttributeIndex>,
@@ -123,6 +130,7 @@ impl SpanIndexes {
             instances: BTreeMap::new(),
             names: BTreeMap::new(),
             targets: BTreeMap::new(),
+            filenames: BTreeMap::new(),
             descendents: HashMap::new(),
             roots: Vec::new(),
             attributes: BTreeMap::new(),
@@ -170,6 +178,12 @@ impl SpanIndexes {
         let target_index = self.targets.entry(span.target.clone()).or_default();
         let idx = target_index.upper_bound_via_expansion(&span_key);
         target_index.insert(idx, span_key);
+
+        if let Some(filename) = &span.file_name {
+            let filename_index = self.filenames.entry(filename.clone()).or_default();
+            let idx = filename_index.upper_bound_via_expansion(&span_key);
+            filename_index.insert(idx, span_key);
+        }
 
         self.descendents.insert(span_key, vec![span_key]);
         for (parent_span_key, _) in &span_ancestors.0[0..span_ancestors.0.len() - 1] {
