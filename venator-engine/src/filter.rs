@@ -678,16 +678,20 @@ impl BasicEventFilter {
                 },
             )?,
             (Inherent, "stack") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidStackValue),
-                };
+                validate_value_predicate(
+                    &predicate.value,
+                    |op, value| {
+                        if *op != ValueOperator::Eq {
+                            return Err(InputError::InvalidStackOperator);
+                        }
 
-                let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+                        let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidStackOperator);
-                }
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidStackValue),
+                    |_| Err(InputError::InvalidStackValue),
+                )?;
             }
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
@@ -901,30 +905,30 @@ impl BasicEventFilter {
                     }))
                 },
             )?,
-            (Inherent, "stack") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidStackValue),
-                };
+            (Inherent, "stack") => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidStackOperator);
+                    }
 
-                let (instance_id, span_id) =
-                    parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+                    let (instance_id, span_id) =
+                        parse_full_span_id(&value).ok_or(InputError::InvalidStackValue)?;
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidStackOperator);
-                }
+                    let instance_key = instance_key_map
+                        .get(&instance_id)
+                        .copied()
+                        .unwrap_or(InstanceKey::MIN);
+                    let span_key = span_key_map
+                        .get(&(instance_key, span_id))
+                        .copied()
+                        .unwrap_or(SpanKey::MIN);
 
-                let instance_key = instance_key_map
-                    .get(&instance_id)
-                    .copied()
-                    .unwrap_or(InstanceKey::MIN);
-                let span_key = span_key_map
-                    .get(&(instance_key, span_id))
-                    .copied()
-                    .unwrap_or(SpanKey::MIN);
-
-                BasicEventFilter::Ancestor(span_key)
-            }
+                    Ok(BasicEventFilter::Ancestor(span_key))
+                },
+                |_| Err(InputError::InvalidStackValue),
+                |_| Err(InputError::InvalidStackValue),
+            )?,
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
@@ -1974,16 +1978,20 @@ impl BasicSpanFilter {
                 )?;
             }
             (Inherent, "stack") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidStackValue),
-                };
+                validate_value_predicate(
+                    &predicate.value,
+                    |op, value| {
+                        if *op != ValueOperator::Eq {
+                            return Err(InputError::InvalidStackOperator);
+                        }
 
-                let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+                        let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidStackOperator);
-                }
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidStackValue),
+                    |_| Err(InputError::InvalidStackValue),
+                )?;
             }
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
@@ -2248,30 +2256,30 @@ impl BasicSpanFilter {
                 |_| Err(InputError::InvalidInstanceValue),
                 |_| Err(InputError::InvalidInstanceValue),
             )?,
-            (Inherent, "stack") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidStackValue),
-                };
+            (Inherent, "stack") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    if op != ValueOperator::Eq {
+                        return Err(InputError::InvalidStackOperator);
+                    }
 
-                let (instance_id, span_id) =
-                    parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+                    let (instance_id, span_id) =
+                        parse_full_span_id(&value).ok_or(InputError::InvalidStackValue)?;
 
-                if *op != ValueOperator::Eq {
-                    return Err(InputError::InvalidStackOperator);
-                }
+                    let instance_key = instance_key_map
+                        .get(&instance_id)
+                        .copied()
+                        .unwrap_or(InstanceKey::MIN);
+                    let span_key = span_key_map
+                        .get(&(instance_key, span_id))
+                        .copied()
+                        .unwrap_or(SpanKey::MIN);
 
-                let instance_key = instance_key_map
-                    .get(&instance_id)
-                    .copied()
-                    .unwrap_or(InstanceKey::MIN);
-                let span_key = span_key_map
-                    .get(&(instance_key, span_id))
-                    .copied()
-                    .unwrap_or(SpanKey::MIN);
-
-                BasicSpanFilter::Ancestor(span_key)
-            }
+                    Ok(BasicSpanFilter::Ancestor(span_key))
+                },
+                |_| Err(InputError::InvalidStackValue),
+                |_| Err(InputError::InvalidStackValue),
+            )?,
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
