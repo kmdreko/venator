@@ -469,6 +469,7 @@ pub enum InputError {
     MissingDurationOperator,
     InvalidDurationOperator,
     InvalidCreatedValue,
+    InvalidClosedValue,
     InvalidParentValue,
     InvalidParentOperator,
     InvalidStackValue,
@@ -1172,6 +1173,66 @@ impl IndexedSpanFilter<'_> {
                     IndexedSpanFilter::Single(&span_indexes.all[..idx], None)
                 }
             },
+            BasicSpanFilter::Closed(op, value) => {
+                let filters = span_indexes.durations.to_stratified_indexes();
+                let filters = filters
+                    .into_iter()
+                    .map(|(index, range)| {
+                        match op {
+                            ValueOperator::Gt => {
+                                let v = value.get().saturating_sub(range.end - 1); // use the max of range
+                                let v = Timestamp::new(v).unwrap_or(Timestamp::MIN);
+                                let idx = index.upper_bound(&v);
+                                IndexedSpanFilter::Single(
+                                    &index[idx..],
+                                    Some(NonIndexedSpanFilter::Closed(op, value)),
+                                )
+                            }
+                            ValueOperator::Gte => {
+                                let v = value.get().saturating_sub(range.end - 1); // use the max of range
+                                let v = Timestamp::new(v).unwrap_or(Timestamp::MIN);
+                                let idx = index.lower_bound(&v);
+                                IndexedSpanFilter::Single(
+                                    &index[idx..],
+                                    Some(NonIndexedSpanFilter::Closed(op, value)),
+                                )
+                            }
+                            ValueOperator::Eq => {
+                                let vstart = value.get().saturating_sub(range.end - 1); // use the max of range
+                                let vstart = Timestamp::new(vstart).unwrap_or(Timestamp::MIN);
+                                let vend = value.get().saturating_sub(range.start); // use the min of range
+                                let vend = Timestamp::new(vend).unwrap_or(Timestamp::MIN);
+                                let start = index.lower_bound(&vstart);
+                                let end = index.upper_bound(&vend);
+                                IndexedSpanFilter::Single(
+                                    &index[start..end],
+                                    Some(NonIndexedSpanFilter::Closed(op, value)),
+                                )
+                            }
+                            ValueOperator::Lt => {
+                                let v = value.get().saturating_sub(range.start); // use the min of range
+                                let v = Timestamp::new(v).unwrap_or(Timestamp::MIN);
+                                let idx = index.lower_bound(&v);
+                                IndexedSpanFilter::Single(
+                                    &index[..idx],
+                                    Some(NonIndexedSpanFilter::Closed(op, value)),
+                                )
+                            }
+                            ValueOperator::Lte => {
+                                let v = value.get().saturating_sub(range.start); // use the min of range
+                                let v = Timestamp::new(v).unwrap_or(Timestamp::MIN);
+                                let idx = index.upper_bound(&v);
+                                IndexedSpanFilter::Single(
+                                    &index[..idx],
+                                    Some(NonIndexedSpanFilter::Closed(op, value)),
+                                )
+                            }
+                        }
+                    })
+                    .collect();
+
+                IndexedSpanFilter::Or(filters)
+            }
             BasicSpanFilter::Instance(instance_key) => {
                 let instance_index = span_indexes
                     .instances
@@ -1765,6 +1826,7 @@ pub enum BasicSpanFilter {
     Level(Level),
     Duration(DurationFilter),
     Created(ValueOperator, Timestamp),
+    Closed(ValueOperator, Timestamp),
     Instance(InstanceKey),
     Name(ValueStringComparison),
     Target(ValueStringComparison),
@@ -1784,6 +1846,7 @@ impl BasicSpanFilter {
             BasicSpanFilter::Level(_) => {}
             BasicSpanFilter::Duration(_) => {}
             BasicSpanFilter::Created(_, _) => {}
+            BasicSpanFilter::Closed(_, _) => {}
             BasicSpanFilter::Instance(_) => {}
             BasicSpanFilter::Name(_) => {}
             BasicSpanFilter::Target(_) => {}
@@ -1826,7 +1889,7 @@ impl BasicSpanFilter {
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
                 "level" | "instance" | "duration" | "name" | "target" | "file" | "parent"
-                | "created" | "stack" => Inherent,
+                | "created" | "closed" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -1957,6 +2020,19 @@ impl BasicSpanFilter {
                     |_| Err(InputError::InvalidCreatedValue),
                 )?;
             }
+            (Inherent, "closed") => {
+                validate_value_predicate(
+                    &predicate.value,
+                    |_op, value| {
+                        let _: Timestamp =
+                            value.parse().map_err(|_| InputError::InvalidClosedValue)?;
+
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidClosedValue),
+                    |_| Err(InputError::InvalidClosedValue),
+                )?;
+            }
             (Inherent, "parent") => {
                 validate_value_predicate(
                     &predicate.value,
@@ -2032,7 +2108,7 @@ impl BasicSpanFilter {
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
                 "level" | "instance" | "duration" | "name" | "target" | "file" | "parent"
-                | "created" | "stack" => Inherent,
+                | "created" | "closed" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -2219,6 +2295,17 @@ impl BasicSpanFilter {
                 |_| Err(InputError::InvalidCreatedValue),
                 |_| Err(InputError::InvalidCreatedValue),
             )?,
+            (Inherent, "closed") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    let at: Timestamp =
+                        value.parse().map_err(|_| InputError::InvalidClosedValue)?;
+
+                    Ok(BasicSpanFilter::Closed(op, at))
+                },
+                |_| Err(InputError::InvalidClosedValue),
+                |_| Err(InputError::InvalidClosedValue),
+            )?,
             (Inherent, "parent") => filterify_span_filter(
                 predicate.value,
                 |op, value| {
@@ -2298,6 +2385,7 @@ impl BasicSpanFilter {
 
 pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
+    Closed(ValueOperator, Timestamp),
     Name(ValueStringComparison),
     Target(ValueStringComparison),
     File(FileFilter),
@@ -2316,6 +2404,13 @@ impl NonIndexedSpanFilter {
         let span = storage.get_span(entry).unwrap();
         match self {
             NonIndexedSpanFilter::Duration(filter) => filter.matches(span.duration()),
+            NonIndexedSpanFilter::Closed(op, value) => {
+                let Some(closed_at) = span.closed_at else {
+                    return false; // never match an open span
+                };
+
+                op.compare(closed_at, *value)
+            }
             NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
             NonIndexedSpanFilter::Target(filter) => filter.matches(&span.target),
             NonIndexedSpanFilter::File(filter) => {
