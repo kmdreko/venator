@@ -469,7 +469,6 @@ pub enum InputError {
     MissingDurationOperator,
     InvalidDurationOperator,
     InvalidCreatedValue,
-    MissingCreatedOperator,
     InvalidParentValue,
     InvalidParentOperator,
     InvalidStackValue,
@@ -1150,28 +1149,29 @@ impl IndexedSpanFilter<'_> {
 
                 IndexedSpanFilter::Or(filters)
             }
-            BasicSpanFilter::Created(comparison) => {
-                match comparison {
-                    TimestampComparisonFilter::Gt(value) => {
-                        let idx = span_indexes.all.upper_bound(&value);
-                        IndexedSpanFilter::Single(&span_indexes.all[idx..], None)
-                    }
-                    TimestampComparisonFilter::Gte(value) => {
-                        let idx = span_indexes.all.lower_bound(&value);
-                        IndexedSpanFilter::Single(&span_indexes.all[idx..], None)
-                    }
-                    // TimestampComparisonFilter::Eq(value) => IndexedSpanFilter::Single(todo!(), None),
-                    // TimestampComparisonFilter::Ne(value) => IndexedSpanFilter::Single(todo!(), None),
-                    TimestampComparisonFilter::Lte(value) => {
-                        let idx = span_indexes.all.upper_bound(&value);
-                        IndexedSpanFilter::Single(&span_indexes.all[..idx], None)
-                    }
-                    TimestampComparisonFilter::Lt(value) => {
-                        let idx = span_indexes.all.lower_bound(&value);
-                        IndexedSpanFilter::Single(&span_indexes.all[..idx], None)
-                    }
+            BasicSpanFilter::Created(op, value) => match op {
+                ValueOperator::Gt => {
+                    let idx = span_indexes.all.upper_bound(&value);
+                    IndexedSpanFilter::Single(&span_indexes.all[idx..], None)
                 }
-            }
+                ValueOperator::Gte => {
+                    let idx = span_indexes.all.lower_bound(&value);
+                    IndexedSpanFilter::Single(&span_indexes.all[idx..], None)
+                }
+                ValueOperator::Eq => {
+                    let start = span_indexes.all.lower_bound(&value);
+                    let end = span_indexes.all.upper_bound(&value);
+                    IndexedSpanFilter::Single(&span_indexes.all[start..end], None)
+                }
+                ValueOperator::Lte => {
+                    let idx = span_indexes.all.upper_bound(&value);
+                    IndexedSpanFilter::Single(&span_indexes.all[..idx], None)
+                }
+                ValueOperator::Lt => {
+                    let idx = span_indexes.all.lower_bound(&value);
+                    IndexedSpanFilter::Single(&span_indexes.all[..idx], None)
+                }
+            },
             BasicSpanFilter::Instance(instance_key) => {
                 let instance_index = span_indexes
                     .instances
@@ -1764,7 +1764,7 @@ pub enum TimestampComparisonFilter {
 pub enum BasicSpanFilter {
     Level(Level),
     Duration(DurationFilter),
-    Created(TimestampComparisonFilter),
+    Created(ValueOperator, Timestamp),
     Instance(InstanceKey),
     Name(ValueStringComparison),
     Target(ValueStringComparison),
@@ -1783,7 +1783,7 @@ impl BasicSpanFilter {
         match self {
             BasicSpanFilter::Level(_) => {}
             BasicSpanFilter::Duration(_) => {}
-            BasicSpanFilter::Created(_) => {}
+            BasicSpanFilter::Created(_, _) => {}
             BasicSpanFilter::Instance(_) => {}
             BasicSpanFilter::Name(_) => {}
             BasicSpanFilter::Target(_) => {}
@@ -1945,18 +1945,17 @@ impl BasicSpanFilter {
                 )?;
             }
             (Inherent, "created") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidCreatedValue),
-                };
+                validate_value_predicate(
+                    &predicate.value,
+                    |_op, value| {
+                        let _: Timestamp =
+                            value.parse().map_err(|_| InputError::InvalidCreatedValue)?;
 
-                let _: Timestamp = value.parse().map_err(|_| InputError::InvalidCreatedValue)?;
-
-                match op {
-                    Gt | Gte => {}
-                    Lt | Lte => {}
-                    Eq => return Err(InputError::MissingCreatedOperator),
-                }
+                        Ok(())
+                    },
+                    |_| Err(InputError::InvalidCreatedValue),
+                    |_| Err(InputError::InvalidCreatedValue),
+                )?;
             }
             (Inherent, "parent") => {
                 validate_value_predicate(
@@ -2209,24 +2208,17 @@ impl BasicSpanFilter {
                 |_| Err(InputError::InvalidInstanceValue),
                 |_| Err(InputError::InvalidInstanceValue),
             )?,
-            (Inherent, "created") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidCreatedValue),
-                };
+            (Inherent, "created") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    let at: Timestamp =
+                        value.parse().map_err(|_| InputError::InvalidCreatedValue)?;
 
-                let at: Timestamp = value.parse().map_err(|_| InputError::InvalidCreatedValue)?;
-
-                let filter = match op {
-                    Gte => TimestampComparisonFilter::Gte(at),
-                    Gt => TimestampComparisonFilter::Gt(at),
-                    Lte => TimestampComparisonFilter::Lte(at),
-                    Lt => TimestampComparisonFilter::Lt(at),
-                    Eq => return Err(InputError::MissingCreatedOperator),
-                };
-
-                BasicSpanFilter::Created(filter)
-            }
+                    Ok(BasicSpanFilter::Created(op, at))
+                },
+                |_| Err(InputError::InvalidCreatedValue),
+                |_| Err(InputError::InvalidCreatedValue),
+            )?,
             (Inherent, "parent") => filterify_span_filter(
                 predicate.value,
                 |op, value| {
