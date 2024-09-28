@@ -476,7 +476,6 @@ pub enum InputError {
     InvalidStackOperator,
     InvalidConnectedValue,
     InvalidDisconnectedValue,
-    MissingDisconnectedOperator,
     InvalidWildcardValue,
     InvalidRegexValue,
     InvalidFileOperator,
@@ -1811,16 +1810,6 @@ impl<'a> IndexedSpanFilter<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
-pub enum TimestampComparisonFilter {
-    Gt(Timestamp),
-    Gte(Timestamp),
-    // Eq(Timestamp),
-    // Ne(Timestamp),
-    Lte(Timestamp),
-    Lt(Timestamp),
-}
-
 pub enum BasicSpanFilter {
     Level(Level),
     Duration(DurationFilter),
@@ -2637,7 +2626,7 @@ where
 pub enum BasicInstanceFilter {
     Duration(DurationFilter),
     Connected(ValueOperator, Timestamp),
-    Disconnected(TimestampComparisonFilter),
+    Disconnected(ValueOperator, Timestamp),
     Attribute(String, ValueFilter),
     Not(Box<BasicInstanceFilter>),
     And(Vec<BasicInstanceFilter>),
@@ -2649,7 +2638,7 @@ impl BasicInstanceFilter {
         match self {
             BasicInstanceFilter::Duration(_) => {}
             BasicInstanceFilter::Connected(_, _) => {}
-            BasicInstanceFilter::Disconnected(_) => {}
+            BasicInstanceFilter::Disconnected(_, _) => {}
             BasicInstanceFilter::Attribute(_, _) => {}
             BasicInstanceFilter::Not(_) => {}
             BasicInstanceFilter::And(filters) => {
@@ -2679,7 +2668,6 @@ impl BasicInstanceFilter {
 
     pub fn validate(predicate: FilterPredicate) -> Result<FilterPredicate, InputError> {
         use FilterPropertyKind::*;
-        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -2710,22 +2698,18 @@ impl BasicInstanceFilter {
                 |_| Err(InputError::InvalidConnectedValue),
                 |_| Err(InputError::InvalidConnectedValue),
             )?,
-            (Inherent, "disconnected") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidDisconnectedValue),
-                };
+            (Inherent, "disconnected") => validate_value_predicate(
+                &predicate.value,
+                |_op, value| {
+                    let _: Timestamp = value
+                        .parse()
+                        .map_err(|_| InputError::InvalidDisconnectedValue)?;
 
-                let _: Timestamp = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidDisconnectedValue)?;
-
-                match op {
-                    Gt | Gte => {}
-                    Lt | Lte => {}
-                    Eq => return Err(InputError::MissingDisconnectedOperator),
-                }
-            }
+                    Ok(())
+                },
+                |_| Err(InputError::InvalidDisconnectedValue),
+                |_| Err(InputError::InvalidDisconnectedValue),
+            )?,
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
@@ -2756,7 +2740,6 @@ impl BasicInstanceFilter {
 
     pub fn from_predicate(predicate: FilterPredicate) -> Result<BasicInstanceFilter, InputError> {
         use FilterPropertyKind::*;
-        use ValueOperator::*;
 
         let property_kind = predicate
             .property_kind
@@ -2785,29 +2768,21 @@ impl BasicInstanceFilter {
 
                     Ok(BasicInstanceFilter::Connected(op, at))
                 },
-                |_| Err(InputError::InvalidDurationValue),
-                |_| Err(InputError::InvalidDurationValue),
+                |_| Err(InputError::InvalidConnectedValue),
+                |_| Err(InputError::InvalidConnectedValue),
             )?,
-            (Inherent, "disconnected") => {
-                let (op, value) = match &predicate.value {
-                    ValuePredicate::Comparison(op, value) => (op, value),
-                    _ => return Err(InputError::InvalidDisconnectedValue),
-                };
+            (Inherent, "disconnected") => filterify_instance_filter(
+                predicate.value,
+                |op, value| {
+                    let at: Timestamp = value
+                        .parse()
+                        .map_err(|_| InputError::InvalidDisconnectedValue)?;
 
-                let at: Timestamp = value
-                    .parse()
-                    .map_err(|_| InputError::InvalidDisconnectedValue)?;
-
-                let filter = match op {
-                    Gte => TimestampComparisonFilter::Gte(at),
-                    Gt => TimestampComparisonFilter::Gt(at),
-                    Lte => TimestampComparisonFilter::Lte(at),
-                    Lt => TimestampComparisonFilter::Lt(at),
-                    Eq => return Err(InputError::MissingDisconnectedOperator),
-                };
-
-                BasicInstanceFilter::Disconnected(filter)
-            }
+                    Ok(BasicInstanceFilter::Disconnected(op, at))
+                },
+                |_| Err(InputError::InvalidDisconnectedValue),
+                |_| Err(InputError::InvalidDisconnectedValue),
+            )?,
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
@@ -2845,17 +2820,12 @@ impl BasicInstanceFilter {
         match self {
             BasicInstanceFilter::Duration(filter) => filter.matches(instance.duration()),
             BasicInstanceFilter::Connected(op, value) => op.compare(instance.connected_at, *value),
-            BasicInstanceFilter::Disconnected(filter) => {
+            BasicInstanceFilter::Disconnected(op, value) => {
                 let Some(disconnected_at) = instance.disconnected_at else {
-                    return false;
+                    return false; // never match connected instances
                 };
 
-                match filter {
-                    TimestampComparisonFilter::Gt(timestamp) => disconnected_at > *timestamp,
-                    TimestampComparisonFilter::Gte(timestamp) => disconnected_at >= *timestamp,
-                    TimestampComparisonFilter::Lte(timestamp) => disconnected_at <= *timestamp,
-                    TimestampComparisonFilter::Lt(timestamp) => disconnected_at < *timestamp,
-                }
+                op.compare(disconnected_at, *value)
             }
             BasicInstanceFilter::Attribute(attribute, value_filter) => instance
                 .fields
