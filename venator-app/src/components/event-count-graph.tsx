@@ -199,6 +199,8 @@ export function EventCountGraph(props: EventCountGraphProps) {
         let new_start = middle - new_duration * bias;
         let new_end = middle + new_duration * (1 - bias);
         props.updateTimespan([new_start, new_end]);
+
+        e.preventDefault();
     }
 
     let move_requested: number | null;
