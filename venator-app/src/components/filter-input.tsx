@@ -128,9 +128,17 @@ export function FilterInputMetaPredicate(props: { predicate: FilterPredicate, re
             setError(`${err}`);
         }
     }
+
+    async function onkeydown(this: HTMLDivElement, e: KeyboardEvent) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            this.blur();
+        }
+    }
+
     return (<div class="predicate meta-predicate" classList={{ focused: focused(), error: error() != null && !focused() }}>
         <div class="grip">⫴</div>
-        <div class="text" contenteditable="plaintext-only" onfocus={onfocus} onblur={onblur}>{props.predicate.text}</div>
+        <div class="text" contenteditable="plaintext-only" onfocus={onfocus} onblur={onblur} onkeydown={onkeydown}>{props.predicate.text}</div>
         <button onclick={props.remove}>x</button>
     </div>);
 }
@@ -154,9 +162,16 @@ export function FilterInputAttributePredicate(props: { predicate: FilterPredicat
         }
     }
 
+    async function onkeydown(this: HTMLDivElement, e: KeyboardEvent) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            this.blur();
+        }
+    }
+
     return (<div class="predicate attribute-predicate" classList={{ focused: focused(), error: error() != null && !focused() }}>
         <div class="grip">⫴</div>
-        <div class="text" contenteditable="plaintext-only" onfocus={onfocus} onblur={onblur}>{props.predicate.text}</div>
+        <div class="text" contenteditable="plaintext-only" onfocus={onfocus} onblur={onblur} onkeydown={onkeydown}>{props.predicate.text}</div>
         <button onclick={props.remove}>x</button>
     </div>);
 }
