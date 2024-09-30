@@ -1,11 +1,11 @@
 import { batch, createEffect, createSignal, For, Show, untrack } from "solid-js";
-import { FilterPredicate, Instance, Timestamp } from "../invoke";
+import { Input, Instance, Timestamp } from "../invoke";
 import { PartialFilter, Timespan, PositionedInstance } from "../models";
 
 import "./instance-graph.css";
 
 export type InstanceGraphProps = {
-    filter: FilterPredicate[],
+    filter: Input[],
     timespan: Timespan,
     updateTimespan: (new_timespan: Timespan) => void,
     hoveredRow: Instance | null,

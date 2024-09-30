@@ -1,11 +1,11 @@
 import { batch, createEffect, createSignal, For, Show, untrack } from "solid-js";
-import { FilterPredicate, Span, Timestamp } from "../invoke";
+import { Input, Span, Timestamp } from "../invoke";
 import { PartialFilter, Timespan, PositionedSpan } from "../models";
 
 import "./span-graph.css";
 
 export type SpanGraphProps = {
-    filter: FilterPredicate[],
+    filter: Input[],
     timespan: Timespan,
     updateTimespan: (new_timespan: Timespan) => void,
     hoveredRow: Span | null,

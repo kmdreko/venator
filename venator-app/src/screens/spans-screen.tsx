@@ -3,7 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { SpanDetailPane } from "../components/detail-pane";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { FilterPredicate, parseSpanFilter, Span } from '../invoke';
+import { Input, parseSpanFilter, Span } from '../invoke';
 import { PartialFilter, PositionedSpan, Timespan } from "../models";
 import { ColumnDef, INHERENT, Table } from "../components/table";
 import { SpanGraph } from "../components/span-graph";
@@ -11,8 +11,8 @@ import { SpanGraph } from "../components/span-graph";
 import './spans-screen.css';
 
 export type SpansScreenProps = {
-    filter: FilterPredicate[],
-    setFilter: (filter: FilterPredicate[]) => void,
+    filter: Input[],
+    setFilter: (filter: Input[]) => void,
     timespan: Timespan,
     setTimespan: (timespan: Timespan) => void,
 

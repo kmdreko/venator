@@ -1,6 +1,6 @@
 import { For, useContext } from "solid-js";
 import { defaultEventsScreen, defaultSpansScreen, ScreenData } from "../App";
-import { FilterPredicate } from "../invoke";
+import { Input } from "../invoke";
 import { NavigationContext } from "../context/navigation";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { Menu, MenuItemOptions } from "@tauri-apps/api/menu";
@@ -31,7 +31,7 @@ export function TabBar(props: TabBarProps) {
         }
     }
 
-    function stringifyFilter(filter: FilterPredicate[]): string {
+    function stringifyFilter(filter: Input[]): string {
         let s = "";
         for (let predicate of filter) {
             s += ` ${predicate.text}`;

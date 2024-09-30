@@ -3,7 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { InstanceDetailPane } from "../components/detail-pane";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { FilterPredicate, Instance, parseInstanceFilter } from '../invoke';
+import { Input, Instance, parseInstanceFilter } from '../invoke';
 import { PartialFilter, PositionedInstance, Timespan } from "../models";
 import { ColumnDef, INHERENT, Table } from "../components/table";
 import { InstanceGraph } from "../components/instance-graph";
@@ -11,8 +11,8 @@ import { InstanceGraph } from "../components/instance-graph";
 import './instances-screen.css';
 
 export type InstancesScreenProps = {
-    filter: FilterPredicate[],
-    setFilter: (filter: FilterPredicate[]) => void,
+    filter: Input[],
+    setFilter: (filter: Input[]) => void,
     timespan: Timespan,
     setTimespan: (timespan: Timespan) => void,
 

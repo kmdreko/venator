@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getInstances, getSpans, Instance, InstanceId, LiveEventPayload, Span, SpanFilter, subscribeToEvents, Timestamp, unsubscribeFromEvents } from "../invoke";
+import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getInstances, getSpans, Input, Instance, InstanceId, LiveEventPayload, Span, SpanFilter, subscribeToEvents, Timestamp, unsubscribeFromEvents } from "../invoke";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "../models";
 
 export class EventDataLayer {
@@ -22,8 +22,8 @@ export class EventDataLayer {
 
     #subscription: Promise<[number, () => void]> | null;
 
-    constructor(filter: FilterPredicate[]) {
-        this.#filter = filter;
+    constructor(filter: Input[]) {
+        this.#filter = filter.filter(f => f.input == 'valid');
         this.#range = [0, 0];
         this.#events = [];
         this.#counts = {};
@@ -292,11 +292,11 @@ export class EventDataLayer {
         }
 
         let counts = await Promise.all([
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "TRACE"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "DEBUG"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "INFO"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "WARN"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { text: "", property: "level", value_kind: 'comparison', value: ['Eq', "ERROR"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "TRACE"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "DEBUG"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "INFO"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "WARN"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "ERROR"] }], ...filter }),
         ]);
 
         // cache if enabled and not within a second of current time
@@ -397,8 +397,8 @@ export class SpanDataLayer {
     #expandStartTask: Promise<void> | null;
     #expandEndTask: Promise<void> | null;
 
-    constructor(filter: FilterPredicate[]) {
-        this.#filter = filter;
+    constructor(filter: Input[]) {
+        this.#filter = filter.filter(f => f.input == 'valid');
         this.#range = [0, 0];
         this.#spans = [];
         this.#slots = [];
@@ -650,7 +650,6 @@ export class SpanDataLayer {
             let range = this.#range;
             let filter: SpanFilter & PartialFilter = {
                 filter: [...this.#filter, {
-                    text: "",
                     property: 'created',
                     value_kind: 'comparison',
                     value: ['Gte', `${range[0] - duration}`],
@@ -668,7 +667,6 @@ export class SpanDataLayer {
             let newPreSpans = await getSpans({
                 ...filter,
                 filter: [...this.#filter, {
-                    text: "",
                     property: 'created',
                     value_kind: 'comparison',
                     value: ['Lt', `${range[0] - duration}`],
@@ -706,7 +704,6 @@ export class SpanDataLayer {
             let range = this.#range;
             let filter: SpanFilter & PartialFilter = {
                 filter: [...this.#filter, {
-                    text: "",
                     property: 'created',
                     value_kind: 'comparison',
                     value: ['Gt', `${range[1]}`],
@@ -747,8 +744,8 @@ export class TraceDataLayer {
 
     #fetchTask: Promise<void> | null;
 
-    constructor(filter: FilterPredicate[]) {
-        this.#filter = filter;
+    constructor(filter: Input[]) {
+        this.#filter = filter.filter(f => f.input == 'valid');
         this.#entries = [];
         this.#fetchTask = null;
     }
@@ -854,8 +851,8 @@ export class InstanceDataLayer {
 
     #fetchTask: Promise<void> | null;
 
-    constructor(filter: FilterPredicate[]) {
-        this.#filter = filter;
+    constructor(filter: Input[]) {
+        this.#filter = filter.filter(f => f.input == 'valid');
         this.#instances = [];
         this.#slotmap = {};
         this.#fetchTask = null;

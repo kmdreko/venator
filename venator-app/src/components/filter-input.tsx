@@ -1,12 +1,12 @@
 import { createSignal, For, Match, Switch } from "solid-js";
-import { FilterPredicate } from "../invoke";
+import { Input, InvalidFilterPredicate, ValidFilterPredicate } from "../invoke";
 
 import './filter-input.css';
 
 export type FilterInputProps = {
-    predicates: FilterPredicate[],
-    updatePredicates: (predicates: FilterPredicate[]) => void,
-    parse: (p: string) => Promise<FilterPredicate[]>,
+    predicates: Input[],
+    updatePredicates: (predicates: Input[]) => void,
+    parse: (p: string) => Promise<Input[]>,
 };
 
 export function FilterInput(props: FilterInputProps) {
@@ -25,7 +25,7 @@ export function FilterInput(props: FilterInputProps) {
         props.updatePredicates(updated_predicates);
     }
 
-    function update(i: number, newPredicates: FilterPredicate[]) {
+    function update(i: number, newPredicates: Input[]) {
         let current_predicates = props.predicates;
         let updated_predicates = [...current_predicates];
         updated_predicates.splice(i, 1, ...newPredicates);
@@ -35,14 +35,48 @@ export function FilterInput(props: FilterInputProps) {
     return (<div class="filter-input">
         <div class="predicate-list">
             <For each={props.predicates}>
-                {(predicate, i) => <FilterInputPredicate predicate={predicate} remove={() => remove(i())} update={p => update(i(), p)} parse={props.parse} />}
+                {(predicate, i) => <Switch>
+                    <Match when={predicate.input == 'valid'}>
+                        <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i())} update={p => update(i(), p)} parse={props.parse} />
+                    </Match>
+                    <Match when={predicate.input == 'invalid'}>
+                        <InvalidFilterInputPredicate predicate={predicate as InvalidFilterPredicate} remove={() => remove(i())} update={p => update(i(), p)} parse={props.parse} />
+                    </Match>
+                </Switch>}
             </For>
             <input onchange={onblur} placeholder="filter..." />
         </div>
     </div>);
 }
 
-export function FilterInputPredicate(props: { predicate: FilterPredicate, remove: () => void, update: (p: FilterPredicate[]) => void, parse: (p: string) => Promise<FilterPredicate[]> }) {
+export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
+    let [focused, setFocused] = createSignal<boolean>(false);
+
+    async function onfocus() {
+        setFocused(true);
+    }
+
+    async function onblur(this: HTMLInputElement) {
+        setFocused(false);
+        let newPredicates = await props.parse(this.innerText);
+        props.update(newPredicates);
+    }
+
+    async function onkeydown(this: HTMLDivElement, e: KeyboardEvent) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            this.blur();
+        }
+    }
+
+    return (<div class="predicate attribute-predicate" classList={{ focused: focused(), error: true && !focused() }}>
+        <div class="grip">⫴</div>
+        <div class="text" contenteditable="plaintext-only" onfocus={onfocus} onblur={onblur} onkeydown={onkeydown}>{props.predicate.text}</div>
+        <button onclick={props.remove}>x</button>
+    </div>);
+}
+
+export function FilterInputPredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
     return (<Switch>
         <Match when={props.predicate.property == "level" && props.predicate.property_kind == 'Inherent'}>
             <FilterInputLevelPredicate predicate={props.predicate as any} remove={props.remove} update={props.update} />
@@ -56,7 +90,7 @@ export function FilterInputPredicate(props: { predicate: FilterPredicate, remove
     </Switch>);
 }
 
-export function FilterInputLevelPredicate(props: { predicate: FilterPredicate & { value_kind: 'comparison' }, remove: () => void, update: (p: FilterPredicate[]) => void }) {
+export function FilterInputLevelPredicate(props: { predicate: ValidFilterPredicate & { value_kind: 'comparison' }, remove: () => void, update: (p: Input[]) => void }) {
     function wheel(e: WheelEvent) {
         if (e.deltaY < 0.0) {
             if (props.predicate.value[1] == "TRACE") {
@@ -110,9 +144,8 @@ export function FilterInputLevelPredicate(props: { predicate: FilterPredicate & 
     </Switch>);
 }
 
-export function FilterInputMetaPredicate(props: { predicate: FilterPredicate, remove: () => void, update: (p: FilterPredicate[]) => void, parse: (p: string) => Promise<FilterPredicate[]> }) {
+export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
     let [focused, setFocused] = createSignal<boolean>(false);
-    let [error, setError] = createSignal<string | null>(null);
 
     async function onfocus() {
         setFocused(true);
@@ -120,13 +153,8 @@ export function FilterInputMetaPredicate(props: { predicate: FilterPredicate, re
 
     async function onblur(this: HTMLInputElement) {
         setFocused(false);
-        try {
-            let newPredicates = await props.parse(this.innerText);
-            props.update(newPredicates);
-        }
-        catch (err) {
-            setError(`${err}`);
-        }
+        let newPredicates = await props.parse(this.innerText);
+        props.update(newPredicates);
     }
 
     async function onkeydown(this: HTMLDivElement, e: KeyboardEvent) {
@@ -136,16 +164,15 @@ export function FilterInputMetaPredicate(props: { predicate: FilterPredicate, re
         }
     }
 
-    return (<div class="predicate meta-predicate" classList={{ focused: focused(), error: error() != null && !focused() }}>
+    return (<div class="predicate meta-predicate" classList={{ focused: focused() }}>
         <div class="grip">⫴</div>
         <div class="text" contenteditable="plaintext-only" onfocus={onfocus} onblur={onblur} onkeydown={onkeydown}>{props.predicate.text}</div>
         <button onclick={props.remove}>x</button>
     </div>);
 }
 
-export function FilterInputAttributePredicate(props: { predicate: FilterPredicate, remove: () => void, update: (p: FilterPredicate[]) => void, parse: (p: string) => Promise<FilterPredicate[]> }) {
+export function FilterInputAttributePredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
     let [focused, setFocused] = createSignal<boolean>(false);
-    let [error, setError] = createSignal<string | null>(null);
 
     async function onfocus() {
         setFocused(true);
@@ -153,13 +180,8 @@ export function FilterInputAttributePredicate(props: { predicate: FilterPredicat
 
     async function onblur(this: HTMLInputElement) {
         setFocused(false);
-        try {
-            let newPredicates = await props.parse(this.innerText);
-            props.update(newPredicates);
-        }
-        catch (err) {
-            setError(`${err}`);
-        }
+        let newPredicates = await props.parse(this.innerText);
+        props.update(newPredicates);
     }
 
     async function onkeydown(this: HTMLDivElement, e: KeyboardEvent) {
@@ -169,7 +191,7 @@ export function FilterInputAttributePredicate(props: { predicate: FilterPredicat
         }
     }
 
-    return (<div class="predicate attribute-predicate" classList={{ focused: focused(), error: error() != null && !focused() }}>
+    return (<div class="predicate attribute-predicate" classList={{ focused: focused() }}>
         <div class="grip">⫴</div>
         <div class="text" contenteditable="plaintext-only" onfocus={onfocus} onblur={onblur} onkeydown={onkeydown}>{props.predicate.text}</div>
         <button onclick={props.remove}>x</button>

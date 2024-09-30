@@ -20,8 +20,13 @@ export type ValuePredicate =
     { value_kind: 'and', value: ValuePredicate[] } |
     { value_kind: 'or', value: ValuePredicate[] };
 
+export type Input = ValidFilterPredicate | InvalidFilterPredicate;
+
+export type ValidFilterPredicate = { text: string, input: 'valid' } & FilterPredicate;
+
+export type InvalidFilterPredicate = { text: string, input: 'invalid', error: string };
+
 export type FilterPredicate = {
-    text: string,
     property_kind?: string,
     property: string,
 } & ValuePredicate;
@@ -111,9 +116,9 @@ export async function getInstances(filter: InstanceFilter): Promise<Instance[]> 
     return await invoke<Instance[]>("get_instances", filter);
 }
 
-export async function parseInstanceFilter(filter: string): Promise<FilterPredicate[]> {
+export async function parseInstanceFilter(filter: string): Promise<Input[]> {
     console.debug("invoking 'parse_instance_filter'");
-    return await invoke<FilterPredicate[]>("parse_instance_filter", { filter });
+    return await invoke<Input[]>("parse_instance_filter", { filter });
 }
 
 export async function getStats(): Promise<Stats> {
@@ -131,9 +136,11 @@ export async function getEventCount(filter: EventCountFilter): Promise<number> {
     return await invoke<number>("get_event_count", filter);
 }
 
-export async function parseEventFilter(filter: string): Promise<FilterPredicate[]> {
+export async function parseEventFilter(filter: string): Promise<Input[]> {
     console.debug("invoking 'parse_event_filter'");
-    return await invoke<FilterPredicate[]>("parse_event_filter", { filter });
+    let result = await invoke<Input[]>("parse_event_filter", { filter });
+    console.info("result:", result);
+    return result;
 }
 
 export async function getSpans(filter: SpanFilter): Promise<Span[]> {
@@ -141,9 +148,9 @@ export async function getSpans(filter: SpanFilter): Promise<Span[]> {
     return await invoke<Span[]>("get_spans", filter);
 }
 
-export async function parseSpanFilter(filter: string): Promise<FilterPredicate[]> {
+export async function parseSpanFilter(filter: string): Promise<Input[]> {
     console.debug("invoking 'parse_span_filter'");
-    return await invoke<FilterPredicate[]>("parse_span_filter", { filter });
+    return await invoke<Input[]>("parse_span_filter", { filter });
 }
 
 export async function subscribeToEvents(filter: FilterPredicate[]): Promise<number> {

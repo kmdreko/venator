@@ -1,7 +1,7 @@
 import { createSignal, For, Match, Show, Switch, useContext } from 'solid-js';
 import { Menu } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
-import { Ancestor, Event, FilterPredicate, FullSpanId, Instance, Span } from '../invoke'
+import { Ancestor, Event, FullSpanId, Input, Instance, Span } from '../invoke'
 import { Timespan } from '../models';
 import { NavigationContext } from '../context/navigation';
 import { ScreenData } from '../App';
@@ -318,14 +318,16 @@ export function DetailedPrimary(props: { message: string }) {
 }
 
 function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
-    let filter: FilterPredicate[] = [{
+    let filter: Input[] = [{
         text: ">=TRACE",
+        input: 'valid',
         property_kind: 'Inherent',
         property: "level",
         value_kind: 'comparison',
         value: ['Gte', "TRACE"],
     }, {
         text: `#stack: ${spanId}`,
+        input: 'valid',
         property_kind: 'Inherent',
         property: "stack",
         value_kind: 'comparison',

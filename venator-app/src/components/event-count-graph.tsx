@@ -1,11 +1,11 @@
 import { batch, createEffect, createSignal, For, Show, untrack } from "solid-js";
-import { Timestamp, Event, FilterPredicate } from "../invoke";
+import { Timestamp, Event, Input } from "../invoke";
 import { Counts, PartialEventCountFilter, Timespan } from "../models";
 
 import "./event-count-graph.css";
 
 export type EventCountGraphProps = {
-    filter: FilterPredicate[],
+    filter: Input[],
     timespan: Timespan,
     updateTimespan: (new_timespan: Timespan) => void,
     hoveredRow: Event | null,

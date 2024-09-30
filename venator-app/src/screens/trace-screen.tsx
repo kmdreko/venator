@@ -3,7 +3,7 @@ import { createEffect, createSignal, Show } from "solid-js";
 import { EventDetailPane, SpanDetailPane } from "../components/detail-pane";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { FilterPredicate, parseSpanFilter, Span, Event } from '../invoke';
+import { parseSpanFilter, Span, Event, Input } from '../invoke';
 import { PaginationFilter, Timespan } from "../models";
 import { ATTRIBUTE, ColumnDef, COMBINED, INHERENT, Table } from "../components/table";
 import { TraceGraph } from "../components/trace-graph";
@@ -12,8 +12,8 @@ import './trace-screen.css';
 import { CollapsableContext } from "../context/collapsable";
 
 export type TraceScreenProps = {
-    filter: FilterPredicate[],
-    setFilter: (filter: FilterPredicate[]) => void,
+    filter: Input[],
+    setFilter: (filter: Input[]) => void,
     timespan: Timespan | null,
     setTimespan: (timespan: Timespan) => void,
 

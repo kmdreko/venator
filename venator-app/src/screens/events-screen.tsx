@@ -4,15 +4,15 @@ import { EventDetailPane } from "../components/detail-pane";
 import { EventCountGraph } from "../components/event-count-graph";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { Event, FilterPredicate, parseEventFilter } from '../invoke';
+import { Event, Input, parseEventFilter } from '../invoke';
 import { Counts, PartialEventCountFilter, PartialFilter, Timespan } from "../models";
 import { ATTRIBUTE, ColumnDef, Table } from "../components/table";
 
 import './events-screen.css';
 
 export type EventsScreenProps = {
-    filter: FilterPredicate[],
-    setFilter: (filter: FilterPredicate[]) => void,
+    filter: Input[],
+    setFilter: (filter: Input[]) => void,
     timespan: Timespan,
     setTimespan: (timespan: Timespan) => void,
 

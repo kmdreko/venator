@@ -46,13 +46,31 @@ async fn get_instances(
 async fn parse_instance_filter(
     _engine: State<'_, Engine>,
     filter: &str,
-) -> Result<Vec<FilterPredicateView>, String> {
-    FilterPredicate::parse(filter)
-        .map_err(|e| format!("{e:?}"))?
-        .into_iter()
-        .map(|p| BasicInstanceFilter::validate(p).map(FilterPredicateView::from))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("{e:?}"))
+) -> Result<Vec<InputView>, ()> {
+    match FilterPredicate::parse(filter) {
+        Ok(predicates) => Ok(predicates
+            .into_iter()
+            .map(|p| {
+                let text = p.to_string();
+                let result = match BasicInstanceFilter::validate(p) {
+                    Ok(predicate) => {
+                        FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
+                    }
+                    Err(err) => FilterPredicateResultView::Invalid {
+                        error: format!("{err:?}"),
+                    },
+                };
+
+                InputView { text, result }
+            })
+            .collect()),
+        Err(err) => Ok(vec![InputView {
+            text: filter.to_owned(),
+            result: FilterPredicateResultView::Invalid {
+                error: format!("{err:?}"),
+            },
+        }]),
+    }
 }
 
 #[tauri::command]
@@ -103,13 +121,31 @@ async fn get_event_count(
 async fn parse_event_filter(
     _engine: State<'_, Engine>,
     filter: &str,
-) -> Result<Vec<FilterPredicateView>, String> {
-    FilterPredicate::parse(filter)
-        .map_err(|e| format!("{e:?}"))?
-        .into_iter()
-        .map(|p| BasicEventFilter::validate(p).map(FilterPredicateView::from))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("{e:?}"))
+) -> Result<Vec<InputView>, ()> {
+    match FilterPredicate::parse(filter) {
+        Ok(predicates) => Ok(predicates
+            .into_iter()
+            .map(|p| {
+                let text = p.to_string();
+                let result = match BasicEventFilter::validate(p) {
+                    Ok(predicate) => {
+                        FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
+                    }
+                    Err(err) => FilterPredicateResultView::Invalid {
+                        error: format!("{err:?}"),
+                    },
+                };
+
+                InputView { text, result }
+            })
+            .collect()),
+        Err(err) => Ok(vec![InputView {
+            text: filter.to_owned(),
+            result: FilterPredicateResultView::Invalid {
+                error: format!("{err:?}"),
+            },
+        }]),
+    }
 }
 
 #[tauri::command]
@@ -136,16 +172,31 @@ async fn get_spans(
 }
 
 #[tauri::command]
-async fn parse_span_filter(
-    _engine: State<'_, Engine>,
-    filter: &str,
-) -> Result<Vec<FilterPredicateView>, String> {
-    FilterPredicate::parse(filter)
-        .map_err(|e| format!("{e:?}"))?
-        .into_iter()
-        .map(|p| BasicSpanFilter::validate(p).map(FilterPredicateView::from))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("{e:?}"))
+async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<Vec<InputView>, ()> {
+    match FilterPredicate::parse(filter) {
+        Ok(predicates) => Ok(predicates
+            .into_iter()
+            .map(|p| {
+                let text = p.to_string();
+                let result = match BasicSpanFilter::validate(p) {
+                    Ok(predicate) => {
+                        FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
+                    }
+                    Err(err) => FilterPredicateResultView::Invalid {
+                        error: format!("{err:?}"),
+                    },
+                };
+
+                InputView { text, result }
+            })
+            .collect()),
+        Err(err) => Ok(vec![InputView {
+            text: filter.to_owned(),
+            result: FilterPredicateResultView::Invalid {
+                error: format!("{err:?}"),
+            },
+        }]),
+    }
 }
 
 #[tauri::command]
@@ -500,6 +551,20 @@ struct EventData {
     file_name: Option<String>,
     file_line: Option<u32>,
     fields: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct InputView {
+    text: String,
+    #[serde(flatten)]
+    result: FilterPredicateResultView,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "input", rename_all = "camelCase")]
+enum FilterPredicateResultView {
+    Valid(FilterPredicateView),
+    Invalid { error: String },
 }
 
 #[derive(Clone, Serialize, Deserialize)]

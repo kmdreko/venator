@@ -1,5 +1,5 @@
 import { EventsScreen } from "./screens/events-screen";
-import { Event, FilterPredicate, getStats, Instance, Span, Timestamp } from "./invoke";
+import { Event, getStats, Input, Instance, Span, Timestamp } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
@@ -16,7 +16,7 @@ const HOUR = 3600000000;
 
 type EventsScreenData = {
     kind: 'events',
-    filter: FilterPredicate[],
+    filter: Input[],
     timespan: Timespan,
     live: boolean,
     store: EventDataLayer,
@@ -26,7 +26,7 @@ type EventsScreenData = {
 
 type SpansScreenData = {
     kind: 'spans',
-    filter: FilterPredicate[],
+    filter: Input[],
     timespan: Timespan,
     live: boolean,
     store: SpanDataLayer,
@@ -36,7 +36,7 @@ type SpansScreenData = {
 
 type TraceScreenData = {
     kind: 'trace',
-    filter: FilterPredicate[],
+    filter: Input[],
     timespan: Timespan | null,
     live: boolean,
     store: TraceDataLayer,
@@ -47,7 +47,7 @@ type TraceScreenData = {
 
 type InstancesScreenData = {
     kind: 'instances',
-    filter: FilterPredicate[],
+    filter: Input[],
     timespan: Timespan,
     live: boolean,
     store: InstanceDataLayer,
@@ -71,8 +71,9 @@ export async function defaultEventsScreen(): Promise<EventsScreenData> {
         end = stats.end!;
     }
 
-    let filter: FilterPredicate[] = [{
+    let filter: Input[] = [{
         text: ">=TRACE",
+        input: 'valid',
         property_kind: 'Inherent',
         property: "level",
         value_kind: 'comparison',
@@ -106,14 +107,16 @@ export async function defaultSpansScreen(): Promise<SpansScreenData> {
         end = stats.end!;
     }
 
-    let filter: FilterPredicate[] = [{
+    let filter: Input[] = [{
         text: ">=TRACE",
+        input: 'valid',
         property_kind: 'Inherent',
         property: "level",
         value_kind: 'comparison',
         value: ['Gte', "TRACE"],
     }, {
         text: "#parent: none",
+        input: 'valid',
         property_kind: 'Inherent',
         property: "parent",
         value_kind: 'comparison',
@@ -291,7 +294,7 @@ function App() {
         return current_screens[current_selected_screen];
     }
 
-    function setScreenFilter(filter: FilterPredicate[]) {
+    function setScreenFilter(filter: Input[]) {
         let current_selected_screen = selectedScreen()!;
         let current_screens = screens();
         let updated_screens = [...current_screens];
@@ -364,8 +367,9 @@ function App() {
         updated_screens.splice(idx, 1);
 
         if (updated_screens.length == 0) {
-            let filter: FilterPredicate[] = [{
+            let filter: Input[] = [{
                 text: ">=TRACE",
+                input: 'valid',
                 property_kind: 'Inherent',
                 property: "level",
                 value_kind: 'comparison',
