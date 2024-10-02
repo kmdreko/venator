@@ -138,9 +138,7 @@ export async function getEventCount(filter: EventCountFilter): Promise<number> {
 
 export async function parseEventFilter(filter: string): Promise<Input[]> {
     console.debug("invoking 'parse_event_filter'");
-    let result = await invoke<Input[]>("parse_event_filter", { filter });
-    console.info("result:", result);
-    return result;
+    return await invoke<Input[]>("parse_event_filter", { filter });
 }
 
 export async function getSpans(filter: SpanFilter): Promise<Span[]> {

@@ -319,7 +319,7 @@ export function DetailedPrimary(props: { message: string }) {
 
 function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
     let filter: Input[] = [{
-        text: ">=TRACE",
+        text: "#level: >=TRACE",
         input: 'valid',
         property_kind: 'Inherent',
         property: "level",

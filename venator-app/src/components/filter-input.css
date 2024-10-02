@@ -1,123 +1,74 @@
 .filter-input {
+    font-family: monospace;
     background-color: white;
     border: 1px solid gray;
-    padding: 4px;
+    padding: 2px 4px;
     border-radius: 3px;
+    /* display: flex; */
+    white-space: pre-wrap;
 }
 
-.filter-input input {
-    height: 22px;
-    border: none;
-    padding: 0;
-    margin: 0;
-    outline: none;
-}
-
-.filter-input button {
-    height: 22px;
-}
-
-.filter-input .predicate-list {
-    flex: 1;
-
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 4px;
-}
-
-.filter-input .predicate-list input {
-    flex: 1;
-    padding-left: 4px;
+.filter-input:focus {
+    outline: 0px solid transparent;
+    padding: 2px 9px;
 }
 
 .filter-input .predicate {
+    display: inline;
+    line-height: 24px;
     height: 20px;
+    margin: 3px 0px;
+}
+
+.filter-input:not(:focus) .predicate {
     border: 1px solid gray;
     border-radius: 3px;
-    padding: 0 4px;
-    line-height: 20px;
-
-    display: flex;
-    flex-direction: row;
-    gap: 4px;
+    margin: 2px 0px;
+    padding: 2px 4px;
 }
 
-.filter-input .predicate button {
-    visibility: hidden;
-    border: none;
-    background-color: transparent;
-    padding: 0;
-    margin-left: 2px;
-    margin-right: 2px;
-    height: 18px;
+.filter-input:not(:focus) .spacer {
+    display: inline-block;
+    max-width: 3.2px;
 }
 
-[contenteditable]:focus {
-    outline: 0px solid transparent;
-}
-
-.filter-input .predicate:hover button {
-    visibility: visible;
-    color: gray;
-}
-
-.filter-input .predicate:hover button:hover {
-    visibility: visible;
-    color: inherit;
-}
-
-.filter-input .predicate .grip {
-    visibility: hidden;
-}
-
-.filter-input .predicate:hover .grip {
-    visibility: visible;
-    color: gray;
-}
-
-.filter-input .predicate:hover .grip:hover {
-    color: inherit;
-    cursor: ew-resize;
-}
-
-.filter-input .level-predicate-0 {
+.filter-input:not(:focus) .level-predicate-0 {
     background-color: white;
     border: 1px solid #A8A8A8;
 }
 
-.filter-input .level-predicate-1 {
+.filter-input:not(:focus) .level-predicate-1 {
     background-color: #A8A8A8;
     border: 1px solid #A8A8A8;
 }
 
-.filter-input .level-predicate-2 {
+.filter-input:not(:focus) .level-predicate-2 {
     color: white;
     background-color: #1E1E1E;
     border: 1px solid #1E1E1E;
 }
 
-.filter-input .level-predicate-3 {
+.filter-input:not(:focus) .level-predicate-3 {
     background-color: #FB8C00;
     border: 1px solid #FB8C00;
 }
 
-.filter-input .level-predicate-4 {
+.filter-input:not(:focus) .level-predicate-4 {
     background-color: #E65100;
     border: 1px solid #E65100;
 }
 
-.filter-input .meta-predicate {
+.filter-input:not(:focus) .meta-predicate {
     background-color: #CCCCCC;
     border-color: #A8A8A8;
 }
 
-.filter-input .predicate.focused {
+.filter-input:not(:focus) .predicate.focused {
     border-color: transparent;
     background-color: transparent;
 }
 
-.filter-input .predicate.error {
+.filter-input:not(:focus) .predicate.error {
     border-color: red;
     background-color: transparent;
 }

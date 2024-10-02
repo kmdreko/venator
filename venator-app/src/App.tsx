@@ -72,7 +72,7 @@ export async function defaultEventsScreen(): Promise<EventsScreenData> {
     }
 
     let filter: Input[] = [{
-        text: ">=TRACE",
+        text: "#level: >=TRACE",
         input: 'valid',
         property_kind: 'Inherent',
         property: "level",
@@ -108,7 +108,7 @@ export async function defaultSpansScreen(): Promise<SpansScreenData> {
     }
 
     let filter: Input[] = [{
-        text: ">=TRACE",
+        text: "#level: >=TRACE",
         input: 'valid',
         property_kind: 'Inherent',
         property: "level",
@@ -368,7 +368,7 @@ function App() {
 
         if (updated_screens.length == 0) {
             let filter: Input[] = [{
-                text: ">=TRACE",
+                text: "#level: >=TRACE",
                 input: 'valid',
                 property_kind: 'Inherent',
                 property: "level",
