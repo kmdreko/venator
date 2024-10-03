@@ -20,7 +20,7 @@ export type ValuePredicate =
     { value_kind: 'and', value: ValuePredicate[] } |
     { value_kind: 'or', value: ValuePredicate[] };
 
-export type Input = ValidFilterPredicate | InvalidFilterPredicate;
+export type Input = (ValidFilterPredicate | InvalidFilterPredicate) & { editable?: false };
 
 export type ValidFilterPredicate = { text: string, input: 'valid' } & FilterPredicate;
 

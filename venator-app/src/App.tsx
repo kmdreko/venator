@@ -78,6 +78,7 @@ export async function defaultEventsScreen(): Promise<EventsScreenData> {
         property: "level",
         value_kind: 'comparison',
         value: ['Gte', "TRACE"],
+        editable: false,
     }];
     let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
     let columnWidths = columns.map(def => def.defaultWidth);
@@ -114,6 +115,7 @@ export async function defaultSpansScreen(): Promise<SpansScreenData> {
         property: "level",
         value_kind: 'comparison',
         value: ['Gte', "TRACE"],
+        editable: false,
     }, {
         text: "#parent: none",
         input: 'valid',
@@ -374,6 +376,7 @@ function App() {
                 property: "level",
                 value_kind: 'comparison',
                 value: ['Gte', "TRACE"],
+                editable: false,
             }];
             let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
             let columnWidths = columns.map(def => def.defaultWidth);

@@ -325,6 +325,7 @@ function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
         property: "level",
         value_kind: 'comparison',
         value: ['Gte', "TRACE"],
+        editable: false,
     }, {
         text: `#stack: ${spanId}`,
         input: 'valid',
@@ -332,6 +333,7 @@ function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
         property: "stack",
         value_kind: 'comparison',
         value: ['Eq', spanId],
+        editable: false,
     }];
 
     let columns = [COLLAPSABLE, TIMESPAN, COMBINED(INHERENT('name'), ATTRIBUTE('message'))];

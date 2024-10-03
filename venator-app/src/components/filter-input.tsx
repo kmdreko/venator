@@ -10,16 +10,32 @@ export type FilterInputProps = {
 };
 
 export function FilterInput(props: FilterInputProps) {
+    let input_e!: HTMLDivElement;
+
     async function onblur(this: HTMLInputElement) {
         let new_predicates = await props.parse(this.innerText);
-        this.innerText = '';
-        props.updatePredicates(new_predicates);
+        let uneditable_predicates = props.predicates.slice(0, getUneditableLength());
+
+        if (new_predicates.length == 0)
+            this.innerText = ' ';
+        else
+            this.innerText = '';
+        props.updatePredicates([...uneditable_predicates, ...new_predicates]);
     }
 
     function remove(i: number) {
         let current_predicates = props.predicates;
+        if (current_predicates[i].editable == false) {
+            return;
+        }
+
         let updated_predicates = [...current_predicates];
         updated_predicates.splice(i, 1);
+
+        if (updated_predicates.length == getUneditableLength()) {
+            input_e.innerText = ' ';
+        }
+
         props.updatePredicates(updated_predicates);
     }
 
@@ -43,8 +59,18 @@ export function FilterInput(props: FilterInputProps) {
         }
     }
 
-    return (<div class="filter-input" contenteditable onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
-        <For each={props.predicates}>
+    function getUneditableLength(): number {
+        for (let i = 0; i < props.predicates.length; i++) {
+            if (props.predicates[i].editable !== false) {
+                return i;
+            }
+        }
+
+        return props.predicates.length;
+    }
+
+    return (<div class="filter-input-container">
+        <For each={props.predicates.slice(0, getUneditableLength())}>
             {(predicate, i) => <Switch>
                 <Match when={predicate.input == 'valid'}>
                     <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i())} update={p => update(i(), p)} parse={props.parse} />
@@ -55,11 +81,33 @@ export function FilterInput(props: FilterInputProps) {
                 </Match>
             </Switch>}
         </For>
+        <span ref={input_e} class="filter-input" contenteditable onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
+            {' '}
+            <For each={props.predicates.slice(getUneditableLength())}>
+                {(predicate, i) => <Switch>
+                    <Match when={predicate.input == 'valid'}>
+                        <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i() + getUneditableLength())} update={p => update(i() + getUneditableLength(), p)} parse={props.parse} />
+                        <span class="spacer">{'  '}</span>
+                    </Match>
+                    <Match when={predicate.input == 'invalid'}>
+                        <InvalidFilterInputPredicate predicate={predicate as InvalidFilterPredicate} remove={() => remove(i() + getUneditableLength())} update={p => update(i() + getUneditableLength(), p)} parse={props.parse} />
+                    </Match>
+                </Switch>}
+            </For>
+        </span>
     </div>);
 }
 
 export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
-    return (<span class="predicate attribute-predicate">
+    function onclick(e: MouseEvent) {
+        if (e.button == 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            props.remove();
+        }
+    }
+
+    return (<span class="predicate attribute-predicate error" onauxclick={onclick}>
         {props.predicate.text}
     </span>);
 }
@@ -147,7 +195,15 @@ export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicat
 }
 
 export function FilterInputAttributePredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
-    return (<span class="predicate attribute-predicate">
+    function onclick(e: MouseEvent) {
+        if (e.button == 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            props.remove();
+        }
+    }
+
+    return (<span class="predicate attribute-predicate" onauxclick={onclick}>
         {props.predicate.text}
     </span>);
 }
