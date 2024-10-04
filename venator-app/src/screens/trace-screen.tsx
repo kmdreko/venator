@@ -28,10 +28,12 @@ export type TraceScreenProps = {
 
     collapsed: { [id: string]: true },
     setCollapsed: (id: string, collapsed: boolean) => void,
+
+    selected: Event | Span | null,
+    setSelected: (e: Event | Span | null) => void,
 };
 
 export function TraceScreen(props: TraceScreenProps) {
-    const [selectedRow, setSelectedRow] = createSignal<Event | Span | null>(null);
     const [hoveredRow, setHoveredRow] = createSignal<Event | Span | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
@@ -84,19 +86,19 @@ export function TraceScreen(props: TraceScreenProps) {
                         columnRemove={props.columnRemove}
                         columnDefault={COMBINED(INHERENT('name'), ATTRIBUTE('message'))}
                         columnMin={3}
-                        selectedRow={selectedRow()}
-                        setSelectedRow={setSelectedRow}
+                        selectedRow={props.selected}
+                        setSelectedRow={props.setSelected}
                         hoveredRow={hoveredRow()}
                         setHoveredRow={setHoveredRow}
                         getEntries={getUncollapsedEntries}
                     />
                 </CollapsableContext.Provider>
             </Show>
-            <Show when={(selectedRow() as any)?.timestamp}>
-                <EventDetailPane timespan={props.timespan} event={selectedRow() as Event} updateSelectedRow={setSelectedRow} />
+            <Show when={(props.selected as any)?.timestamp}>
+                <EventDetailPane timespan={props.timespan} event={props.selected as Event} updateSelectedRow={props.setSelected} />
             </Show>
-            <Show when={(selectedRow() as any)?.created_at}>
-                <SpanDetailPane timespan={props.timespan} span={selectedRow() as Span} updateSelectedRow={setSelectedRow} />
+            <Show when={(props.selected as any)?.created_at}>
+                <SpanDetailPane timespan={props.timespan} span={props.selected as Span} updateSelectedRow={props.setSelected} />
             </Show>
         </div>
     </div>);

@@ -25,10 +25,12 @@ export type SpansScreenProps = {
 
     getSpans: (filter: PartialFilter, wait?: boolean) => Promise<Span[] | null>,
     getPositionedSpans: (filter: PartialFilter, wait?: boolean) => Promise<PositionedSpan[] | null>,
+
+    selected: Span | null,
+    setSelected: (e: Span | null) => void,
 };
 
 export function SpansScreen(props: SpansScreenProps) {
-    const [selectedRow, setSelectedRow] = createSignal<Span | null>(null);
     const [hoveredRow, setHoveredRow] = createSignal<Span | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
@@ -65,15 +67,15 @@ export function SpansScreen(props: SpansScreenProps) {
                 columnRemove={props.columnRemove}
                 columnDefault={INHERENT('name')}
                 columnMin={3}
-                selectedRow={selectedRow()}
-                setSelectedRow={setSelectedRow}
+                selectedRow={props.selected}
+                setSelectedRow={props.setSelected}
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getSpans}
             />
 
-            <Show when={selectedRow()}>
-                {row => <SpanDetailPane timespan={props.timespan} span={row()} updateSelectedRow={setSelectedRow} />}
+            <Show when={props.selected}>
+                {row => <SpanDetailPane timespan={props.timespan} span={row()} updateSelectedRow={props.setSelected} />}
             </Show>
         </div>
     </div>);

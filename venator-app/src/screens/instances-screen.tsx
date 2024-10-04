@@ -25,10 +25,12 @@ export type InstancesScreenProps = {
 
     getInstances: (filter: PartialFilter, wait?: boolean) => Promise<Instance[] | null>,
     getPositionedInstances: (filter: PartialFilter, wait?: boolean) => Promise<PositionedInstance[] | null>,
+
+    selected: Instance | null,
+    setSelected: (e: Instance | null) => void,
 };
 
 export function InstancesScreen(props: InstancesScreenProps) {
-    const [selectedRow, setSelectedRow] = createSignal<Instance | null>(null);
     const [hoveredRow, setHoveredRow] = createSignal<Instance | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
@@ -65,15 +67,15 @@ export function InstancesScreen(props: InstancesScreenProps) {
                 columnRemove={props.columnRemove}
                 columnDefault={INHERENT('id')}
                 columnMin={3}
-                selectedRow={selectedRow()}
-                setSelectedRow={setSelectedRow}
+                selectedRow={props.selected}
+                setSelectedRow={props.setSelected}
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getInstances}
             />
 
-            <Show when={selectedRow()}>
-                {row => <InstanceDetailPane timespan={props.timespan} instance={row()} updateSelectedRow={setSelectedRow} />}
+            <Show when={props.selected}>
+                {row => <InstanceDetailPane timespan={props.timespan} instance={row()} updateSelectedRow={props.setSelected} />}
             </Show>
         </div>
     </div>);

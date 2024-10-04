@@ -343,6 +343,7 @@ function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
         kind: 'trace',
         filter,
         timespan: null,
+        selected: null,
         live: false,
         store: new TraceDataLayer(filter),
         collapsed: {},

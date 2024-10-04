@@ -28,10 +28,12 @@ export type EventsScreenProps = {
 
     live: boolean,
     setLive: (live: boolean) => void,
+
+    selected: Event | null,
+    setSelected: (e: Event | null) => void,
 };
 
 export function EventsScreen(props: EventsScreenProps) {
-    const [selectedRow, setSelectedRow] = createSignal<Event | null>(null);
     const [hoveredRow, setHoveredRow] = createSignal<Event | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
@@ -69,15 +71,15 @@ export function EventsScreen(props: EventsScreenProps) {
                 columnRemove={props.columnRemove}
                 columnDefault={ATTRIBUTE("message")}
                 columnMin={3}
-                selectedRow={selectedRow()}
-                setSelectedRow={setSelectedRow}
+                selectedRow={props.selected}
+                setSelectedRow={props.setSelected}
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getEvents}
             />
 
-            <Show when={selectedRow()}>
-                {row => <EventDetailPane timespan={props.timespan} event={row()} updateSelectedRow={setSelectedRow} />}
+            <Show when={props.selected}>
+                {row => <EventDetailPane timespan={props.timespan} event={row()} updateSelectedRow={props.setSelected} />}
             </Show>
         </div>
     </div>);

@@ -18,6 +18,7 @@ type EventsScreenData = {
     kind: 'events',
     filter: Input[],
     timespan: Timespan,
+    selected: Event | null,
     live: boolean,
     store: EventDataLayer,
     columns: ColumnDef<Event>[],
@@ -28,6 +29,7 @@ type SpansScreenData = {
     kind: 'spans',
     filter: Input[],
     timespan: Timespan,
+    selected: Span | null,
     live: boolean,
     store: SpanDataLayer,
     columns: ColumnDef<Span>[],
@@ -38,6 +40,7 @@ type TraceScreenData = {
     kind: 'trace',
     filter: Input[],
     timespan: Timespan | null,
+    selected: Event | Span | null,
     live: boolean,
     store: TraceDataLayer,
     collapsed: { [id: string]: true },
@@ -49,6 +52,7 @@ type InstancesScreenData = {
     kind: 'instances',
     filter: Input[],
     timespan: Timespan,
+    selected: Instance | null,
     live: boolean,
     store: InstanceDataLayer,
     columns: ColumnDef<Instance>[],
@@ -87,6 +91,7 @@ export async function defaultEventsScreen(): Promise<EventsScreenData> {
         kind: 'events',
         filter,
         timespan: [start, end],
+        selected: null,
         live: false,
         store: new EventDataLayer(filter),
         columns,
@@ -131,6 +136,7 @@ export async function defaultSpansScreen(): Promise<SpansScreenData> {
         kind: 'spans',
         filter,
         timespan: [start, end],
+        selected: null,
         live: false,
         store: new SpanDataLayer(filter),
         columns,
@@ -158,6 +164,7 @@ export async function defaultInstancesScreen(): Promise<InstancesScreenData> {
         kind: 'instances',
         filter: [],
         timespan: [start, end],
+        selected: null,
         live: false,
         store: new InstanceDataLayer([]),
         columns,
@@ -342,6 +349,17 @@ function App() {
         setScreens(updated_screens);
     }
 
+    function setScreenSelected<T>(selected: T | null) {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+        let updated_screens = [...current_screens];
+        updated_screens[current_selected_screen] = {
+            ...current_screens[current_selected_screen],
+            selected: selected as any,
+        };
+        setScreens(updated_screens);
+    }
+
     function setCollapsed(id: string, collapsed: boolean) {
         let current_selected_screen = selectedScreen()!;
         let current_screens = screens();
@@ -385,6 +403,7 @@ function App() {
                 kind: 'events',
                 filter,
                 timespan: [now - 5 * 60 * 1000000, now],
+                selected: null,
                 live: false,
                 store: new EventDataLayer(filter),
                 columns,
@@ -566,6 +585,9 @@ function App() {
                                     }
                                     setScreenLive(live);
                                 }}
+
+                                selected={(screen() as EventsScreenData).selected}
+                                setSelected={setScreenSelected}
                             />
                         </Match>
                         <Match when={screen().kind == 'spans'}>
@@ -584,6 +606,9 @@ function App() {
 
                                 getSpans={(f, w) => getAndCacheSpans(screen() as SpansScreenData, f, w)}
                                 getPositionedSpans={(f, w) => getAndCachePositionedSpans(screen() as SpansScreenData, f, w)}
+
+                                selected={(screen() as SpansScreenData).selected}
+                                setSelected={setScreenSelected}
                             />
                         </Match>
                         <Match when={screen().kind == 'trace'}>
@@ -604,6 +629,9 @@ function App() {
 
                                 collapsed={(screen() as TraceScreenData).collapsed}
                                 setCollapsed={setCollapsed}
+
+                                selected={(screen() as TraceScreenData).selected}
+                                setSelected={setScreenSelected}
                             />
                         </Match>
                         <Match when={screen().kind == 'instances'}>
@@ -622,6 +650,9 @@ function App() {
 
                                 getInstances={f => getAndCacheInstances(screen() as InstancesScreenData, f)}
                                 getPositionedInstances={f => getAndCachePositionedInstances(screen() as InstancesScreenData, f)}
+
+                                selected={(screen() as InstancesScreenData).selected}
+                                setSelected={setScreenSelected}
                             />
                         </Match>
                     </Switch>)}
