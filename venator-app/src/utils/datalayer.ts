@@ -1,6 +1,6 @@
-import { listen } from "@tauri-apps/api/event";
-import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getInstances, getSpans, Input, Instance, InstanceId, LiveEventPayload, Span, SpanFilter, subscribeToEvents, Timestamp, unsubscribeFromEvents } from "../invoke";
+import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getInstances, getSpans, Input, Instance, InstanceId, Span, SpanFilter, subscribeToEvents, Timestamp, unsubscribeFromEvents } from "../invoke";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "../models";
+import { Channel } from "@tauri-apps/api/core";
 
 export class EventDataLayer {
     // the filter to use fetching events
@@ -20,7 +20,7 @@ export class EventDataLayer {
     #expandStartTask: Promise<void> | null;
     #expandEndTask: Promise<void> | null;
 
-    #subscription: Promise<[number, () => void]> | null;
+    #subscription: Promise<number> | null;
 
     constructor(filter: Input[]) {
         this.#filter = filter.filter(f => f.input == 'valid');
@@ -38,16 +38,9 @@ export class EventDataLayer {
         }
 
         this.#subscription = (async () => {
-            let id = await subscribeToEvents(this.#filter);
-            let handle = await listen<LiveEventPayload<Event>>('live', ({ payload }) => {
-                if (payload.id != id) {
-                    return;
-                }
-
-                this.#insertEvent(payload.data);
-            });
-
-            return [id, handle];
+            let channel = new Channel<Event>();
+            channel.onmessage = e => this.#insertEvent(e);
+            return await subscribeToEvents(this.#filter, channel);
         })();
     }
 
@@ -59,9 +52,8 @@ export class EventDataLayer {
         let subscription = this.#subscription;
         this.#subscription = null;
 
-        let [id, handle] = await subscription;
+        let id = await subscription;
         await unsubscribeFromEvents(id);
-        handle();
     }
 
     getEvents = async (filter: PartialFilter): Promise<Event[]> => {

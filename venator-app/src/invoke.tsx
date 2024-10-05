@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 export type Timestamp = number;
 export type InstanceId = string;
@@ -106,11 +106,6 @@ export type Attribute = {
     | { kind: 'span', span_id: FullSpanId }
     | { kind: 'inherent' });
 
-export type LiveEventPayload<T> = {
-    id: number,
-    data: T,
-}
-
 export async function getInstances(filter: InstanceFilter): Promise<Instance[]> {
     console.debug("invoking 'get_instances'");
     return await invoke<Instance[]>("get_instances", filter);
@@ -151,9 +146,9 @@ export async function parseSpanFilter(filter: string): Promise<Input[]> {
     return await invoke<Input[]>("parse_span_filter", { filter });
 }
 
-export async function subscribeToEvents(filter: FilterPredicate[]): Promise<number> {
+export async function subscribeToEvents(filter: FilterPredicate[], channel: Channel<Event>): Promise<number> {
     console.debug("invoking 'subscribe_to_events'");
-    return await invoke<number>("subscribe_to_events", { filter });
+    return await invoke<number>("subscribe_to_events", { filter, channel });
 }
 
 export async function unsubscribeFromEvents(id: number): Promise<number> {

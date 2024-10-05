@@ -8,8 +8,9 @@ use std::num::NonZeroU64;
 
 use bincode::{DefaultOptions, Options};
 use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
 use tauri::menu::{MenuBuilder, MenuItem};
-use tauri::{AppHandle, Emitter, State};
+use tauri::State;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpListener;
 use venator_engine::{
@@ -206,15 +207,15 @@ async fn get_stats(engine: State<'_, Engine>) -> Result<StatsView, ()> {
 
 #[tauri::command]
 async fn subscribe_to_events(
-    app: AppHandle,
     engine: State<'_, Engine>,
     filter: Vec<FilterPredicate>,
+    channel: Channel<EventView>,
 ) -> Result<SubscriptionId, String> {
     let (id, mut receiver) = engine.subscribe_to_events(filter).await;
 
     tokio::spawn(async move {
         while let Some(event) = receiver.recv().await {
-            let _ = app.emit("live", LiveEventPayload { id, data: event });
+            let _ = channel.send(event);
         }
     });
 
@@ -453,12 +454,6 @@ async fn ingress_task(engine: Engine) {
             let _ = engine.disconnect_instance(instance_id);
         });
     }
-}
-
-#[derive(Clone, Serialize)]
-pub struct LiveEventPayload<T> {
-    id: SubscriptionId,
-    data: T,
 }
 
 #[derive(Deserialize)]
