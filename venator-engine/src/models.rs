@@ -323,8 +323,8 @@ pub struct AttributeView {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum AttributeKindView {
-    Instance { instance_id: InstanceId },
-    Span { span_id: FullSpanId },
+    Instance { instance_id: InstanceIdView },
+    Span { span_id: FullSpanIdView },
     Inherent,
 }
 

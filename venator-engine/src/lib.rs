@@ -487,7 +487,9 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 .map(|(name, value)| AttributeView {
                     name: name.to_owned(),
                     value: value.to_string(),
-                    kind: AttributeKindView::Instance { instance_id },
+                    kind: AttributeKindView::Instance {
+                        instance_id: instance_id.to_string(),
+                    },
                 })
                 .collect(),
         }
@@ -532,7 +534,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                         attribute.to_owned(),
                         (
                             AttributeKindView::Span {
-                                span_id: (instance_id, parent_id),
+                                span_id: format!("{instance_id}-{parent_id}"),
                             },
                             value.to_string(),
                         ),
@@ -545,7 +547,9 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 attributes.insert(
                     attribute.to_owned(),
                     (
-                        AttributeKindView::Instance { instance_id },
+                        AttributeKindView::Instance {
+                            instance_id: instance_id.to_string(),
+                        },
                         value.to_string(),
                     ),
                 );
@@ -612,7 +616,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                         attribute.to_owned(),
                         (
                             AttributeKindView::Span {
-                                span_id: (instance_id, parent_id),
+                                span_id: format!("{instance_id}-{parent_id}"),
                             },
                             value.to_string(),
                         ),
@@ -625,7 +629,9 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 attributes.insert(
                     attribute.to_owned(),
                     (
-                        AttributeKindView::Instance { instance_id },
+                        AttributeKindView::Instance {
+                            instance_id: instance_id.to_string(),
+                        },
                         value.to_string(),
                     ),
                 );

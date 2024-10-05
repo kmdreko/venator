@@ -10,6 +10,8 @@ import { ATTRIBUTE, COLLAPSABLE, COMBINED, INHERENT, TIMESPAN } from './table';
 import { TraceDataLayer } from '../utils/datalayer';
 
 import "./detail-pane.css";
+import spanIcon from '../assets/span.svg';
+import instanceIcon from '../assets/instance.svg';
 
 export type EventDetailPaneProps = {
     event: Event,
@@ -328,56 +330,90 @@ export function DetailedPrimary(props: { message: string }) {
 }
 
 export function DetailAttributes(props: { attributes: Attribute[], addToFilter: (filter: string) => void }) {
-    async function showAttributeContextMenu(e: MouseEvent, attribute: string, value: string) {
-        let shortAttribute = attribute.length > 16 ? attribute.slice(0, 14) + ".." : attribute;
-        let shortValue = value.length > 16 ? value.slice(0, 14) + ".." : value;
+    async function showAttributeContextMenu(e: MouseEvent, attr: Attribute) {
+        let shortName = attr.name.length > 16 ? attr.name.slice(0, 14) + ".." : attr.name;
+        let shortValue = attr.value.length > 16 ? attr.value.slice(0, 14) + ".." : attr.value;
 
         function escape(s: string): string {
             return s.replace(/"/g, '\\"');
         }
 
         function include() {
-            let predicate = `@${attribute}:"${escape(value)}"`;
+            let predicate = `@${attr.name}:"${escape(attr.value)}"`;
             props.addToFilter(predicate);
         }
 
         function includeAll() {
-            let predicate = `@${attribute}:*`;
+            let predicate = `@${attr.name}:*`;
             props.addToFilter(predicate);
         }
 
         function exclude() {
-            let predicate = `@${attribute}:!"${escape(value)}"`;
+            let predicate = `@${attr.name}:!"${escape(attr.value)}"`;
             props.addToFilter(predicate);
         }
 
         function excludeAll() {
-            let predicate = `@${attribute}:!*`;
+            let predicate = `@${attr.name}:!*`;
             props.addToFilter(predicate);
+        }
+
+        function copySource() {
+            if (attr.kind == 'instance') {
+                return [{ text: "copy instance id", action: () => writeText(attr.instance_id) }];
+            } else if (attr.kind == 'span') {
+                return [{ text: "copy span id", action: () => writeText(attr.span_id) }];
+            } else {
+                return [];
+            }
         }
 
         let menu = await Menu.new({
             items: [
-                { text: "copy value", action: () => writeText(value) },
-                { text: "copy name", action: () => writeText(attribute) },
+                { text: "copy value", action: () => writeText(attr.value) },
+                { text: "copy name", action: () => writeText(attr.name) },
+                ...copySource(),
                 { item: 'Separator' },
-                { text: `include @${shortAttribute}:${shortValue} in filter`, action: include },
-                { text: `include all @${shortAttribute} in filter`, action: includeAll },
-                { text: `exclude @${shortAttribute}:${shortValue} from filter`, action: exclude },
-                { text: `exclude all @${shortAttribute} from filter`, action: excludeAll },
+                { text: `include @${shortName}:${shortValue} in filter`, action: include },
+                { text: `include all @${shortName} in filter`, action: includeAll },
+                { text: `exclude @${shortName}:${shortValue} from filter`, action: exclude },
+                { text: `exclude all @${shortName} from filter`, action: excludeAll },
                 // { item: 'Separator' },
-                // { text: `add column for @${shortAttribute}`, action: () => { } },
+                // { text: `add column for @${shortName}`, action: () => { } },
                 // { item: 'Separator' },
-                // { text: `add index on @${shortAttribute}`, action: () => { } },
+                // { text: `add index on @${shortName}`, action: () => { } },
             ]
         });
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
     }
 
+    function sourceIcon(attr: Attribute) {
+        if (attr.kind == 'span') {
+            return spanIcon;
+        } else /*if (attr.kind == 'instance')*/ {
+            return instanceIcon;
+        }
+    }
+
+    function sourceName(attr: Attribute): string {
+        if (attr.kind == 'span') {
+            return `from span ${attr.span_id}`;
+        } else if (attr.kind == 'instance') {
+            return `from instance ${attr.instance_id}`;
+        } else {
+            return '';
+        }
+    }
+
     return (<table id="detail-info-attributes">
         <tbody>
             <For each={props.attributes.filter(a => a.name != 'message')}>
-                {attr => (<tr oncontextmenu={e => showAttributeContextMenu(e, attr.name, attr.value)}>
+                {attr => (<tr oncontextmenu={e => showAttributeContextMenu(e, attr)}>
+                    <td class="detail-info-attributes-source">
+                        <Show when={attr.kind != 'inherent'}>
+                            <img src={sourceIcon(attr)} style="width:8px;height:8px;padding:0 2px;" title={sourceName(attr)}></img>
+                        </Show>
+                    </td>
                     <td class="detail-info-attributes-name">@{attr.name}</td>
                     <td class="detail-info-attributes-value">: {attr.value}</td>
                 </tr>)}
