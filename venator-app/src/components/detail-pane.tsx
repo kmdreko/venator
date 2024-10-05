@@ -32,7 +32,10 @@ export function EventDetailPane(props: EventDetailPaneProps) {
     }
 
     return (<div id="detail-pane">
-        <div id="detail-header" onauxclick={onClickHeader}>event details</div>
+        <div id="detail-header" onauxclick={onClickHeader}>
+            <span>event details</span>
+            <button onclick={() => props.updateSelectedRow(null)}>X</button>
+        </div>
         <div id="detail-info">
             <div id="detail-info-head">
                 <DetailedLevel level={props.event.level} />

@@ -19,6 +19,21 @@
     padding: 0 8px;
     padding-bottom: 2px;
     padding-top: 1px;
+
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+#detail-header button {
+    border: none;
+    background-color: transparent;
+    color: gray;
+    padding: 0;
+}
+
+#detail-header button:hover {
+    color: black;
 }
 
 #detail-info {
