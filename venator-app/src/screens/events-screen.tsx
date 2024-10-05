@@ -13,6 +13,7 @@ import './events-screen.css';
 export type EventsScreenProps = {
     filter: Input[],
     setFilter: (filter: Input[]) => void,
+    addToFilter: (filter: Input[]) => void,
     timespan: Timespan,
     setTimespan: (timespan: Timespan) => void,
 
@@ -79,7 +80,12 @@ export function EventsScreen(props: EventsScreenProps) {
             />
 
             <Show when={props.selected}>
-                {row => <EventDetailPane timespan={props.timespan} event={row()} updateSelectedRow={props.setSelected} />}
+                {row => <EventDetailPane
+                    timespan={props.timespan}
+                    event={row()}
+                    updateSelectedRow={props.setSelected}
+                    addToFilter={async f => props.addToFilter(await parseEventFilter(f))}
+                />}
             </Show>
         </div>
     </div>);

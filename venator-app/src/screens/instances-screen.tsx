@@ -13,6 +13,7 @@ import './instances-screen.css';
 export type InstancesScreenProps = {
     filter: Input[],
     setFilter: (filter: Input[]) => void,
+    addToFilter: (filter: Input[]) => void,
     timespan: Timespan,
     setTimespan: (timespan: Timespan) => void,
 
@@ -75,7 +76,12 @@ export function InstancesScreen(props: InstancesScreenProps) {
             />
 
             <Show when={props.selected}>
-                {row => <InstanceDetailPane timespan={props.timespan} instance={row()} updateSelectedRow={props.setSelected} />}
+                {row => <InstanceDetailPane
+                    timespan={props.timespan}
+                    instance={row()}
+                    updateSelectedRow={props.setSelected}
+                    addToFilter={async f => props.addToFilter(await parseInstanceFilter(f))}
+                />}
             </Show>
         </div>
     </div>);

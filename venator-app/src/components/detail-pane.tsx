@@ -1,19 +1,21 @@
 import { createSignal, For, Match, Show, Switch, useContext } from 'solid-js';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Menu } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
-import { Ancestor, Event, FullSpanId, Input, Instance, Span } from '../invoke'
+import { Ancestor, Attribute, Event, FullSpanId, Input, Instance, Span } from '../invoke'
 import { Timespan } from '../models';
 import { NavigationContext } from '../context/navigation';
 import { ScreenData } from '../App';
 import { ATTRIBUTE, COLLAPSABLE, COMBINED, INHERENT, TIMESPAN } from './table';
+import { TraceDataLayer } from '../utils/datalayer';
 
 import "./detail-pane.css";
-import { TraceDataLayer } from '../utils/datalayer';
 
 export type EventDetailPaneProps = {
     event: Event,
     timespan: Timespan | null,
     updateSelectedRow: (event: Event | null) => void,
+    addToFilter: (filter: string) => void,
 }
 
 export function EventDetailPane(props: EventDetailPaneProps) {
@@ -51,16 +53,7 @@ export function EventDetailPane(props: EventDetailPaneProps) {
                 <DetailedMeta name={"instance"} value={props.event.instance_id} />
             </div>
             <DetailedPrimary message={props.event.attributes.find(a => a.name == 'message')?.value!}></DetailedPrimary>
-            <table id="detail-info-attributes">
-                <tbody>
-                    <For each={props.event.attributes.filter(a => a.name != 'message')}>
-                        {attr => (<tr>
-                            <td class="detail-info-attributes-name">@{attr.name}</td>
-                            <td class="detail-info-attributes-value">: {attr.value}</td>
-                        </tr>)}
-                    </For>
-                </tbody>
-            </table>
+            <DetailAttributes attributes={props.event.attributes} addToFilter={props.addToFilter} />
         </div>
     </div>);
 }
@@ -69,6 +62,7 @@ export type SpanDetailPaneProps = {
     span: Span,
     timespan: Timespan | null,
     updateSelectedRow: (span: Span | null) => void,
+    addToFilter: (filter: string) => void,
 }
 
 export function SpanDetailPane(props: SpanDetailPaneProps) {
@@ -115,16 +109,7 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
                 <DetailedMeta name={"instance"} value={props.span.id.substring(0, props.span.id.indexOf('-'))} />
             </div>
             <DetailedPrimary message={props.span.name}></DetailedPrimary>
-            <table id="detail-info-attributes">
-                <tbody>
-                    <For each={props.span.attributes.filter(a => a.name != 'message')}>
-                        {attr => (<tr>
-                            <td class="detail-info-attributes-name">@{attr.name}</td>
-                            <td class="detail-info-attributes-value">: {attr.value}</td>
-                        </tr>)}
-                    </For>
-                </tbody>
-            </table>
+            <DetailAttributes attributes={props.span.attributes} addToFilter={props.addToFilter} />
         </div>
     </div>);
 }
@@ -133,6 +118,7 @@ export type InstanceDetailPaneProps = {
     instance: Instance,
     timespan: Timespan | null,
     updateSelectedRow: (instance: Instance | null) => void,
+    addToFilter: (filter: string) => void,
 }
 
 export function InstanceDetailPane(props: InstanceDetailPaneProps) {
@@ -173,16 +159,7 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
             <div id="detail-info-meta">
                 <DetailedMeta name={"id"} value={props.instance.id} />
             </div>
-            <table id="detail-info-attributes">
-                <tbody>
-                    <For each={props.instance.attributes.filter(a => a.name != 'message')}>
-                        {attr => (<tr>
-                            <td class="detail-info-attributes-name">@{attr.name}</td>
-                            <td class="detail-info-attributes-value">: {attr.value}</td>
-                        </tr>)}
-                    </For>
-                </tbody>
-            </table>
+            <DetailAttributes attributes={props.instance.attributes} addToFilter={props.addToFilter} />
         </div>
     </div>);
 }
@@ -318,6 +295,65 @@ export function DetailedPrimary(props: { message: string }) {
     return (<div class="detail-info-primary">
         {props.message}
     </div>);
+}
+
+export function DetailAttributes(props: { attributes: Attribute[], addToFilter: (filter: string) => void }) {
+    async function showAttributeContextMenu(e: MouseEvent, attribute: string, value: string) {
+        let shortAttribute = attribute.length > 16 ? attribute.slice(0, 14) + ".." : attribute;
+        let shortValue = value.length > 16 ? value.slice(0, 14) + ".." : value;
+
+        function escape(s: string): string {
+            return s.replace(/"/g, '\\"');
+        }
+
+        function include() {
+            let predicate = `@${attribute}:"${escape(value)}"`;
+            props.addToFilter(predicate);
+        }
+
+        function includeAll() {
+            let predicate = `@${attribute}:*`;
+            props.addToFilter(predicate);
+        }
+
+        function exclude() {
+            let predicate = `@${attribute}:!"${escape(value)}"`;
+            props.addToFilter(predicate);
+        }
+
+        function excludeAll() {
+            let predicate = `@${attribute}:!*`;
+            props.addToFilter(predicate);
+        }
+
+        let menu = await Menu.new({
+            items: [
+                { text: "copy value", action: () => writeText(value) },
+                { text: "copy name", action: () => writeText(attribute) },
+                { item: 'Separator' },
+                { text: `include @${shortAttribute}:${shortValue} in filter`, action: include },
+                { text: `include all @${shortAttribute} in filter`, action: includeAll },
+                { text: `exclude @${shortAttribute}:${shortValue} from filter`, action: exclude },
+                { text: `exclude all @${shortAttribute} from filter`, action: excludeAll },
+                // { item: 'Separator' },
+                // { text: `add column for @${shortAttribute}`, action: () => { } },
+                // { item: 'Separator' },
+                // { text: `add index on @${shortAttribute}`, action: () => { } },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
+    return (<table id="detail-info-attributes">
+        <tbody>
+            <For each={props.attributes.filter(a => a.name != 'message')}>
+                {attr => (<tr oncontextmenu={e => showAttributeContextMenu(e, attr.name, attr.value)}>
+                    <td class="detail-info-attributes-name">@{attr.name}</td>
+                    <td class="detail-info-attributes-value">: {attr.value}</td>
+                </tr>)}
+            </For>
+        </tbody>
+    </table>);
 }
 
 function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {

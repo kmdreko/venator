@@ -81,7 +81,7 @@ export function FilterInput(props: FilterInputProps) {
                 </Match>
             </Switch>}
         </For>
-        <span ref={input_e} class="filter-input" contenteditable onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
+        <span ref={input_e} class="filter-input" contenteditable="plaintext-only" onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
             {' '}
             <For each={props.predicates.slice(getUneditableLength())}>
                 {(predicate, i) => <Switch>

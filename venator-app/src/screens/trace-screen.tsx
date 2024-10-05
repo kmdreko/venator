@@ -14,6 +14,7 @@ import { CollapsableContext } from "../context/collapsable";
 export type TraceScreenProps = {
     filter: Input[],
     setFilter: (filter: Input[]) => void,
+    addToFilter: (filter: Input[]) => void,
     timespan: Timespan | null,
     setTimespan: (timespan: Timespan) => void,
 
@@ -95,10 +96,20 @@ export function TraceScreen(props: TraceScreenProps) {
                 </CollapsableContext.Provider>
             </Show>
             <Show when={(props.selected as any)?.timestamp}>
-                <EventDetailPane timespan={props.timespan} event={props.selected as Event} updateSelectedRow={props.setSelected} />
+                <EventDetailPane
+                    timespan={props.timespan}
+                    event={props.selected as Event}
+                    updateSelectedRow={props.setSelected}
+                    addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
+                />
             </Show>
             <Show when={(props.selected as any)?.created_at}>
-                <SpanDetailPane timespan={props.timespan} span={props.selected as Span} updateSelectedRow={props.setSelected} />
+                <SpanDetailPane
+                    timespan={props.timespan}
+                    span={props.selected as Span}
+                    updateSelectedRow={props.setSelected}
+                    addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
+                />
             </Show>
         </div>
     </div>);

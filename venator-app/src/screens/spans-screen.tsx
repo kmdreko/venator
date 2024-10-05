@@ -13,6 +13,7 @@ import './spans-screen.css';
 export type SpansScreenProps = {
     filter: Input[],
     setFilter: (filter: Input[]) => void,
+    addToFilter: (filter: Input[]) => void,
     timespan: Timespan,
     setTimespan: (timespan: Timespan) => void,
 
@@ -75,7 +76,12 @@ export function SpansScreen(props: SpansScreenProps) {
             />
 
             <Show when={props.selected}>
-                {row => <SpanDetailPane timespan={props.timespan} span={row()} updateSelectedRow={props.setSelected} />}
+                {row => <SpanDetailPane
+                    timespan={props.timespan}
+                    span={row()}
+                    updateSelectedRow={props.setSelected}
+                    addToFilter={async f => props.addToFilter(await parseSpanFilter(f))}
+                />}
             </Show>
         </div>
     </div>);

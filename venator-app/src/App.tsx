@@ -327,6 +327,13 @@ function App() {
         setScreens(updated_screens);
     }
 
+    function addToFilter(filter: Input[]) {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+
+        setScreenFilter([...current_screens[current_selected_screen].filter, ...filter]);
+    }
+
     function setScreenTimespan(timespan: Timespan) {
         let current_selected_screen = selectedScreen()!;
         let current_screens = screens();
@@ -562,6 +569,7 @@ function App() {
                             <EventsScreen
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
+                                addToFilter={addToFilter}
                                 timespan={(screen() as EventsScreenData).timespan}
                                 setTimespan={setScreenTimespan}
 
@@ -594,6 +602,7 @@ function App() {
                             <SpansScreen
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
+                                addToFilter={addToFilter}
                                 timespan={(screen() as SpansScreenData).timespan}
                                 setTimespan={setScreenTimespan}
 
@@ -615,6 +624,7 @@ function App() {
                             <TraceScreen
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
+                                addToFilter={addToFilter}
                                 timespan={screen().timespan}
                                 setTimespan={setScreenTimespan}
 
@@ -638,6 +648,7 @@ function App() {
                             <InstancesScreen
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
+                                addToFilter={addToFilter}
                                 timespan={(screen() as InstancesScreenData).timespan}
                                 setTimespan={setScreenTimespan}
 

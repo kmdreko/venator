@@ -238,6 +238,7 @@ fn main() {
     std::thread::spawn(|| ingress_task(engine_for_ingress));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let handle = app.handle();
             let menu = MenuBuilder::new(handle)

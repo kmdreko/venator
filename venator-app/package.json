@@ -12,13 +12,14 @@
   },
   "license": "MIT",
   "dependencies": {
-    "solid-js": "^1.7.8",
-    "@tauri-apps/api": "=2.0.0-rc.0"
+    "@tauri-apps/api": "=2.0.0-rc.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
+    "solid-js": "^1.7.8"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "=2.0.0-rc.1",
     "typescript": "^5.2.2",
     "vite": "^5.3.1",
-    "vite-plugin-solid": "^2.8.0",
-    "@tauri-apps/cli": "=2.0.0-rc.1"
+    "vite-plugin-solid": "^2.8.0"
   }
 }

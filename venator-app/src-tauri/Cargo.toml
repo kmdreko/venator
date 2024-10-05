@@ -20,6 +20,7 @@ serde_json = "1"
 tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros", "net"] }
 
 venator-engine = { version = "0.1.0", features = ["persist"] }
+tauri-plugin-clipboard-manager = "2.0.1"
 
 [features]
 default = ["custom-protocol"]
