@@ -317,12 +317,12 @@ pub struct AttributeView {
     pub name: String,
     pub value: String,
     #[serde(flatten)]
-    pub kind: AttributeKindView,
+    pub source: AttributeSourceView,
 }
 
 #[derive(Clone, Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum AttributeKindView {
+#[serde(rename_all = "snake_case", tag = "source")]
+pub enum AttributeSourceView {
     Instance { instance_id: InstanceIdView },
     Span { span_id: FullSpanIdView },
     Inherent,

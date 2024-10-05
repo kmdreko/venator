@@ -26,7 +26,7 @@ use index::{AttributeIndex, EventIndexes, SpanIndexes};
 pub use filter::input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
 pub use filter::{BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Order, Query};
 pub use models::{
-    AncestorView, AttributeKindView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
+    AncestorView, AttributeSourceView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
     InstanceId, InstanceKey, InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent,
     NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent, SpanEventKey,
     SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
@@ -487,7 +487,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 .map(|(name, value)| AttributeView {
                     name: name.to_owned(),
                     value: value.to_string(),
-                    kind: AttributeKindView::Instance {
+                    source: AttributeSourceView::Instance {
                         instance_id: instance_id.to_string(),
                     },
                 })
@@ -519,11 +519,11 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         let ancestors = self.event_ancestors.get(&event.timestamp).unwrap();
 
-        let mut attributes = BTreeMap::<String, (AttributeKindView, String)>::new();
+        let mut attributes = BTreeMap::<String, (AttributeSourceView, String)>::new();
         for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
             attributes.insert(
                 attribute.to_owned(),
-                (AttributeKindView::Inherent, value.to_string()),
+                (AttributeSourceView::Inherent, value.to_string()),
             );
         }
         for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
@@ -533,7 +533,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     attributes.insert(
                         attribute.to_owned(),
                         (
-                            AttributeKindView::Span {
+                            AttributeSourceView::Span {
                                 span_id: format!("{instance_id}-{parent_id}"),
                             },
                             value.to_string(),
@@ -547,7 +547,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 attributes.insert(
                     attribute.to_owned(),
                     (
-                        AttributeKindView::Instance {
+                        AttributeSourceView::Instance {
                             instance_id: instance_id.to_string(),
                         },
                         value.to_string(),
@@ -581,7 +581,11 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             },
             attributes: attributes
                 .into_iter()
-                .map(|(name, (kind, value))| AttributeView { name, value, kind })
+                .map(|(name, (kind, value))| AttributeView {
+                    name,
+                    value,
+                    source: kind,
+                })
                 .collect(),
         }
     }
@@ -601,11 +605,11 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         let ancestors = self.span_ancestors.get(&span.created_at).unwrap();
 
-        let mut attributes = BTreeMap::<String, (AttributeKindView, String)>::new();
+        let mut attributes = BTreeMap::<String, (AttributeSourceView, String)>::new();
         for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
             attributes.insert(
                 attribute.to_owned(),
-                (AttributeKindView::Inherent, value.to_string()),
+                (AttributeSourceView::Inherent, value.to_string()),
             );
         }
         for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
@@ -615,7 +619,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     attributes.insert(
                         attribute.to_owned(),
                         (
-                            AttributeKindView::Span {
+                            AttributeSourceView::Span {
                                 span_id: format!("{instance_id}-{parent_id}"),
                             },
                             value.to_string(),
@@ -629,7 +633,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 attributes.insert(
                     attribute.to_owned(),
                     (
-                        AttributeKindView::Instance {
+                        AttributeSourceView::Instance {
                             instance_id: instance_id.to_string(),
                         },
                         value.to_string(),
@@ -664,7 +668,11 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             },
             attributes: attributes
                 .into_iter()
-                .map(|(name, (kind, value))| AttributeView { name, value, kind })
+                .map(|(name, (kind, value))| AttributeView {
+                    name,
+                    value,
+                    source: kind,
+                })
                 .collect(),
         }
     }

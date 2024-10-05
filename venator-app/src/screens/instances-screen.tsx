@@ -5,7 +5,7 @@ import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { Input, Instance, parseInstanceFilter } from '../invoke';
 import { PartialFilter, PositionedInstance, Timespan } from "../models";
-import { ColumnDef, INHERENT, Table } from "../components/table";
+import { ColumnDef, getColumnDef, INHERENT, Table } from "../components/table";
 import { InstanceGraph } from "../components/instance-graph";
 
 import './instances-screen.css';
@@ -81,6 +81,7 @@ export function InstancesScreen(props: InstancesScreenProps) {
                     instance={row()}
                     updateSelectedRow={props.setSelected}
                     addToFilter={async f => props.addToFilter(await parseInstanceFilter(f))}
+                    addColumn={c => props.columnInsert(-1, getColumnDef(c))}
                 />}
             </Show>
         </div>

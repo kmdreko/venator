@@ -102,9 +102,9 @@ export type Ancestor = {
 export type Attribute = {
     name: string;
     value: string;
-} & ({ kind: 'instance', instance_id: InstanceId }
-    | { kind: 'span', span_id: FullSpanId }
-    | { kind: 'inherent' });
+} & ({ source: 'instance', instance_id: InstanceId }
+    | { source: 'span', span_id: FullSpanId }
+    | { source: 'inherent' });
 
 export async function getInstances(filter: InstanceFilter): Promise<Instance[]> {
     console.debug("invoking 'get_instances'");

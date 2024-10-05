@@ -313,6 +313,31 @@ export type TableProps<T> = {
     getEntries: (filter: PartialFilter, wait?: boolean) => Promise<T[] | null>,
 };
 
+export function getColumnDef<T extends Event | Span | Instance>(property: string): ColumnDef<T> {
+    if (property == 'name' || property == '#name') {
+        return INHERENT('name');
+    }
+    if (property == 'target' || property == '#target') {
+        return INHERENT('target');
+    }
+    if (property == 'file' || property == '#file') {
+        return INHERENT('file');
+    }
+    if (property == 'duration' || property == '#duration') {
+        return DURATION as any;
+    }
+
+    if (property.startsWith('#')) {
+        return UNKNOWN(property);
+    }
+
+    if (property.startsWith('@')) {
+        return ATTRIBUTE(property.slice(1));
+    }
+
+    return ATTRIBUTE(property);
+}
+
 export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
     const [entries, setEntries] = createSignal([] as T[]);
     const [status, setStatus] = createSignal('partial' as 'partial' | 'loading' | 'done');
@@ -417,31 +442,6 @@ export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
 
     function getGridTemplateColumns(): string {
         return props.columnWidths.join(' ');
-    }
-
-    function getColumnDef(property: string): ColumnDef<T> {
-        if (property == 'name' || property == '#name') {
-            return INHERENT('name');
-        }
-        if (property == 'target' || property == '#target') {
-            return INHERENT('target');
-        }
-        if (property == 'file' || property == '#file') {
-            return INHERENT('file');
-        }
-        if (property == 'duration' || property == '#duration') {
-            return DURATION as any;
-        }
-
-        if (property.startsWith('#')) {
-            return UNKNOWN(property);
-        }
-
-        if (property.startsWith('@')) {
-            return ATTRIBUTE(property.slice(1));
-        }
-
-        return ATTRIBUTE(property);
     }
 
     function removeColumn(i: number) {

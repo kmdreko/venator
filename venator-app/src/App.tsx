@@ -515,6 +515,11 @@ function App() {
         let existingColumnWidths = current_screens[current_selected_screen].columnWidths;
         let updatedColumns = [...existingColumns];
         let updatedColumnWidths = [...existingColumnWidths];
+
+        if (i == -1) {
+            i = existingColumns.length - 1;
+        }
+
         updatedColumns.splice(i + 1, 0, def as any);
         updatedColumnWidths.splice(i + 1, 0, def.defaultWidth);
 

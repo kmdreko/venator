@@ -101,6 +101,7 @@ export function TraceScreen(props: TraceScreenProps) {
                     event={props.selected as Event}
                     updateSelectedRow={props.setSelected}
                     addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
+                    addColumn={() => { }} // TODO: need way to ensure column name works for both
                 />
             </Show>
             <Show when={(props.selected as any)?.created_at}>
@@ -109,6 +110,7 @@ export function TraceScreen(props: TraceScreenProps) {
                     span={props.selected as Span}
                     updateSelectedRow={props.setSelected}
                     addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
+                    addColumn={() => { }} // TODO: need way to ensure column name works for both
                 />
             </Show>
         </div>

@@ -18,6 +18,7 @@ export type EventDetailPaneProps = {
     timespan: Timespan | null,
     updateSelectedRow: (event: Event | null) => void,
     addToFilter: (filter: string) => void,
+    addColumn: (column: string) => void,
 }
 
 export function EventDetailPane(props: EventDetailPaneProps) {
@@ -49,13 +50,13 @@ export function EventDetailPane(props: EventDetailPaneProps) {
                 </Show>
             </div>
             <div id="detail-info-meta">
-                <DetailedMeta name={"target"} value={props.event.target} addToFilter={props.addToFilter} />
-                <DetailedMeta name={"file"} value={props.event.file} addToFilter={props.addToFilter} />
+                <DetailedMeta name={"target"} value={props.event.target} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                <DetailedMeta name={"file"} value={props.event.file} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                 <DetailedMetaParents ancestors={props.event.ancestors} />
-                <DetailedMeta name={"instance"} value={props.event.instance_id} addToFilter={props.addToFilter} />
+                <DetailedMeta name={"instance"} value={props.event.instance_id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
             </div>
             <DetailedPrimary message={props.event.attributes.find(a => a.name == 'message')?.value!}></DetailedPrimary>
-            <DetailAttributes attributes={props.event.attributes} addToFilter={props.addToFilter} />
+            <DetailAttributes attributes={props.event.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
         </div>
     </div>);
 }
@@ -65,6 +66,7 @@ export type SpanDetailPaneProps = {
     timespan: Timespan | null,
     updateSelectedRow: (span: Span | null) => void,
     addToFilter: (filter: string) => void,
+    addColumn: (column: string) => void,
 }
 
 export function SpanDetailPane(props: SpanDetailPaneProps) {
@@ -105,13 +107,13 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
             </div>
             <div id="detail-info-meta">
                 <DetailedMetaId value={props.span.id} created_at={props.span.created_at} closed_at={props.span.closed_at} />
-                <DetailedMeta name={"target"} value={props.span.target} addToFilter={props.addToFilter} />
-                <DetailedMeta name={"file"} value={props.span.file} addToFilter={props.addToFilter} />
+                <DetailedMeta name={"target"} value={props.span.target} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                <DetailedMeta name={"file"} value={props.span.file} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                 <DetailedMetaParents ancestors={props.span.ancestors} name={props.span.name} id={props.span.id} />
-                <DetailedMeta name={"instance"} value={props.span.id.substring(0, props.span.id.indexOf('-'))} addToFilter={props.addToFilter} />
+                <DetailedMeta name={"instance"} value={props.span.id.substring(0, props.span.id.indexOf('-'))} addToFilter={props.addToFilter} addColumn={props.addColumn} />
             </div>
             <DetailedPrimary message={props.span.name}></DetailedPrimary>
-            <DetailAttributes attributes={props.span.attributes} addToFilter={props.addToFilter} />
+            <DetailAttributes attributes={props.span.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
         </div>
     </div>);
 }
@@ -121,6 +123,7 @@ export type InstanceDetailPaneProps = {
     timespan: Timespan | null,
     updateSelectedRow: (instance: Instance | null) => void,
     addToFilter: (filter: string) => void,
+    addColumn: (column: string) => void,
 }
 
 export function InstanceDetailPane(props: InstanceDetailPaneProps) {
@@ -159,9 +162,9 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
                 </Show>
             </div>
             <div id="detail-info-meta">
-                <DetailedMeta name={"id"} value={props.instance.id} addToFilter={props.addToFilter} />
+                <DetailedMeta name={"id"} value={props.instance.id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
             </div>
-            <DetailAttributes attributes={props.instance.attributes} addToFilter={props.addToFilter} />
+            <DetailAttributes attributes={props.instance.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
         </div>
     </div>);
 }
@@ -240,7 +243,7 @@ export function DetailedMetaId(props: { value: string, created_at: number, close
     </div>);
 }
 
-export function DetailedMeta(props: { name: string, value: string | undefined, addToFilter: (filter: string) => void }) {
+export function DetailedMeta(props: { name: string, value: string | undefined, addToFilter: (filter: string) => void, addColumn: (column: string) => void }) {
     async function showInherentContextMenu(e: MouseEvent, property: string, value: string | undefined) {
         let shortValue = value == undefined ? '---' : value.length > 16 ? value.slice(0, 14) + ".." : value;
 
@@ -264,8 +267,8 @@ export function DetailedMeta(props: { name: string, value: string | undefined, a
                 { item: 'Separator' },
                 { text: `include #${property}:${shortValue} in filter`, action: include, enabled: value != undefined },
                 { text: `exclude #${property}:${shortValue} from filter`, action: exclude, enabled: value != undefined },
-                // { item: 'Separator' },
-                // { text: `add column for #${property}`, action: () => { } },
+                { item: 'Separator' },
+                { text: `add column for #${property}`, action: () => props.addColumn(`#${property}`) },
             ]
         });
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
@@ -329,7 +332,7 @@ export function DetailedPrimary(props: { message: string }) {
     </div>);
 }
 
-export function DetailAttributes(props: { attributes: Attribute[], addToFilter: (filter: string) => void }) {
+export function DetailAttributes(props: { attributes: Attribute[], addToFilter: (filter: string) => void, addColumn: (column: string) => void }) {
     async function showAttributeContextMenu(e: MouseEvent, attr: Attribute) {
         let shortName = attr.name.length > 16 ? attr.name.slice(0, 14) + ".." : attr.name;
         let shortValue = attr.value.length > 16 ? attr.value.slice(0, 14) + ".." : attr.value;
@@ -359,9 +362,9 @@ export function DetailAttributes(props: { attributes: Attribute[], addToFilter: 
         }
 
         function copySource() {
-            if (attr.kind == 'instance') {
+            if (attr.source == 'instance') {
                 return [{ text: "copy instance id", action: () => writeText(attr.instance_id) }];
-            } else if (attr.kind == 'span') {
+            } else if (attr.source == 'span') {
                 return [{ text: "copy span id", action: () => writeText(attr.span_id) }];
             } else {
                 return [];
@@ -378,8 +381,8 @@ export function DetailAttributes(props: { attributes: Attribute[], addToFilter: 
                 { text: `include all @${shortName} in filter`, action: includeAll },
                 { text: `exclude @${shortName}:${shortValue} from filter`, action: exclude },
                 { text: `exclude all @${shortName} from filter`, action: excludeAll },
-                // { item: 'Separator' },
-                // { text: `add column for @${shortName}`, action: () => { } },
+                { item: 'Separator' },
+                { text: `add column for @${shortName}`, action: () => props.addColumn(`@${attr.name}`) },
                 // { item: 'Separator' },
                 // { text: `add index on @${shortName}`, action: () => { } },
             ]
@@ -388,17 +391,17 @@ export function DetailAttributes(props: { attributes: Attribute[], addToFilter: 
     }
 
     function sourceIcon(attr: Attribute) {
-        if (attr.kind == 'span') {
+        if (attr.source == 'span') {
             return spanIcon;
-        } else /*if (attr.kind == 'instance')*/ {
+        } else /*if (attr.source == 'instance')*/ {
             return instanceIcon;
         }
     }
 
     function sourceName(attr: Attribute): string {
-        if (attr.kind == 'span') {
+        if (attr.source == 'span') {
             return `from span ${attr.span_id}`;
-        } else if (attr.kind == 'instance') {
+        } else if (attr.source == 'instance') {
             return `from instance ${attr.instance_id}`;
         } else {
             return '';
@@ -410,7 +413,7 @@ export function DetailAttributes(props: { attributes: Attribute[], addToFilter: 
             <For each={props.attributes.filter(a => a.name != 'message')}>
                 {attr => (<tr oncontextmenu={e => showAttributeContextMenu(e, attr)}>
                     <td class="detail-info-attributes-source">
-                        <Show when={attr.kind != 'inherent'}>
+                        <Show when={attr.source != 'inherent'}>
                             <img src={sourceIcon(attr)} style="width:8px;height:8px;padding:0 2px;" title={sourceName(attr)}></img>
                         </Show>
                     </td>

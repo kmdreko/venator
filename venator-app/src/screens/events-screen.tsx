@@ -6,7 +6,7 @@ import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { Event, Input, parseEventFilter } from '../invoke';
 import { Counts, PartialEventCountFilter, PartialFilter, Timespan } from "../models";
-import { ATTRIBUTE, ColumnDef, Table } from "../components/table";
+import { ATTRIBUTE, ColumnDef, getColumnDef, Table } from "../components/table";
 
 import './events-screen.css';
 
@@ -85,6 +85,7 @@ export function EventsScreen(props: EventsScreenProps) {
                     event={row()}
                     updateSelectedRow={props.setSelected}
                     addToFilter={async f => props.addToFilter(await parseEventFilter(f))}
+                    addColumn={c => props.columnInsert(-1, getColumnDef(c))}
                 />}
             </Show>
         </div>
