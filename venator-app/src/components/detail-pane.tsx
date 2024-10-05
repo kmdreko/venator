@@ -47,10 +47,10 @@ export function EventDetailPane(props: EventDetailPaneProps) {
                 </Show>
             </div>
             <div id="detail-info-meta">
-                <DetailedMeta name={"target"} value={props.event.target} />
-                <DetailedMeta name={"file"} value={props.event.file} />
+                <DetailedMeta name={"target"} value={props.event.target} addToFilter={props.addToFilter} />
+                <DetailedMeta name={"file"} value={props.event.file} addToFilter={props.addToFilter} />
                 <DetailedMetaParents ancestors={props.event.ancestors} />
-                <DetailedMeta name={"instance"} value={props.event.instance_id} />
+                <DetailedMeta name={"instance"} value={props.event.instance_id} addToFilter={props.addToFilter} />
             </div>
             <DetailedPrimary message={props.event.attributes.find(a => a.name == 'message')?.value!}></DetailedPrimary>
             <DetailAttributes attributes={props.event.attributes} addToFilter={props.addToFilter} />
@@ -103,10 +103,10 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
             </div>
             <div id="detail-info-meta">
                 <DetailedMetaId value={props.span.id} created_at={props.span.created_at} closed_at={props.span.closed_at} />
-                <DetailedMeta name={"target"} value={props.span.target} />
-                <DetailedMeta name={"file"} value={props.span.file} />
+                <DetailedMeta name={"target"} value={props.span.target} addToFilter={props.addToFilter} />
+                <DetailedMeta name={"file"} value={props.span.file} addToFilter={props.addToFilter} />
                 <DetailedMetaParents ancestors={props.span.ancestors} name={props.span.name} id={props.span.id} />
-                <DetailedMeta name={"instance"} value={props.span.id.substring(0, props.span.id.indexOf('-'))} />
+                <DetailedMeta name={"instance"} value={props.span.id.substring(0, props.span.id.indexOf('-'))} addToFilter={props.addToFilter} />
             </div>
             <DetailedPrimary message={props.span.name}></DetailedPrimary>
             <DetailAttributes attributes={props.span.attributes} addToFilter={props.addToFilter} />
@@ -157,7 +157,7 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
                 </Show>
             </div>
             <div id="detail-info-meta">
-                <DetailedMeta name={"id"} value={props.instance.id} />
+                <DetailedMeta name={"id"} value={props.instance.id} addToFilter={props.addToFilter} />
             </div>
             <DetailAttributes attributes={props.instance.attributes} addToFilter={props.addToFilter} />
         </div>
@@ -238,8 +238,38 @@ export function DetailedMetaId(props: { value: string, created_at: number, close
     </div>);
 }
 
-export function DetailedMeta(props: { name: string, value: string | undefined }) {
-    return (<div class="detailed-meta">
+export function DetailedMeta(props: { name: string, value: string | undefined, addToFilter: (filter: string) => void }) {
+    async function showInherentContextMenu(e: MouseEvent, property: string, value: string | undefined) {
+        let shortValue = value == undefined ? '---' : value.length > 16 ? value.slice(0, 14) + ".." : value;
+
+        function escape(s: string): string {
+            return s.replace(/"/g, '\\"');
+        }
+
+        function include() {
+            let predicate = `#${property}:"${escape(value!)}"`;
+            props.addToFilter(predicate);
+        }
+
+        function exclude() {
+            let predicate = `#${property}:!"${escape(value!)}"`;
+            props.addToFilter(predicate);
+        }
+
+        let menu = await Menu.new({
+            items: [
+                { text: "copy value", action: () => writeText(value!), enabled: value != undefined },
+                { item: 'Separator' },
+                { text: `include #${property}:${shortValue} in filter`, action: include, enabled: value != undefined },
+                { text: `exclude #${property}:${shortValue} from filter`, action: exclude, enabled: value != undefined },
+                // { item: 'Separator' },
+                // { text: `add column for #${property}`, action: () => { } },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
+    return (<div class="detailed-meta" oncontextmenu={e => showInherentContextMenu(e, props.name, props.value)}>
         <b>#{props.name + ':'}</b>
         &nbsp;
         <span style="font-family: monospace;">{props.value}</span>
