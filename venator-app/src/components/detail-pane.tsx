@@ -22,6 +22,8 @@ export type EventDetailPaneProps = {
 }
 
 export function EventDetailPane(props: EventDetailPaneProps) {
+    let [width, setWidth] = createSignal<number>(500);
+
     function eventInTimespan(): boolean {
         if (props.timespan == null) {
             return false;
@@ -36,29 +38,67 @@ export function EventDetailPane(props: EventDetailPaneProps) {
         }
     }
 
-    return (<div id="detail-pane">
-        <div id="detail-header" onauxclick={onClickHeader}>
-            <span>event details</span>
-            <button onclick={() => props.updateSelectedRow(null)}>X</button>
-        </div>
-        <div id="detail-info">
-            <div id="detail-info-head">
-                <DetailedLevel level={props.event.level} />
-                <DetailedTimestamp timestamp={props.event.timestamp} />
-                <Show when={!eventInTimespan()}>
-                    <span style="color: #555555; margin: 0 4px;">not in view</span>
-                </Show>
+    async function showGrabberContextMenu(e: MouseEvent) {
+        let menu = await Menu.new({
+            items: [{ text: "reset width", action: () => setWidth(500) }]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
+    let startingX = 0;
+    let startingWidth = 0;
+    function ongrab(e: MouseEvent) {
+        e.preventDefault();
+
+        startingX = e.clientX;
+        startingWidth = width();
+
+        document.addEventListener('mousemove', ongrabmove);
+        document.addEventListener('mouseup', ongrabrelease);
+    }
+
+    let dragRequested: number | null;
+    function ongrabmove(e: MouseEvent) {
+        if (dragRequested != null)
+            return;
+
+        dragRequested = requestAnimationFrame(() => {
+            dragRequested = null;
+            setWidth(startingWidth + startingX - e.clientX);
+        });
+    }
+
+    function ongrabrelease(_e: MouseEvent) {
+        document.removeEventListener('mousemove', ongrabmove);
+        document.removeEventListener('mouseup', ongrabrelease);
+    }
+
+    return (<>
+        <div id="detail-pane-grabber" onmousedown={ongrab} oncontextmenu={showGrabberContextMenu}></div>
+        <div id="detail-pane" style={`width: ${width()}px; min-width: ${width()}px;`}>
+            <div id="detail-header" onauxclick={onClickHeader}>
+                <span>event details</span>
+                <button onclick={() => props.updateSelectedRow(null)}>X</button>
             </div>
-            <div id="detail-info-meta">
-                <DetailedMeta name={"target"} value={props.event.target} addToFilter={props.addToFilter} addColumn={props.addColumn} />
-                <DetailedMeta name={"file"} value={props.event.file} addToFilter={props.addToFilter} addColumn={props.addColumn} />
-                <DetailedMetaParents ancestors={props.event.ancestors} />
-                <DetailedMeta name={"instance"} value={props.event.instance_id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+            <div id="detail-info">
+                <div id="detail-info-head">
+                    <DetailedLevel level={props.event.level} />
+                    <DetailedTimestamp timestamp={props.event.timestamp} />
+                    <Show when={!eventInTimespan()}>
+                        <span style="color: #555555; margin: 0 4px;">not in view</span>
+                    </Show>
+                </div>
+                <div id="detail-info-meta">
+                    <DetailedMeta name={"target"} value={props.event.target} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                    <DetailedMeta name={"file"} value={props.event.file} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                    <DetailedMetaParents ancestors={props.event.ancestors} />
+                    <DetailedMeta name={"instance"} value={props.event.instance_id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                </div>
+                <DetailedPrimary message={props.event.attributes.find(a => a.name == 'message')?.value!}></DetailedPrimary>
+                <DetailAttributes attributes={props.event.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
             </div>
-            <DetailedPrimary message={props.event.attributes.find(a => a.name == 'message')?.value!}></DetailedPrimary>
-            <DetailAttributes attributes={props.event.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
         </div>
-    </div>);
+    </>);
 }
 
 export type SpanDetailPaneProps = {

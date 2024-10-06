@@ -10,6 +10,11 @@
     border-top: none;
 }
 
+#detail-pane-grabber {
+    width: 8px;
+    cursor: ew-resize;
+}
+
 #detail-header {
     flex: 0;
     font-family: monospace;

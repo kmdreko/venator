@@ -25,6 +25,11 @@ body {
     -webkit-text-size-adjust: 100%;
 }
 
+::selection {
+    background-color: #1E1E1E;
+    color: white;
+}
+
 #root {
     height: 100%;
     display: flex;
