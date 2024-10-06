@@ -333,6 +333,17 @@ export function DetailedPrimary(props: { message: string }) {
 }
 
 export function DetailAttributes(props: { attributes: Attribute[], addToFilter: (filter: string) => void, addColumn: (column: string) => void }) {
+    return (<div id="detail-info-attributes">
+        <For each={props.attributes.filter(a => a.name != 'message')}>
+            {attr => <DetailAttribute attr={attr} addToFilter={props.addToFilter} addColumn={props.addColumn}></DetailAttribute>}
+        </For>
+    </div>);
+}
+
+function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string) => void, addColumn: (column: string) => void }) {
+    let [hovered, setHovered] = createSignal<boolean>(false);
+    let [collapsed, setCollapsed] = createSignal<boolean>(true);
+
     async function showAttributeContextMenu(e: MouseEvent, attr: Attribute) {
         let shortName = attr.name.length > 16 ? attr.name.slice(0, 14) + ".." : attr.name;
         let shortValue = attr.value.length > 16 ? attr.value.slice(0, 14) + ".." : attr.value;
@@ -408,21 +419,34 @@ export function DetailAttributes(props: { attributes: Attribute[], addToFilter: 
         }
     }
 
-    return (<table id="detail-info-attributes">
-        <tbody>
-            <For each={props.attributes.filter(a => a.name != 'message')}>
-                {attr => (<tr oncontextmenu={e => showAttributeContextMenu(e, attr)}>
-                    <td class="detail-info-attributes-source">
-                        <Show when={attr.source != 'inherent'}>
-                            <img src={sourceIcon(attr)} style="width:8px;height:8px;padding:0 2px;" title={sourceName(attr)}></img>
-                        </Show>
-                    </td>
-                    <td class="detail-info-attributes-name">@{attr.name}</td>
-                    <td class="detail-info-attributes-value">: {attr.value}</td>
-                </tr>)}
-            </For>
-        </tbody>
-    </table>);
+    function onmouseenter() {
+        setHovered(true);
+    }
+
+    function onmouseleave() {
+        setHovered(false);
+    }
+
+    function onvalueclick() {
+        setCollapsed(prev => !prev);
+    }
+
+    return (<>
+        <div class="detail-info-attributes-source" classList={{ hovered: hovered() }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} >
+            <Show when={props.attr.source != 'inherent'}>
+                <img src={sourceIcon(props.attr)} style="width:8px;height:8px;padding:0 2px;" title={sourceName(props.attr)}></img>
+            </Show>
+        </div>
+        <div class="detail-info-attributes-name" classList={{ hovered: hovered() }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} >@{props.attr.name}</div>
+        <div style="font-weight: bold; padding: 0 4px;" classList={{ hovered: hovered() }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} >:</div>
+        <div class="detail-info-attributes-value" classList={{ hovered: hovered() }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} onclick={onvalueclick} >
+            <Show when={collapsed()} fallback={<>{props.attr.value}</>}>
+                <div style="position: absolute; width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: clip;">
+                    {props.attr.value}
+                </div>
+            </Show>
+        </div>
+    </>);
 }
 
 function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {

@@ -102,17 +102,13 @@
     background-color: #A8A8A8;
 }
 
-.detailed-meta {
-    border-bottom: 1px solid transparent;
-}
+/* .detailed-meta {} */
 
 .detailed-meta:hover {
     background-color: #c7c7c7;
 }
 
-.detailed-meta-id {
-    border-bottom: 1px solid transparent;
-}
+/* .detailed-meta-id {} */
 
 .detailed-meta-id:hover {
     background-color: #c7c7c7;
@@ -121,7 +117,6 @@
 .detailed-meta-parent {
     font-family: monospace;
     margin-left: 16px;
-    border-bottom: 1px solid transparent;
 }
 
 .detailed-meta-parent:hover {
@@ -137,35 +132,22 @@
 }
 
 #detail-info-attributes {
-    /* width: fit-content; */
+    display: grid;
+    width: 100%;
+    grid-template-columns: 16px max-content 16px auto;
     background-color: transparent;
     border-spacing: 0px;
 }
 
-#detail-info-attributes tr {
-    background-color: transparent;
-}
-
-#detail-info-attributes tr:hover {
+.hovered {
     background-color: #c7c7c7;
-}
-
-#detail-info-attributes td {
-    border: none;
 }
 
 .detail-info-attributes-name {
     font-weight: bold;
 }
 
-#detail-info-attributes td:not(:last-child) {
-    white-space: nowrap;
-}
-
-#detail-info-attributes td:last-child {
-    width: 100%;
-}
-
 .detail-info-attributes-value {
+    position: relative;
     font-family: monospace;
 }
