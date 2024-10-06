@@ -277,6 +277,20 @@ pub enum Value {
     Str(String),
 }
 
+impl Value {
+    pub fn to_type_view(&self) -> AttributeTypeView {
+        match self {
+            Value::F64(_) => AttributeTypeView::F64,
+            Value::I64(_) => AttributeTypeView::I64,
+            Value::U64(_) => AttributeTypeView::U64,
+            Value::I128(_) => AttributeTypeView::I128,
+            Value::U128(_) => AttributeTypeView::U128,
+            Value::Bool(_) => AttributeTypeView::Bool,
+            Value::Str(_) => AttributeTypeView::String,
+        }
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         match self {
@@ -316,8 +330,22 @@ impl ValueOperator {
 pub struct AttributeView {
     pub name: String,
     pub value: String,
+    #[serde(rename = "type")]
+    pub typ: AttributeTypeView,
     #[serde(flatten)]
     pub source: AttributeSourceView,
+}
+
+#[derive(Copy, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttributeTypeView {
+    F64,
+    I64,
+    U64,
+    I128,
+    U128,
+    Bool,
+    String,
 }
 
 #[derive(Clone, Serialize)]

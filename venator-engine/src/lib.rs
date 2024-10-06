@@ -13,7 +13,7 @@ use std::future::Future;
 use std::rc::Rc;
 
 use ghost_cell::{GhostCell, GhostToken};
-use models::FollowsSpanEvent;
+use models::{AttributeTypeView, FollowsSpanEvent};
 use serde::Serialize;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
@@ -487,6 +487,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 .map(|(name, value)| AttributeView {
                     name: name.to_owned(),
                     value: value.to_string(),
+                    typ: value.to_type_view(),
                     source: AttributeSourceView::Instance {
                         instance_id: instance_id.to_string(),
                     },
@@ -519,11 +520,16 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         let ancestors = self.event_ancestors.get(&event.timestamp).unwrap();
 
-        let mut attributes = BTreeMap::<String, (AttributeSourceView, String)>::new();
+        let mut attributes =
+            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
         for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
             attributes.insert(
                 attribute.to_owned(),
-                (AttributeSourceView::Inherent, value.to_string()),
+                (
+                    AttributeSourceView::Inherent,
+                    value.to_string(),
+                    value.to_type_view(),
+                ),
             );
         }
         for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
@@ -537,6 +543,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                                 span_id: format!("{instance_id}-{parent_id}"),
                             },
                             value.to_string(),
+                            value.to_type_view(),
                         ),
                     );
                 }
@@ -551,6 +558,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                             instance_id: instance_id.to_string(),
                         },
                         value.to_string(),
+                        value.to_type_view(),
                     ),
                 );
             }
@@ -581,9 +589,10 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             },
             attributes: attributes
                 .into_iter()
-                .map(|(name, (kind, value))| AttributeView {
+                .map(|(name, (kind, value, typ))| AttributeView {
                     name,
                     value,
+                    typ,
                     source: kind,
                 })
                 .collect(),
@@ -605,11 +614,16 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         let ancestors = self.span_ancestors.get(&span.created_at).unwrap();
 
-        let mut attributes = BTreeMap::<String, (AttributeSourceView, String)>::new();
+        let mut attributes =
+            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
         for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
             attributes.insert(
                 attribute.to_owned(),
-                (AttributeSourceView::Inherent, value.to_string()),
+                (
+                    AttributeSourceView::Inherent,
+                    value.to_string(),
+                    value.to_type_view(),
+                ),
             );
         }
         for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
@@ -623,6 +637,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                                 span_id: format!("{instance_id}-{parent_id}"),
                             },
                             value.to_string(),
+                            value.to_type_view(),
                         ),
                     );
                 }
@@ -637,6 +652,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                             instance_id: instance_id.to_string(),
                         },
                         value.to_string(),
+                        value.to_type_view(),
                     ),
                 );
             }
@@ -668,9 +684,10 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             },
             attributes: attributes
                 .into_iter()
-                .map(|(name, (kind, value))| AttributeView {
+                .map(|(name, (kind, value, typ))| AttributeView {
                     name,
                     value,
+                    typ,
                     source: kind,
                 })
                 .collect(),

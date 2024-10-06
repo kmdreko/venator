@@ -102,6 +102,7 @@ export type Ancestor = {
 export type Attribute = {
     name: string;
     value: string;
+    type: 'f64' | 'i64' | 'u64' | 'i128' | 'u128' | 'bool' | 'string';
 } & ({ source: 'instance', instance_id: InstanceId }
     | { source: 'span', span_id: FullSpanId }
     | { source: 'inherent' });

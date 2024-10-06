@@ -419,6 +419,44 @@ function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string)
         }
     }
 
+    function valueType(attr: Attribute): string {
+        switch (attr.type) {
+            case 'f64':
+                return "number (f64)";
+            case 'i64':
+                return "integer (i64)";
+            case 'u64':
+                return "integer (u64)";
+            case 'i128':
+                return "integer (i128)";
+            case 'u128':
+                return "integer (u128)";
+            case 'bool':
+                return "boolean";
+            case 'string':
+                return "string";
+            default:
+                return '';
+        }
+    }
+
+    function valueClass(attr: Attribute): string {
+        switch (attr.type) {
+            case 'f64':
+            case 'i64':
+            case 'u64':
+            case 'i128':
+            case 'u128':
+                return "value-type-number";
+            case 'bool':
+                return "value-type-boolean";
+            case 'string':
+                return "value-type-string";
+            default:
+                return '';
+        }
+    }
+
     function onmouseenter() {
         setHovered(true);
     }
@@ -439,7 +477,7 @@ function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string)
         </div>
         <div class="detail-info-attributes-name" classList={{ hovered: hovered() }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} >@{props.attr.name}</div>
         <div style="font-weight: bold; padding: 0 4px;" classList={{ hovered: hovered() }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} >:</div>
-        <div class="detail-info-attributes-value" classList={{ hovered: hovered() }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} onclick={onvalueclick} >
+        <div class="detail-info-attributes-value" classList={{ hovered: hovered(), [valueClass(props.attr)]: true }} onmouseenter={onmouseenter} onmouseleave={onmouseleave} oncontextmenu={e => showAttributeContextMenu(e, props.attr)} onclick={onvalueclick} title={valueType(props.attr)} >
             <Show when={collapsed()} fallback={<>{props.attr.value}</>}>
                 <div style="position: absolute; width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: clip;">
                     {props.attr.value}

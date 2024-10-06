@@ -149,5 +149,18 @@
 
 .detail-info-attributes-value {
     position: relative;
+}
+
+.detail-info-attributes-value.value-type-number {
     font-family: monospace;
+}
+
+.detail-info-attributes-value.value-type-boolean {
+    font-family: monospace;
+    font-weight: bold;
+}
+
+.detail-info-attributes-value.value-type-string {
+    font-family: monospace;
+    color: #404040;
 }
