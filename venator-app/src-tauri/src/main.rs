@@ -44,6 +44,27 @@ async fn get_instances(
 }
 
 #[tauri::command]
+async fn get_instance_count(
+    engine: State<'_, Engine>,
+    filter: Vec<FilterPredicate>,
+    start: Timestamp,
+    end: Timestamp,
+) -> Result<usize, ()> {
+    let instances = engine
+        .query_instance_count(Query {
+            filter,
+            order: Order::Asc, // this doesn't matter
+            limit: 20,         // this doesn't matter
+            start,
+            end,
+            previous: None,
+        })
+        .await;
+
+    Ok(instances)
+}
+
+#[tauri::command]
 async fn parse_instance_filter(
     _engine: State<'_, Engine>,
     filter: &str,
@@ -173,6 +194,27 @@ async fn get_spans(
 }
 
 #[tauri::command]
+async fn get_span_count(
+    engine: State<'_, Engine>,
+    filter: Vec<FilterPredicate>,
+    start: Timestamp,
+    end: Timestamp,
+) -> Result<usize, ()> {
+    let spans = engine
+        .query_span_count(Query {
+            filter,
+            order: Order::Asc, // this doesn't matter
+            limit: 20,         // this doesn't matter
+            start,
+            end,
+            previous: None,
+        })
+        .await;
+
+    Ok(spans)
+}
+
+#[tauri::command]
 async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<Vec<InputView>, ()> {
     match FilterPredicate::parse(filter) {
         Ok(predicates) => Ok(predicates
@@ -255,11 +297,13 @@ fn main() {
         .manage(engine)
         .invoke_handler(tauri::generate_handler![
             get_instances,
+            get_instance_count,
             parse_instance_filter,
             get_events,
             get_event_count,
             parse_event_filter,
             get_spans,
+            get_span_count,
             parse_span_filter,
             get_stats,
             subscribe_to_events,

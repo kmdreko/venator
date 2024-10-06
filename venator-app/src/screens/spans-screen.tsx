@@ -80,6 +80,7 @@ export function SpansScreen(props: SpansScreenProps) {
                     timespan={props.timespan}
                     span={row()}
                     updateSelectedRow={props.setSelected}
+                    filter={props.filter}
                     addToFilter={async f => props.addToFilter(await parseSpanFilter(f))}
                     addColumn={c => props.columnInsert(-1, getColumnDef(c))}
                 />}

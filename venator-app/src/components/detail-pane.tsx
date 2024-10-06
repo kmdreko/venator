@@ -1,8 +1,8 @@
-import { createSignal, For, Match, Show, Switch, useContext } from 'solid-js';
+import { createEffect, createSignal, For, Match, Show, Switch, useContext } from 'solid-js';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Menu } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
-import { Ancestor, Attribute, Event, FullSpanId, Input, Instance, Span } from '../invoke'
+import { Ancestor, Attribute, Event, FilterPredicate, FullSpanId, getEventCount, getInstanceCount, getSpanCount, Input, Instance, Span } from '../invoke'
 import { Timespan } from '../models';
 import { NavigationContext } from '../context/navigation';
 import { ScreenData } from '../App';
@@ -17,12 +17,14 @@ export type EventDetailPaneProps = {
     event: Event,
     timespan: Timespan | null,
     updateSelectedRow: (event: Event | null) => void,
+    filter: Input[],
     addToFilter: (filter: string) => void,
     addColumn: (column: string) => void,
 }
 
 export function EventDetailPane(props: EventDetailPaneProps) {
     let [width, setWidth] = createSignal<number>(500);
+    let [inFilter, setInFilter] = createSignal<boolean>(true);
 
     function eventInTimespan(): boolean {
         if (props.timespan == null) {
@@ -31,6 +33,15 @@ export function EventDetailPane(props: EventDetailPaneProps) {
 
         return (props.event.timestamp >= props.timespan[0] && props.event.timestamp <= props.timespan[1])
     }
+
+    createEffect(async () => {
+        let countAtTimestamp = await getEventCount({
+            filter: props.filter.filter(f => f.input == 'valid'),
+            start: props.event.timestamp,
+            end: props.event.timestamp,
+        });
+        setInFilter(countAtTimestamp == 1);
+    })
 
     function onClickHeader(e: MouseEvent) {
         if (e.button == 1) {
@@ -84,8 +95,11 @@ export function EventDetailPane(props: EventDetailPaneProps) {
                 <div id="detail-info-head">
                     <DetailedLevel level={props.event.level} />
                     <DetailedTimestamp timestamp={props.event.timestamp} />
+                    <Show when={!inFilter()}>
+                        <span style="color: #555555; margin: 0 4px;">not in filter</span>
+                    </Show>
                     <Show when={!eventInTimespan()}>
-                        <span style="color: #555555; margin: 0 4px;">not in view</span>
+                        <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
                     </Show>
                 </div>
                 <div id="detail-info-meta">
@@ -105,12 +119,14 @@ export type SpanDetailPaneProps = {
     span: Span,
     timespan: Timespan | null,
     updateSelectedRow: (span: Span | null) => void,
+    filter: Input[],
     addToFilter: (filter: string) => void,
     addColumn: (column: string) => void,
 }
 
 export function SpanDetailPane(props: SpanDetailPaneProps) {
     let [width, setWidth] = createSignal<number>(500);
+    let [inFilter, setInFilter] = createSignal<boolean>(true);
 
     function spanInTimespan(): boolean {
         if (props.timespan == null) {
@@ -127,6 +143,20 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
 
         return true;
     }
+
+    createEffect(async () => {
+        let countAtTimestamp = await getSpanCount({
+            filter: props.filter.filter(f => f.input == 'valid').map(f => f as FilterPredicate).concat({
+                property_kind: 'Inherent',
+                property: 'created',
+                value_kind: 'comparison',
+                value: ['Eq', `${props.span.created_at}`]
+            } as FilterPredicate),
+            start: props.span.created_at,
+            end: props.span.created_at,
+        });
+        setInFilter(countAtTimestamp == 1);
+    })
 
     function onClickHeader(e: MouseEvent) {
         if (e.button == 1) {
@@ -180,8 +210,11 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
                     <Show when={props.span.closed_at != null}>
                         <DetailedDuration duration={props.span.closed_at! - props.span.created_at} />
                     </Show>
+                    <Show when={!inFilter()}>
+                        <span style="color: #555555; margin: 0 4px;">not in filter</span>
+                    </Show>
                     <Show when={!spanInTimespan()}>
-                        <span style="color: #555555; margin: 0 4px;">not in view</span>
+                        <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
                     </Show>
                 </div>
                 <div id="detail-info-meta">
@@ -202,12 +235,14 @@ export type InstanceDetailPaneProps = {
     instance: Instance,
     timespan: Timespan | null,
     updateSelectedRow: (instance: Instance | null) => void,
+    filter: Input[],
     addToFilter: (filter: string) => void,
     addColumn: (column: string) => void,
 }
 
 export function InstanceDetailPane(props: InstanceDetailPaneProps) {
     let [width, setWidth] = createSignal<number>(500);
+    let [inFilter, setInFilter] = createSignal<boolean>(true);
 
     function instanceInTimespan(): boolean {
         if (props.timespan == null) {
@@ -224,6 +259,20 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
 
         return true;
     }
+
+    createEffect(async () => {
+        let countAtTimestamp = await getInstanceCount({
+            filter: props.filter.filter(f => f.input == 'valid').map(f => f as FilterPredicate).concat({
+                property_kind: 'Inherent',
+                property: 'connected',
+                value_kind: 'comparison',
+                value: ['Eq', `${props.instance.connected_at}`]
+            } as FilterPredicate),
+            start: props.instance.connected_at,
+            end: props.instance.connected_at,
+        });
+        setInFilter(countAtTimestamp == 1);
+    })
 
     function onClickHeader(e: MouseEvent) {
         if (e.button == 1) {
@@ -276,8 +325,11 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
                     <Show when={props.instance.disconnected_at != null}>
                         <DetailedDuration duration={props.instance.disconnected_at! - props.instance.connected_at} />
                     </Show>
+                    <Show when={!inFilter()}>
+                        <span style="color: #555555; margin: 0 4px;">not in filter</span>
+                    </Show>
                     <Show when={!instanceInTimespan()}>
-                        <span style="color: #555555; margin: 0 4px;">not in view</span>
+                        <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
                     </Show>
                 </div>
                 <div id="detail-info-meta">

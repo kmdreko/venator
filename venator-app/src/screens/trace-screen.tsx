@@ -100,6 +100,7 @@ export function TraceScreen(props: TraceScreenProps) {
                     timespan={props.timespan}
                     event={props.selected as Event}
                     updateSelectedRow={props.setSelected}
+                    filter={props.filter}
                     addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
                     addColumn={() => { }} // TODO: need way to ensure column name works for both
                 />
@@ -109,6 +110,7 @@ export function TraceScreen(props: TraceScreenProps) {
                     timespan={props.timespan}
                     span={props.selected as Span}
                     updateSelectedRow={props.setSelected}
+                    filter={props.filter}
                     addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
                     addColumn={() => { }} // TODO: need way to ensure column name works for both
                 />

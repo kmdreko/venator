@@ -10,6 +10,7 @@ export type Stats = {
     end?: Timestamp;
     total_spans: number;
     total_events: number;
+    indexed_attributes: string[];
 };
 
 export type Comparator = 'Gt' | 'Gte' | 'Eq' | 'Lt' | 'Lte';
@@ -56,7 +57,7 @@ export type EventFilter = {
     previous?: Timestamp;
 };
 
-export type EventCountFilter = {
+export type CountFilter = {
     filter: FilterPredicate[];
     start: Timestamp;
     end: Timestamp;
@@ -112,6 +113,11 @@ export async function getInstances(filter: InstanceFilter): Promise<Instance[]> 
     return await invoke<Instance[]>("get_instances", filter);
 }
 
+export async function getInstanceCount(filter: CountFilter): Promise<number> {
+    console.debug("invoking 'get_instance_count'");
+    return await invoke<number>("get_instance_count", filter);
+}
+
 export async function parseInstanceFilter(filter: string): Promise<Input[]> {
     console.debug("invoking 'parse_instance_filter'");
     return await invoke<Input[]>("parse_instance_filter", { filter });
@@ -127,7 +133,7 @@ export async function getEvents(filter: EventFilter): Promise<Event[]> {
     return await invoke<Event[]>("get_events", filter);
 }
 
-export async function getEventCount(filter: EventCountFilter): Promise<number> {
+export async function getEventCount(filter: CountFilter): Promise<number> {
     console.debug("invoking 'get_event_count'");
     return await invoke<number>("get_event_count", filter);
 }
@@ -140,6 +146,11 @@ export async function parseEventFilter(filter: string): Promise<Input[]> {
 export async function getSpans(filter: SpanFilter): Promise<Span[]> {
     console.debug("invoking 'get_spans'");
     return await invoke<Span[]>("get_spans", filter);
+}
+
+export async function getSpanCount(filter: CountFilter): Promise<number> {
+    console.debug("invoking 'get_span_count'");
+    return await invoke<number>("get_span_count", filter);
 }
 
 export async function parseSpanFilter(filter: string): Promise<Input[]> {

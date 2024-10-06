@@ -80,6 +80,7 @@ export function InstancesScreen(props: InstancesScreenProps) {
                     timespan={props.timespan}
                     instance={row()}
                     updateSelectedRow={props.setSelected}
+                    filter={props.filter}
                     addToFilter={async f => props.addToFilter(await parseInstanceFilter(f))}
                     addColumn={c => props.columnInsert(-1, getColumnDef(c))}
                 />}

@@ -370,4 +370,5 @@ pub struct StatsView {
     pub end: Option<Timestamp>,
     pub total_spans: usize,
     pub total_events: usize,
+    pub indexed_attributes: Vec<String>,
 }

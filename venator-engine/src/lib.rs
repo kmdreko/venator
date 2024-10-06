@@ -83,9 +83,17 @@ impl Engine {
                             let instances = engine.query_instance(query);
                             let _ = sender.send(instances);
                         }
+                        EngineCommand::QueryInstanceCount(query, sender) => {
+                            let events = engine.query_instance_count(query);
+                            let _ = sender.send(events);
+                        }
                         EngineCommand::QuerySpan(query, sender) => {
                             let spans = engine.query_span(query);
                             let _ = sender.send(spans);
+                        }
+                        EngineCommand::QuerySpanCount(query, sender) => {
+                            let events = engine.query_span_count(query);
+                            let _ = sender.send(events);
                         }
                         EngineCommand::QuerySpanEvent(query, sender) => {
                             let span_events = engine.query_span_event(query);
@@ -163,11 +171,29 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
+    pub fn query_instance_count(&self, query: Query) -> impl Future<Output = usize> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .query_sender
+            .send(EngineCommand::QueryInstanceCount(query, sender));
+        async move { receiver.await.unwrap() }
+    }
+
+    // The query is executed even if the returned future is not awaited
     pub fn query_span(&self, query: Query) -> impl Future<Output = Vec<SpanView>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
             .send(EngineCommand::QuerySpan(query, sender));
+        async move { receiver.await.unwrap() }
+    }
+
+    // The query is executed even if the returned future is not awaited
+    pub fn query_span_count(&self, query: Query) -> impl Future<Output = usize> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .query_sender
+            .send(EngineCommand::QuerySpanCount(query, sender));
         async move { receiver.await.unwrap() }
     }
 
@@ -277,7 +303,9 @@ impl Engine {
 
 enum EngineCommand {
     QueryInstance(Query, OneshotSender<Vec<InstanceView>>),
+    QueryInstanceCount(Query, OneshotSender<usize>),
     QuerySpan(Query, OneshotSender<Vec<SpanView>>),
+    QuerySpanCount(Query, OneshotSender<usize>),
     QuerySpanEvent(Query, OneshotSender<Vec<SpanEvent>>),
     QueryEvent(Query, OneshotSender<Vec<EventView>>),
     QueryEventCount(Query, OneshotSender<usize>),
@@ -474,6 +502,11 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             .collect()
     }
 
+    pub fn query_instance_count(&self, query: Query) -> usize {
+        // TODO: make this better
+        self.query_instance(query).len()
+    }
+
     fn render_instance(&self, instance: &Instance) -> InstanceView {
         let instance_id = instance.id;
 
@@ -608,6 +641,15 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             .collect()
     }
 
+    pub fn query_span_count(&self, query: Query) -> usize {
+        let span_iter = IndexedSpanFilterIterator::new(query, self);
+
+        match span_iter.size_hint() {
+            (min, Some(max)) if min == max => min,
+            _ => span_iter.count(),
+        }
+    }
+
     fn render_span(&self, span: &Span) -> SpanView {
         let (instance, _) = self.instances.get(&span.instance_key).unwrap();
         let instance_id = instance.id;
@@ -704,6 +746,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             end: self.event_indexes.all.last().copied(),
             total_events: self.event_indexes.all.len(),
             total_spans: self.span_indexes.all.len(),
+            indexed_attributes: self.event_indexes.attributes.keys().cloned().collect(),
         }
     }
 
