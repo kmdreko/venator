@@ -1,6 +1,6 @@
 import { For, useContext } from "solid-js";
 import { defaultEventsScreen, defaultSpansScreen, ScreenData } from "../App";
-import { Input } from "../invoke";
+import { Input, parseEventFilter, parseInstanceFilter, parseSpanFilter } from "../invoke";
 import { NavigationContext } from "../context/navigation";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { Menu, MenuItemOptions } from "@tauri-apps/api/menu";
@@ -99,19 +99,22 @@ export function TabBar(props: TabBarProps) {
         }
     }
 
-    function duplicateScreenAs(screen: ScreenData, screenKind: 'events' | 'spans' | 'instances'): ScreenData {
+    async function duplicateScreenAs(screen: ScreenData, screenKind: 'events' | 'spans' | 'instances'): Promise<ScreenData> {
         if (screenKind == 'events') {
             // TODO: put these default columns somewhere else
             let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
             let columnWidths = columns.map(def => def.defaultWidth);
 
+            let filterText = stringifyFilter(screen.filter);
+            let filter = await parseEventFilter(filterText);
+
             return {
                 kind: 'events',
-                filter: [...screen.filter],
+                filter,
                 timespan: screen.timespan!,
                 selected: null,
                 live: false,
-                store: new EventDataLayer([...screen.filter]),
+                store: new EventDataLayer(filter),
                 columns,
                 columnWidths,
             };
@@ -120,13 +123,16 @@ export function TabBar(props: TabBarProps) {
             let columns = [LEVEL, CREATED, INHERENT('name')];
             let columnWidths = columns.map(def => def.defaultWidth);
 
+            let filterText = stringifyFilter(screen.filter);
+            let filter = await parseSpanFilter(filterText);
+
             return {
                 kind: 'spans',
-                filter: [...screen.filter],
+                filter,
                 timespan: screen.timespan!,
                 selected: null,
                 live: false,
-                store: new SpanDataLayer([...screen.filter]),
+                store: new SpanDataLayer(filter),
                 columns,
                 columnWidths,
             };
@@ -135,13 +141,16 @@ export function TabBar(props: TabBarProps) {
             let columns = [CONNECTED, INHERENT('id')];
             let columnWidths = columns.map(def => def.defaultWidth);
 
+            let filterText = stringifyFilter(screen.filter);
+            let filter = await parseInstanceFilter(filterText);
+
             return {
                 kind: 'instances',
-                filter: [...screen.filter],
+                filter: filter,
                 timespan: screen.timespan!,
                 selected: null,
                 live: false,
-                store: new InstanceDataLayer([...screen.filter]),
+                store: new InstanceDataLayer(filter),
                 columns,
                 columnWidths,
             };
@@ -149,25 +158,23 @@ export function TabBar(props: TabBarProps) {
     }
 
     function duplicationItems(screen: ScreenData): MenuItemOptions[] {
-        // TODO: re-enable these when screens can handle bad initial filters (or
-        // add logic to handle them)
         if (screen.kind == 'events') {
             return [
                 { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
-                { text: "duplicate tab for spans", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), true)*/ },
-                { text: "duplicate tab for instances", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'instances'), true)*/ },
+                { text: "duplicate tab for spans", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'spans'), true) },
+                { text: "duplicate tab for instances", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'instances'), true) },
             ];
         } else if (screen.kind == 'spans') {
             return [
                 { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
-                { text: "duplicate tab for events", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), true)*/ },
-                { text: "duplicate tab for instances", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'instances'), true)*/ },
+                { text: "duplicate tab for events", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'events'), true) },
+                { text: "duplicate tab for instances", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'instances'), true) },
             ];
         } else if (screen.kind == 'instances') {
             return [
                 { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
-                { text: "duplicate tab for events", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), true)*/ },
-                { text: "duplicate tab for spans", enabled: false, /*action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), true)*/ },
+                { text: "duplicate tab for events", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'events'), true) },
+                { text: "duplicate tab for spans", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'spans'), true) },
             ];
         } else /* screen.kind == 'trace' */ {
             if (screen.timespan == null) {
@@ -177,8 +184,8 @@ export function TabBar(props: TabBarProps) {
             } else {
                 return [
                     { text: "duplicate tab", action: () => navigation.createTab(duplicateScreen(screen), true) },
-                    { text: "duplicate tab for events", action: () => navigation.createTab(duplicateScreenAs(screen, 'events'), true) },
-                    { text: "duplicate tab for spans", action: () => navigation.createTab(duplicateScreenAs(screen, 'spans'), true) },
+                    { text: "duplicate tab for events", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'events'), true) },
+                    { text: "duplicate tab for spans", action: async () => navigation.createTab(await duplicateScreenAs(screen, 'spans'), true) },
                 ];
             }
         }
