@@ -2,7 +2,7 @@ import { createEffect, createSignal, For, Match, Show, Switch, useContext } from
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Menu } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
-import { Ancestor, Attribute, Event, FilterPredicate, FullSpanId, getEventCount, getInstanceCount, getSpanCount, Input, Instance, Span } from '../invoke'
+import { Ancestor, Attribute, createAttributeIndex, Event, FilterPredicate, FullSpanId, getEventCount, getInstanceCount, getSpanCount, Input, Instance, Span } from '../invoke'
 import { Timespan } from '../models';
 import { NavigationContext } from '../context/navigation';
 import { ScreenData } from '../App';
@@ -566,8 +566,8 @@ function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string)
                 { text: `exclude all @${shortName} from filter`, action: excludeAll },
                 { item: 'Separator' },
                 { text: `add column for @${shortName}`, action: () => props.addColumn(`@${attr.name}`) },
-                // { item: 'Separator' },
-                // { text: `add index on @${shortName}`, action: () => { } },
+                { item: 'Separator' },
+                { text: `add index on @${shortName}`, action: () => createAttributeIndex(attr.name) },
             ]
         });
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));

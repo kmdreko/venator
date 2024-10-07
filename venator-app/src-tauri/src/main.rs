@@ -274,6 +274,11 @@ async fn unsubscribe_from_events(
     Ok(())
 }
 
+#[tauri::command]
+fn create_attribute_index(engine: State<'_, Engine>, name: String) {
+    engine.add_attribute_index(name)
+}
+
 fn main() {
     let engine = Engine::new(FileStorage::new("local.db"));
 
@@ -308,6 +313,7 @@ fn main() {
             get_stats,
             subscribe_to_events,
             unsubscribe_from_events,
+            create_attribute_index,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

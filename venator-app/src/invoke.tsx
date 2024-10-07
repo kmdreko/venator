@@ -167,3 +167,8 @@ export async function unsubscribeFromEvents(id: number): Promise<number> {
     console.debug("invoking 'unsubscribe_from_events'");
     return await invoke<number>("unsubscribe_from_events", { id });
 }
+
+export async function createAttributeIndex(name: string): Promise<void> {
+    console.debug("invoking 'create_attribute_index'");
+    return await invoke<void>("create_attribute_index", { name });
+}

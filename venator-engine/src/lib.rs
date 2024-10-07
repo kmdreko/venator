@@ -1164,7 +1164,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             for span in self.storage.get_all_spans() {
                 let span_key = span.created_at;
 
-                if let Some(value) = span.fields.get(&name) {
+                if let Some(value) = self.span_ancestors[&span_key].get_value(&name, &self.token) {
                     attr_index.add_entry(span_key, value);
                 }
             }
@@ -1179,7 +1179,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             for event in self.storage.get_all_events() {
                 let event_key = event.timestamp;
 
-                if let Some(value) = event.fields.get(&name) {
+                if let Some(value) = self.event_ancestors[&event_key].get_value(&name, &self.token)
+                {
                     attr_index.add_entry(event_key, value);
                 }
             }
@@ -1188,6 +1189,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 .attributes
                 .insert(name.clone(), attr_index);
         }
+
+        // TODO: persist indexes
     }
 
     pub fn subscribe_to_events(
