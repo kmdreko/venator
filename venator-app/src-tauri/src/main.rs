@@ -9,7 +9,7 @@ use clap::Parser;
 use ingress::Ingress;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
-use tauri::menu::{MenuBuilder, MenuItem, Submenu};
+use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::State;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventView, FileStorage,
@@ -402,14 +402,73 @@ fn main() {
                             true,
                             None::<&str>,
                         )?,
-                        &MenuItem::new(handle, "View", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Tools", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Open dataset in new window", true, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Save", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Save as", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Export view as CSV", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Export view as ...", false, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Exit", true, None::<&str>)?,
                     ],
                 )?)
-                .item(&MenuItem::new(handle, "Edit", true, None::<&str>)?)
-                .item(&MenuItem::new(handle, "View", true, None::<&str>)?)
-                .item(&MenuItem::new(handle, "Tools", true, None::<&str>)?)
-                .item(&MenuItem::new(handle, "Help", true, None::<&str>)?)
+                .item(&Submenu::with_items(
+                    handle,
+                    "Edit",
+                    true,
+                    &[
+                        &MenuItem::new(handle, "Undo", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Redo", true, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Cut filter", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Copy filter", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Paste filter", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Go to filter", true, None::<&str>)?,
+                    ],
+                )?)
+                .item(&Submenu::with_items(
+                    handle,
+                    "View",
+                    true,
+                    &[
+                        &MenuItem::new(handle, "New tab", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Duplicate tab", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Close all tabs", true, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Focus", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Focus all", true, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Go to start", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Go to end", true, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Zoom in timeframe", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Zoom out timeframe", true, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Theme", true, None::<&str>)?,
+                    ],
+                )?)
+                .item(&Submenu::with_items(
+                    handle,
+                    "Data",
+                    true,
+                    &[
+                        &MenuItem::new(handle, "Delete all", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Delete from timeframe", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Delete outside timeframe", true, None::<&str>)?,
+                        &PredefinedMenuItem::separator(handle)?,
+                        &MenuItem::new(handle, "Manage indexes", false, None::<&str>)?,
+                    ],
+                )?)
+                .item(&Submenu::with_items(
+                    handle,
+                    "Help",
+                    true,
+                    &[
+                        &MenuItem::new(handle, "About Venator", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Documentation", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Report an issue", true, None::<&str>)?,
+                    ],
+                )?)
                 .build()?;
             app.set_menu(menu)?;
             app.on_menu_event(|app, event| {
