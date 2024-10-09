@@ -684,6 +684,8 @@ function App() {
         <div id="statusbar">
             <Show when={status()}>
                 {s => <>
+                    <span style="padding: 0 4px;">{s().dataset_message}</span>
+                    -
                     <span style="padding: 0 4px;" title={s().ingress_error}>{s().ingress_message}</span>
                 </>}
             </Show>

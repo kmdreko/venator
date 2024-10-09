@@ -111,6 +111,7 @@ export type Attribute = {
 export type AppStatus = {
     ingress_message: string;
     ingress_error: string;
+    dataset_message: string;
 };
 
 export async function getInstances(filter: InstanceFilter): Promise<Instance[]> {

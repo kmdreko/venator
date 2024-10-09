@@ -1,8 +1,10 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
+use clap::Parser;
 use ingress::Ingress;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -11,7 +13,7 @@ use tauri::State;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventView, FileStorage,
     FilterPredicate, FilterPropertyKind, InstanceView, Order, Query, SpanView, StatsView,
-    SubscriptionId, Timestamp, ValuePredicate,
+    SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
 };
 
 mod ingress;
@@ -278,6 +280,7 @@ fn create_attribute_index(engine: State<'_, Engine>, name: String) {
 #[tauri::command]
 async fn get_status(
     _engine: State<'_, Engine>,
+    dataset: State<'_, DatasetConfig>,
     ingress: State<'_, Mutex<Option<Ingress>>>,
 ) -> Result<StatusView, String> {
     let (ingress_message, ingress_error) = match &mut *ingress.lock().unwrap() {
@@ -285,17 +288,86 @@ async fn get_status(
         None => ("not listening".into(), None),
     };
 
+    let dataset_message = match &*dataset {
+        DatasetConfig::Default(_) => "using default dataset".to_owned(),
+        DatasetConfig::File(path) => format!("using {}", path.display()),
+        DatasetConfig::Memory => "using :memory:".to_owned(),
+    };
+
     Ok(StatusView {
         ingress_message,
         ingress_error,
+        dataset_message,
     })
 }
 
-fn main() {
-    let engine = Engine::new(FileStorage::new("local.db"));
+enum DatasetConfig {
+    Default(PathBuf),
+    File(PathBuf),
+    Memory,
+}
 
-    let ingress = Ingress::start("0.0.0.0:8362".into(), engine.clone());
-    let ingress = Mutex::new(Some(ingress));
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// The file (or :memory:) that holds captured traces
+    #[arg(short, long)]
+    dataset: Option<String>,
+
+    /// The bind address to accept traces from
+    #[arg(short, long)]
+    bind: Option<String>,
+}
+
+impl Args {
+    fn dataset(&self) -> DatasetConfig {
+        if let Some(dataset) = &self.dataset {
+            if dataset == ":memory:" {
+                return DatasetConfig::Memory;
+            } else {
+                return DatasetConfig::File(PathBuf::from(dataset));
+            }
+        }
+
+        if cfg!(debug_assertions) {
+            DatasetConfig::Default(PathBuf::from("local.db"))
+        } else {
+            DatasetConfig::Default(
+                directories::ProjectDirs::from("", "", "Venator")
+                    .map(|dirs| dirs.data_dir().to_path_buf().join("local.db"))
+                    .unwrap_or(PathBuf::from("local.db")),
+            )
+        }
+    }
+
+    fn bind(&self) -> Option<&str> {
+        // if there is a bind address, use it - otherwise only use the default
+        // if also using the default dataset
+
+        if let Some(bind) = &self.bind {
+            return Some(bind);
+        }
+
+        if self.dataset.is_some() {
+            None
+        } else {
+            Some("0.0.0.0:8362")
+        }
+    }
+}
+
+fn main() {
+    let args = Args::parse();
+    let dataset = args.dataset();
+    let bind = args.bind();
+
+    let engine = match &dataset {
+        DatasetConfig::Default(path) => Engine::new(FileStorage::new(path)),
+        DatasetConfig::File(path) => Engine::new(FileStorage::new(path)),
+        DatasetConfig::Memory => Engine::new(TransientStorage::new()),
+    };
+
+    let ingress = bind.map(|bind| Ingress::start(bind.to_owned(), engine.clone()));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -312,7 +384,8 @@ fn main() {
             Ok(())
         })
         .manage(engine)
-        .manage(ingress)
+        .manage(dataset)
+        .manage(Mutex::new(ingress))
         .invoke_handler(tauri::generate_handler![
             get_instances,
             get_instance_count,
@@ -371,4 +444,5 @@ impl From<FilterPredicate> for FilterPredicateView {
 struct StatusView {
     ingress_message: String,
     ingress_error: Option<String>,
+    dataset_message: String,
 }

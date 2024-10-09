@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use rusqlite::{Connection, Error as DbError, Params, Row};
 
@@ -12,7 +13,7 @@ pub struct FileStorage {
 }
 
 impl FileStorage {
-    pub fn new(path: &str) -> FileStorage {
+    pub fn new(path: &Path) -> FileStorage {
         let connection = Connection::open(path).unwrap();
 
         connection
