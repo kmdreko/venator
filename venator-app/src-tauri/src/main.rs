@@ -2,13 +2,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 use clap::Parser;
 use ingress::Ingress;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
-use tauri::menu::{MenuBuilder, MenuItem};
+use tauri::menu::{MenuBuilder, MenuItem, Submenu};
 use tauri::State;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventView, FileStorage,
@@ -307,6 +308,19 @@ enum DatasetConfig {
     Memory,
 }
 
+impl DatasetConfig {
+    fn prepare(&self) {
+        match self {
+            DatasetConfig::Memory => { /* nothing to do */ }
+            DatasetConfig::Default(path) | DatasetConfig::File(path) => {
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).unwrap();
+                }
+            }
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -361,6 +375,7 @@ fn main() {
     let dataset = args.dataset();
     let bind = args.bind();
 
+    dataset.prepare();
     let engine = match &dataset {
         DatasetConfig::Default(path) => Engine::new(FileStorage::new(path)),
         DatasetConfig::File(path) => Engine::new(FileStorage::new(path)),
@@ -370,17 +385,54 @@ fn main() {
     let ingress = bind.map(|bind| Ingress::start(bind.to_owned(), engine.clone()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let handle = app.handle();
             let menu = MenuBuilder::new(handle)
-                .item(&MenuItem::new(handle, "File", true, None::<&str>)?)
+                .item(&Submenu::with_items(
+                    handle,
+                    "File",
+                    true,
+                    &[
+                        &MenuItem::with_id(
+                            handle,
+                            "open-dataset",
+                            "Open dataset",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::new(handle, "View", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Tools", true, None::<&str>)?,
+                    ],
+                )?)
                 .item(&MenuItem::new(handle, "Edit", true, None::<&str>)?)
                 .item(&MenuItem::new(handle, "View", true, None::<&str>)?)
                 .item(&MenuItem::new(handle, "Tools", true, None::<&str>)?)
                 .item(&MenuItem::new(handle, "Help", true, None::<&str>)?)
                 .build()?;
             app.set_menu(menu)?;
+            app.on_menu_event(|app, event| {
+                if event.id().as_ref() == "open-dataset" {
+                    use tauri_plugin_dialog::DialogExt;
+
+                    let Ok(current_exe) = std::env::current_exe() else {
+                        return;
+                    };
+
+                    app.dialog().file().pick_file(move |file_path| {
+                        let Some(path) = file_path else { return };
+                        Command::new(current_exe)
+                            .arg("-d")
+                            .arg(path.as_path().unwrap())
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn()
+                            .unwrap();
+                    });
+                }
+            });
             Ok(())
         })
         .manage(engine)

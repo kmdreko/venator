@@ -13,6 +13,7 @@
     "core:menu:default",
     "core:tray:default",
     "core:window:allow-set-title",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    "dialog:default"
   ]
 }
