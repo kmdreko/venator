@@ -1,5 +1,5 @@
 import { EventsScreen } from "./screens/events-screen";
-import { Event, getStats, Input, Instance, Span, Timestamp } from "./invoke";
+import { AppStatus, Event, getStats, getStatus, Input, Instance, Span, Timestamp } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
@@ -175,10 +175,15 @@ export async function defaultInstancesScreen(): Promise<InstancesScreenData> {
 function App() {
     let [screens, setScreens] = createSignal<ScreenData[]>([]);
     let [selectedScreen, setSelectedScreen] = createSignal<number | undefined>();
+    let [status, setStatus] = createSignal<AppStatus | null>(null);
 
     onMount(async () => {
         createTab(await defaultEventsScreen(), true);
     });
+
+    onMount(async () => {
+        setStatus(await getStatus());
+    })
 
     function normalizeTimespan(new_timespan: Timespan): Timespan {
         let [new_start, new_end] = new_timespan;
@@ -677,7 +682,11 @@ function App() {
         </NavigationContext.Provider>
 
         <div id="statusbar">
-            <span style="padding: 0 4px;">Listening on 0.0.0.0:8362</span>
+            <Show when={status()}>
+                {s => <>
+                    <span style="padding: 0 4px;" title={s().ingress_error}>{s().ingress_message}</span>
+                </>}
+            </Show>
         </div>
     </>);
 }

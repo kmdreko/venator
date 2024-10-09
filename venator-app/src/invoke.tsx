@@ -108,6 +108,11 @@ export type Attribute = {
     | { source: 'span', span_id: FullSpanId }
     | { source: 'inherent' });
 
+export type AppStatus = {
+    ingress_message: string;
+    ingress_error: string;
+};
+
 export async function getInstances(filter: InstanceFilter): Promise<Instance[]> {
     console.debug("invoking 'get_instances'");
     return await invoke<Instance[]>("get_instances", filter);
@@ -171,4 +176,9 @@ export async function unsubscribeFromEvents(id: number): Promise<number> {
 export async function createAttributeIndex(name: string): Promise<void> {
     console.debug("invoking 'create_attribute_index'");
     return await invoke<void>("create_attribute_index", { name });
+}
+
+export async function getStatus(): Promise<AppStatus> {
+    console.debug("invoking 'get_status'");
+    return await invoke<AppStatus>("get_status");
 }
