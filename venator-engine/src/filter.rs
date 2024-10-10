@@ -118,13 +118,21 @@ impl IndexedEventFilter<'_> {
                 ),
             },
             BasicEventFilter::Ancestor(ancestor_key) => {
-                let index = &event_indexes.descendents[&ancestor_key];
+                let index = event_indexes
+                    .descendents
+                    .get(&ancestor_key)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
 
                 IndexedEventFilter::Single(index, None)
             }
             BasicEventFilter::Root => IndexedEventFilter::Single(&event_indexes.roots, None),
             BasicEventFilter::Parent(parent_key) => {
-                let index = &event_indexes.descendents[&parent_key];
+                let index = event_indexes
+                    .descendents
+                    .get(&parent_key)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
 
                 IndexedEventFilter::Single(index, Some(NonIndexedEventFilter::Parent(parent_key)))
             }
@@ -1359,13 +1367,21 @@ impl IndexedSpanFilter<'_> {
                 ),
             },
             BasicSpanFilter::Ancestor(ancestor_key) => {
-                let index = &span_indexes.descendents[&ancestor_key];
+                let index = span_indexes
+                    .descendents
+                    .get(&ancestor_key)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
 
                 IndexedSpanFilter::Single(index, None)
             }
             BasicSpanFilter::Root => IndexedSpanFilter::Single(&span_indexes.roots, None),
             BasicSpanFilter::Parent(parent_key) => {
-                let index = &span_indexes.descendents[&parent_key];
+                let index = span_indexes
+                    .descendents
+                    .get(&parent_key)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
 
                 IndexedSpanFilter::Single(index, Some(NonIndexedSpanFilter::Parent(parent_key)))
             }

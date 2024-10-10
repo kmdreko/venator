@@ -911,7 +911,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     .any(|attribute| update_event.fields.contains_key(attribute));
 
                 if updated_an_indexed_attribute {
-                    for span_key in self.span_indexes.descendents[&span_key].clone() {
+                    let descendent_spans = self
+                        .span_indexes
+                        .descendents
+                        .get(&span_key)
+                        .cloned()
+                        .unwrap_or_default();
+
+                    for span_key in descendent_spans {
                         // check if nested span attribute changed
                         let ancestors = &self.span_ancestors[&span_key];
                         self.span_indexes.update_with_new_field_on_parent(
@@ -923,7 +930,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                         );
                     }
 
-                    for event_key in self.event_indexes.descendents[&span_key].clone() {
+                    let descendent_events = self
+                        .event_indexes
+                        .descendents
+                        .get(&span_key)
+                        .cloned()
+                        .unwrap_or_default();
+
+                    for event_key in descendent_events {
                         // check if nested event attribute changed
                         let ancestors = &self.event_ancestors[&event_key];
                         self.event_indexes.update_with_new_field_on_parent(
