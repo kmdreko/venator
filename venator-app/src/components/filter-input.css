@@ -25,6 +25,18 @@
     padding: 2px 4px;
 }
 
+.predicate:hover {
+    border: 1px solid black;
+}
+
+.predicate.level-predicate-2:hover {
+    background-color: #444444;
+}
+
+.predicate.error:hover {
+    border-color: darkred;
+}
+
 .filter-input:focus .predicate {
     margin: 3px 0px;
     padding: 0 0px;
@@ -75,12 +87,12 @@
     border-color: #A8A8A8;
 }
 
-.filter-input .predicate.focused {
+.predicate.focused {
     border-color: transparent;
     background-color: transparent;
 }
 
-.filter-input .predicate.error {
+.predicate.error {
     border-color: red;
     background-color: transparent;
 }

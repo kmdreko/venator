@@ -2,6 +2,9 @@ import { createEffect, createSignal, For, Match, Switch } from "solid-js";
 import { Input, InvalidFilterPredicate, ValidFilterPredicate } from "../invoke";
 
 import './filter-input.css';
+import { Menu } from "@tauri-apps/api/menu";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 export type FilterInputProps = {
     predicates: Input[],
@@ -60,7 +63,7 @@ export function FilterInput(props: FilterInputProps) {
     }
 
     function onmousedown(e: MouseEvent) {
-        if (e.button == 1) {
+        if (e.button == 1 || e.button == 2) {
             e.preventDefault();
         }
     }
@@ -113,7 +116,19 @@ export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPre
         }
     }
 
-    return (<span class="predicate attribute-predicate error" onauxclick={onclick}>
+    async function showContextMenu(e: MouseEvent) {
+        e.preventDefault();
+
+        let menu = await Menu.new({
+            items: [
+                { text: "copy", action: () => writeText(props.predicate.text.trim()) },
+                { text: "remove", action: () => props.remove() },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
+    return (<span class="predicate attribute-predicate error" onauxclick={onclick} oncontextmenu={showContextMenu}>
         {props.predicate.text}
     </span>);
 }
@@ -186,7 +201,7 @@ export function FilterInputLevelPredicate(props: { predicate: ValidFilterPredica
     </Switch>);
 }
 
-export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
+export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicate & Input, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
     function onclick(e: MouseEvent) {
         if (e.button == 1) {
             e.preventDefault();
@@ -195,12 +210,24 @@ export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicat
         }
     }
 
-    return (<span class="predicate meta-predicate" onauxclick={onclick}>
+    async function showContextMenu(e: MouseEvent) {
+        e.preventDefault();
+
+        let menu = await Menu.new({
+            items: [
+                { text: "copy", action: () => writeText(props.predicate.text.trim()) },
+                { text: "remove", enabled: props.predicate.editable, action: () => props.remove() },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
+    return (<span class="predicate meta-predicate" onauxclick={onclick} oncontextmenu={showContextMenu}>
         {props.predicate.text}
     </span>);
 }
 
-export function FilterInputAttributePredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
+export function FilterInputAttributePredicate(props: { predicate: ValidFilterPredicate & Input, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
     function onclick(e: MouseEvent) {
         if (e.button == 1) {
             e.preventDefault();
@@ -209,7 +236,19 @@ export function FilterInputAttributePredicate(props: { predicate: ValidFilterPre
         }
     }
 
-    return (<span class="predicate attribute-predicate" onauxclick={onclick}>
+    async function showContextMenu(e: MouseEvent) {
+        e.preventDefault();
+
+        let menu = await Menu.new({
+            items: [
+                { text: "copy", action: () => writeText(props.predicate.text.trim()) },
+                { text: "remove", enabled: props.predicate.editable, action: () => props.remove() },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
+    return (<span class="predicate attribute-predicate" onauxclick={onclick} oncontextmenu={showContextMenu}>
         {props.predicate.text}
     </span>);
 }
