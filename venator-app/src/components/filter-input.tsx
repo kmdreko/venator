@@ -1,4 +1,4 @@
-import { For, Match, Switch } from "solid-js";
+import { createEffect, createSignal, For, Match, Switch } from "solid-js";
 import { Input, InvalidFilterPredicate, ValidFilterPredicate } from "../invoke";
 
 import './filter-input.css';
@@ -10,16 +10,26 @@ export type FilterInputProps = {
 };
 
 export function FilterInput(props: FilterInputProps) {
+    let [localPredicates, setLocalPredicates] = createSignal<Input[]>([...props.predicates]);
+
     let input_e!: HTMLDivElement;
+
+    createEffect(() => {
+        let p = props.predicates;
+
+        if (getUneditableLength(props.predicates) == p.length) {
+            input_e.innerText = ' ';
+        } else {
+            input_e.innerText = '';
+        }
+
+        setLocalPredicates([...p]);
+    })
 
     async function onblur(this: HTMLInputElement) {
         let new_predicates = await props.parse(this.innerText);
-        let uneditable_predicates = props.predicates.slice(0, getUneditableLength());
+        let uneditable_predicates = props.predicates.slice(0, getUneditableLength(props.predicates));
 
-        if (new_predicates.length == 0)
-            this.innerText = ' ';
-        else
-            this.innerText = '';
         props.updatePredicates([...uneditable_predicates, ...new_predicates]);
     }
 
@@ -31,10 +41,6 @@ export function FilterInput(props: FilterInputProps) {
 
         let updated_predicates = [...current_predicates];
         updated_predicates.splice(i, 1);
-
-        if (updated_predicates.length == getUneditableLength()) {
-            input_e.innerText = ' ';
-        }
 
         props.updatePredicates(updated_predicates);
     }
@@ -59,18 +65,18 @@ export function FilterInput(props: FilterInputProps) {
         }
     }
 
-    function getUneditableLength(): number {
-        for (let i = 0; i < props.predicates.length; i++) {
-            if (props.predicates[i].editable !== false) {
+    function getUneditableLength(p: Input[]): number {
+        for (let i = 0; i < p.length; i++) {
+            if (p[i].editable !== false) {
                 return i;
             }
         }
 
-        return props.predicates.length;
+        return p.length;
     }
 
     return (<div class="filter-input-container">
-        <For each={props.predicates.slice(0, getUneditableLength())}>
+        <For each={localPredicates().slice(0, getUneditableLength(localPredicates()))}>
             {(predicate, i) => <Switch>
                 <Match when={predicate.input == 'valid'}>
                     <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i())} update={p => update(i(), p)} parse={props.parse} />
@@ -83,17 +89,17 @@ export function FilterInput(props: FilterInputProps) {
         </For>
         <span ref={input_e} class="filter-input" contenteditable="plaintext-only" onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
             {' '}
-            <For each={props.predicates.slice(getUneditableLength())}>
-                {(predicate, i) => <Switch>
+            {localPredicates().slice(getUneditableLength(localPredicates())).map((predicate, i) => {
+                return (<Switch>
                     <Match when={predicate.input == 'valid'}>
-                        <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i() + getUneditableLength())} update={p => update(i() + getUneditableLength(), p)} parse={props.parse} />
+                        <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i + getUneditableLength(localPredicates()))} update={p => update(i + getUneditableLength(localPredicates()), p)} parse={props.parse} />
                         <span class="spacer">{'  '}</span>
                     </Match>
                     <Match when={predicate.input == 'invalid'}>
-                        <InvalidFilterInputPredicate predicate={predicate as InvalidFilterPredicate} remove={() => remove(i() + getUneditableLength())} update={p => update(i() + getUneditableLength(), p)} parse={props.parse} />
+                        <InvalidFilterInputPredicate predicate={predicate as InvalidFilterPredicate} remove={() => remove(i + getUneditableLength(localPredicates()))} update={p => update(i + getUneditableLength(localPredicates()), p)} parse={props.parse} />
                     </Match>
-                </Switch>}
-            </For>
+                </Switch>);
+            })}
         </span>
     </div>);
 }
