@@ -78,7 +78,7 @@ async fn parse_instance_filter(
                         FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
                     }
                     Err(err) => FilterPredicateResultView::Invalid {
-                        error: format!("{err:?}"),
+                        error: err.to_string(),
                     },
                 };
 
@@ -88,7 +88,7 @@ async fn parse_instance_filter(
         Err(err) => Ok(vec![InputView {
             text: filter.to_owned(),
             result: FilterPredicateResultView::Invalid {
-                error: format!("{err:?}"),
+                error: err.to_string(),
             },
         }]),
     }
@@ -153,7 +153,7 @@ async fn parse_event_filter(
                         FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
                     }
                     Err(err) => FilterPredicateResultView::Invalid {
-                        error: format!("{err:?}"),
+                        error: err.to_string(),
                     },
                 };
 
@@ -163,7 +163,7 @@ async fn parse_event_filter(
         Err(err) => Ok(vec![InputView {
             text: filter.to_owned(),
             result: FilterPredicateResultView::Invalid {
-                error: format!("{err:?}"),
+                error: err.to_string(),
             },
         }]),
     }
@@ -225,7 +225,7 @@ async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<V
                         FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
                     }
                     Err(err) => FilterPredicateResultView::Invalid {
-                        error: format!("{err:?}"),
+                        error: err.to_string(),
                     },
                 };
 
@@ -235,7 +235,7 @@ async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<V
         Err(err) => Ok(vec![InputView {
             text: filter.to_owned(),
             result: FilterPredicateResultView::Invalid {
-                error: format!("{err:?}"),
+                error: err.to_string(),
             },
         }]),
     }

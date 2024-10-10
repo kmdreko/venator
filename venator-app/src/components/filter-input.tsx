@@ -100,6 +100,7 @@ export function FilterInput(props: FilterInputProps) {
                     </Match>
                     <Match when={predicate.input == 'invalid'}>
                         <InvalidFilterInputPredicate predicate={predicate as InvalidFilterPredicate} remove={() => remove(i + getUneditableLength(localPredicates()))} update={p => update(i + getUneditableLength(localPredicates()), p)} parse={props.parse} />
+                        <span class="spacer">{'  '}</span>
                     </Match>
                 </Switch>);
             })}
@@ -128,7 +129,7 @@ export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPre
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
     }
 
-    return (<span class="predicate attribute-predicate error" onauxclick={onclick} oncontextmenu={showContextMenu}>
+    return (<span class="predicate attribute-predicate error" onauxclick={onclick} oncontextmenu={showContextMenu} title={props.predicate.error}>
         {props.predicate.text}
     </span>);
 }

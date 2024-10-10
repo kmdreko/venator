@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt::{Display, Error as FmtError, Formatter};
 use std::ops::{Add, Range};
 
 use attribute::{ValueFilter, ValueStringComparison};
@@ -480,6 +481,36 @@ pub enum InputError {
     InvalidRegexValue,
     InvalidFileOperator,
     InvalidFileValue,
+}
+
+impl Display for InputError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            InputError::InvalidLevelValue => write!(f, "invalid #level value"),
+            InputError::InvalidLevelOperator => write!(f, "invalid #level operator"),
+            InputError::InvalidNameValue => write!(f, "invalid #name value"),
+            InputError::InvalidNameOperator => write!(f, "invalid #name operator"),
+            InputError::InvalidInstanceValue => write!(f, "invalid #instance value"),
+            InputError::InvalidInstanceOperator => write!(f, "invalid #instance operator"),
+            InputError::InvalidAttributeValue => write!(f, "invalid #attribute value"),
+            InputError::InvalidInherentProperty => write!(f, "invalid '#' Property"),
+            InputError::InvalidDurationValue => write!(f, "invalid #duration value"),
+            InputError::MissingDurationOperator => write!(f, "missing #duration operator"),
+            InputError::InvalidDurationOperator => write!(f, "invalid #duration operator"),
+            InputError::InvalidCreatedValue => write!(f, "invalid #created value"),
+            InputError::InvalidClosedValue => write!(f, "invalid #closed value"),
+            InputError::InvalidParentValue => write!(f, "invalid #parent value"),
+            InputError::InvalidParentOperator => write!(f, "invalid #parent operator"),
+            InputError::InvalidStackValue => write!(f, "invalid #stack value"),
+            InputError::InvalidStackOperator => write!(f, "invalid #stack operator"),
+            InputError::InvalidConnectedValue => write!(f, "invalid #connected value"),
+            InputError::InvalidDisconnectedValue => write!(f, "invalid #disconnected value"),
+            InputError::InvalidWildcardValue => write!(f, "invalid wildcard syntax"),
+            InputError::InvalidRegexValue => write!(f, "invalid regex syntax"),
+            InputError::InvalidFileOperator => write!(f, "invalid #file operator"),
+            InputError::InvalidFileValue => write!(f, "invalid #file value"),
+        }
+    }
 }
 
 pub struct FileFilter {

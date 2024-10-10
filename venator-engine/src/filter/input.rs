@@ -7,6 +7,12 @@ use crate::models::ValueOperator;
 #[derive(Debug)]
 pub struct SyntaxError;
 
+impl Display for SyntaxError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        write!(f, "syntax error")
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum FilterPropertyKind {
     Inherent,
