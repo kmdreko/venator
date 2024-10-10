@@ -11,6 +11,7 @@ import { ATTRIBUTE, ColumnDef, getColumnDef, Table } from "../components/table";
 import './events-screen.css';
 
 export type EventsScreenProps = {
+    raw_filter: Input[],
     filter: Input[],
     setFilter: (filter: Input[]) => void,
     addToFilter: (filter: Input[]) => void,
@@ -50,7 +51,7 @@ export function EventsScreen(props: EventsScreenProps) {
             setLive={props.setLive}
         />
 
-        <FilterInput predicates={props.filter} updatePredicates={props.setFilter} parse={parseEventFilter} />
+        <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseEventFilter} />
 
         <EventCountGraph
             filter={props.filter}

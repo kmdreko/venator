@@ -11,6 +11,7 @@ import { InstanceGraph } from "../components/instance-graph";
 import './instances-screen.css';
 
 export type InstancesScreenProps = {
+    raw_filter: Input[],
     filter: Input[],
     setFilter: (filter: Input[]) => void,
     addToFilter: (filter: Input[]) => void,
@@ -46,7 +47,7 @@ export function InstancesScreen(props: InstancesScreenProps) {
             setLive={() => { }}
         />
 
-        <FilterInput predicates={props.filter} updatePredicates={props.setFilter} parse={parseInstanceFilter} />
+        <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseInstanceFilter} />
 
         <InstanceGraph
             filter={props.filter}

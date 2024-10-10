@@ -54,6 +54,7 @@ export function TabBar(props: TabBarProps) {
         if (screen.kind == 'events') {
             return {
                 kind: 'events',
+                raw_filter: [...screen.raw_filter],
                 filter: [...screen.filter],
                 timespan: screen.timespan,
                 selected: null,
@@ -65,6 +66,7 @@ export function TabBar(props: TabBarProps) {
         } else if (screen.kind == 'spans') {
             return {
                 kind: 'spans',
+                raw_filter: [...screen.raw_filter],
                 filter: [...screen.filter],
                 timespan: screen.timespan,
                 selected: null,
@@ -76,6 +78,7 @@ export function TabBar(props: TabBarProps) {
         } else if (screen.kind == 'instances') {
             return {
                 kind: 'instances',
+                raw_filter: [...screen.raw_filter],
                 filter: [...screen.filter],
                 timespan: screen.timespan,
                 selected: null,
@@ -87,6 +90,7 @@ export function TabBar(props: TabBarProps) {
         } else {
             return {
                 kind: 'trace',
+                raw_filter: [...screen.raw_filter],
                 filter: [...screen.filter],
                 timespan: screen.timespan,
                 selected: null,
@@ -110,6 +114,7 @@ export function TabBar(props: TabBarProps) {
 
             return {
                 kind: 'events',
+                raw_filter: filter.filter(f => f.input == 'valid'),
                 filter,
                 timespan: screen.timespan!,
                 selected: null,
@@ -128,6 +133,7 @@ export function TabBar(props: TabBarProps) {
 
             return {
                 kind: 'spans',
+                raw_filter: filter.filter(f => f.input == 'valid'),
                 filter,
                 timespan: screen.timespan!,
                 selected: null,
@@ -146,6 +152,7 @@ export function TabBar(props: TabBarProps) {
 
             return {
                 kind: 'instances',
+                raw_filter: filter.filter(f => f.input == 'valid'),
                 filter: filter,
                 timespan: screen.timespan!,
                 selected: null,

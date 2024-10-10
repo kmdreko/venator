@@ -16,6 +16,7 @@ const HOUR = 3600000000;
 
 type EventsScreenData = {
     kind: 'events',
+    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan,
     selected: Event | null,
@@ -27,6 +28,7 @@ type EventsScreenData = {
 
 type SpansScreenData = {
     kind: 'spans',
+    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan,
     selected: Span | null,
@@ -38,6 +40,7 @@ type SpansScreenData = {
 
 type TraceScreenData = {
     kind: 'trace',
+    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan | null,
     selected: Event | Span | null,
@@ -50,6 +53,7 @@ type TraceScreenData = {
 
 type InstancesScreenData = {
     kind: 'instances',
+    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan,
     selected: Instance | null,
@@ -89,6 +93,7 @@ export async function defaultEventsScreen(): Promise<EventsScreenData> {
 
     return {
         kind: 'events',
+        raw_filter: [...filter],
         filter,
         timespan: [start, end],
         selected: null,
@@ -134,6 +139,7 @@ export async function defaultSpansScreen(): Promise<SpansScreenData> {
 
     return {
         kind: 'spans',
+        raw_filter: [...filter],
         filter,
         timespan: [start, end],
         selected: null,
@@ -162,6 +168,7 @@ export async function defaultInstancesScreen(): Promise<InstancesScreenData> {
     let columnWidths = columns.map(def => def.defaultWidth);
     return {
         kind: 'instances',
+        raw_filter: [],
         filter: [],
         timespan: [start, end],
         selected: null,
@@ -317,17 +324,40 @@ function App() {
             current_screens[current_selected_screen].store.unsubscribe();
         }
 
-        updated_screens[current_selected_screen] = current_screens[current_selected_screen].kind == 'events'
-            ? { ...current_screens[current_selected_screen], filter, store: new EventDataLayer(filter) }
-            : current_screens[current_selected_screen].kind == 'spans'
-                ? { ...current_screens[current_selected_screen], filter, store: new SpanDataLayer(filter) }
-                : current_screens[current_selected_screen].kind == 'instances'
-                    ? { ...current_screens[current_selected_screen], filter, store: new InstanceDataLayer(filter) }
-                    : { ...current_screens[current_selected_screen], filter };
+        let valid_filter = filter.filter(f => f.input == 'valid');
 
-        if (updated_screens[current_selected_screen].live) {
-            updated_screens[current_selected_screen].store.subscribe();
+        function filterText(filter: Input[]): string {
+            let s = "";
+            for (let predicate of filter) {
+                s += ` ${predicate.text}`;
+            }
+            return s;
         }
+
+        if (filterText(valid_filter) == filterText(current_screens[current_selected_screen].filter)) {
+            // valid filter didn't change, only update raw_filter
+
+            updated_screens[current_selected_screen] = {
+                ...current_screens[current_selected_screen],
+                raw_filter: filter,
+            }
+        } else {
+            // valid filter did change
+
+            updated_screens[current_selected_screen] = current_screens[current_selected_screen].kind == 'events'
+                ? { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter, store: new EventDataLayer(filter) }
+                : current_screens[current_selected_screen].kind == 'spans'
+                    ? { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter, store: new SpanDataLayer(filter) }
+                    : current_screens[current_selected_screen].kind == 'instances'
+                        ? { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter, store: new InstanceDataLayer(filter) }
+                        : { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter };
+
+            if (updated_screens[current_selected_screen].live) {
+                updated_screens[current_selected_screen].store.subscribe();
+            }
+        }
+
+
 
         setScreens(updated_screens);
     }
@@ -413,6 +443,7 @@ function App() {
             let now = Date.now() * 1000;
             updated_screens = [{
                 kind: 'events',
+                raw_filter: [...filter],
                 filter,
                 timespan: [now - 5 * 60 * 1000000, now],
                 selected: null,
@@ -577,6 +608,7 @@ function App() {
                     {screen => (<Switch>
                         <Match when={screen().kind == 'events'}>
                             <EventsScreen
+                                raw_filter={screen().raw_filter}
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
@@ -610,6 +642,7 @@ function App() {
                         </Match>
                         <Match when={screen().kind == 'spans'}>
                             <SpansScreen
+                                raw_filter={screen().raw_filter}
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
@@ -632,6 +665,7 @@ function App() {
                         </Match>
                         <Match when={screen().kind == 'trace'}>
                             <TraceScreen
+                                raw_filter={screen().raw_filter}
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
@@ -656,6 +690,7 @@ function App() {
                         </Match>
                         <Match when={screen().kind == 'instances'}>
                             <InstancesScreen
+                                raw_filter={screen().raw_filter}
                                 filter={screen().filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}

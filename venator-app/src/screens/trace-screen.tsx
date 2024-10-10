@@ -12,6 +12,7 @@ import './trace-screen.css';
 import { CollapsableContext } from "../context/collapsable";
 
 export type TraceScreenProps = {
+    raw_filter: Input[],
     filter: Input[],
     setFilter: (filter: Input[]) => void,
     addToFilter: (filter: Input[]) => void,
@@ -62,7 +63,7 @@ export function TraceScreen(props: TraceScreenProps) {
             setLive={() => { }}
         />
 
-        <FilterInput predicates={props.filter} updatePredicates={props.setFilter} parse={parseSpanFilter} />
+        <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseSpanFilter} />
 
         <TraceGraph
             timespan={props.timespan}

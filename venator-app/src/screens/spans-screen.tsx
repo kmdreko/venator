@@ -11,6 +11,7 @@ import { SpanGraph } from "../components/span-graph";
 import './spans-screen.css';
 
 export type SpansScreenProps = {
+    raw_filter: Input[],
     filter: Input[],
     setFilter: (filter: Input[]) => void,
     addToFilter: (filter: Input[]) => void,
@@ -46,7 +47,7 @@ export function SpansScreen(props: SpansScreenProps) {
             setLive={() => { }}
         />
 
-        <FilterInput predicates={props.filter} updatePredicates={props.setFilter} parse={parseSpanFilter} />
+        <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseSpanFilter} />
 
         <SpanGraph
             filter={props.filter}

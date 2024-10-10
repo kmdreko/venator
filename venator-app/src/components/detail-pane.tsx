@@ -683,6 +683,7 @@ function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
 
     return {
         kind: 'trace',
+        raw_filter: [...filter],
         filter,
         timespan: null,
         selected: null,
