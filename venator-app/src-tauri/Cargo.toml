@@ -9,6 +9,10 @@ license = "MIT"
 keywords = ["tracing"]
 include = ["/src", "/build.rs", "/tauri.conf.json", "/icons", "/gen", "/capabilities", "/dist"]
 
+[[bin]]
+name = "venator"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2.0.1", features = [] }
 
