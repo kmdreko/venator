@@ -46,6 +46,29 @@ impl IndexedEventFilter<'_> {
         };
 
         match filter {
+            BasicEventFilter::Timestamp(op, value) => match op {
+                ValueOperator::Gt => {
+                    let idx = event_indexes.all.upper_bound(&value);
+                    IndexedEventFilter::Single(&event_indexes.all[idx..], None)
+                }
+                ValueOperator::Gte => {
+                    let idx = event_indexes.all.lower_bound(&value);
+                    IndexedEventFilter::Single(&event_indexes.all[idx..], None)
+                }
+                ValueOperator::Eq => {
+                    let start = event_indexes.all.lower_bound(&value);
+                    let end = event_indexes.all.upper_bound(&value);
+                    IndexedEventFilter::Single(&event_indexes.all[start..end], None)
+                }
+                ValueOperator::Lte => {
+                    let idx = event_indexes.all.upper_bound(&value);
+                    IndexedEventFilter::Single(&event_indexes.all[..idx], None)
+                }
+                ValueOperator::Lt => {
+                    let idx = event_indexes.all.lower_bound(&value);
+                    IndexedEventFilter::Single(&event_indexes.all[..idx], None)
+                }
+            },
             BasicEventFilter::Level(level) => {
                 IndexedEventFilter::Single(&event_indexes.levels[level as usize], None)
             }
@@ -544,6 +567,7 @@ impl FileFilter {
 }
 
 pub enum BasicEventFilter {
+    Timestamp(ValueOperator, Timestamp),
     Level(Level),
     Instance(InstanceKey),
     Target(ValueStringComparison),
@@ -560,6 +584,7 @@ pub enum BasicEventFilter {
 impl BasicEventFilter {
     pub fn simplify(&mut self) {
         match self {
+            BasicEventFilter::Timestamp(_, _) => {}
             BasicEventFilter::Level(_) => {}
             BasicEventFilter::Instance(_) => {}
             BasicEventFilter::Target(_) => {}
@@ -996,6 +1021,7 @@ impl BasicEventFilter {
         event: &Event,
     ) -> bool {
         match self {
+            BasicEventFilter::Timestamp(op, timestamp) => op.compare(&event.timestamp, timestamp),
             BasicEventFilter::Level(level) => event.level == *level,
             BasicEventFilter::Instance(instance_key) => event.instance_key == *instance_key,
             BasicEventFilter::Target(filter) => filter.matches(&event.target),
@@ -1111,6 +1137,21 @@ impl<'i, 'b, S> IndexedEventFilterIterator<'i, 'b, S> {
             order: query.order,
             start_key,
             end_key,
+            storage: &engine.storage,
+            token: &engine.token,
+            ancestors: &engine.event_ancestors,
+        }
+    }
+
+    pub fn new_internal(
+        filter: IndexedEventFilter<'i>,
+        engine: &'i RawEngine<'b, S>,
+    ) -> IndexedEventFilterIterator<'i, 'b, S> {
+        IndexedEventFilterIterator {
+            filter,
+            order: Order::Asc,
+            end_key: Timestamp::MAX,
+            start_key: Timestamp::MIN,
             storage: &engine.storage,
             token: &engine.token,
             ancestors: &engine.event_ancestors,

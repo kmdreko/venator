@@ -117,6 +117,13 @@ export type AppStatus = {
     engine_load: number;
 };
 
+export type DeleteMetrics = {
+    instances: number;
+    spans: number;
+    span_events: number;
+    events: number;
+};
+
 export async function getInstances(filter: InstanceFilter): Promise<Instance[]> {
     console.debug("invoking 'get_instances'");
     return await invoke<Instance[]>("get_instances", filter);
@@ -165,6 +172,11 @@ export async function getSpanCount(filter: CountFilter): Promise<number> {
 export async function parseSpanFilter(filter: string): Promise<Input[]> {
     console.debug("invoking 'parse_span_filter'");
     return await invoke<Input[]>("parse_span_filter", { filter });
+}
+
+export async function deleteEntities(start: Timestamp | null, end: Timestamp | null, inside: boolean, dryRun: boolean): Promise<DeleteMetrics> {
+    console.debug("invoking 'delete_entities'");
+    return await invoke<DeleteMetrics>("delete_entities", { start, end, inside, dryRun });
 }
 
 export async function subscribeToEvents(filter: FilterPredicate[], channel: Channel<Event>): Promise<number> {

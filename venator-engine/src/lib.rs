@@ -14,13 +14,14 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use ghost_cell::{GhostCell, GhostToken};
-use models::{AttributeTypeView, FollowsSpanEvent};
+use models::{AttributeTypeView, EventKey, FollowsSpanEvent};
 use serde::Serialize;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
 
 use filter::{
-    BoundSearch, IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator,
+    BoundSearch, IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter,
+    IndexedSpanFilterIterator,
 };
 use index::{AttributeIndex, EventIndexes, SpanIndexes};
 
@@ -143,6 +144,10 @@ impl Engine {
                                 eprintln!("rejecting event insert due to: {err:?}");
                             }
                             let _ = sender.send(res);
+                        }
+                        EngineCommand::Delete(filter, sender) => {
+                            let metrics = engine.delete(filter);
+                            let _ = sender.send(metrics);
                         }
                         EngineCommand::AddAttributeIndex(name) => {
                             engine.add_attribute_index(name);
@@ -295,6 +300,14 @@ impl Engine {
         async move { receiver.await.unwrap() }
     }
 
+    pub fn delete(&self, filter: DeleteFilter) -> impl Future<Output = DeleteMetrics> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .insert_sender
+            .send(EngineCommand::Delete(filter, sender));
+        async move { receiver.await.unwrap() }
+    }
+
     pub fn add_attribute_index(&self, name: String) {
         let _ = self
             .insert_sender
@@ -346,6 +359,7 @@ enum EngineCommand {
         OneshotSender<Result<SpanKey, EngineInsertError>>,
     ),
     InsertEvent(NewEvent, OneshotSender<Result<(), EngineInsertError>>),
+    Delete(DeleteFilter, OneshotSender<DeleteMetrics>),
     AddAttributeIndex(String),
 
     EventSubscribe(
@@ -361,6 +375,20 @@ pub struct EngineStatusView {
     pub load: f64,
 }
 
+pub struct DeleteFilter {
+    pub start: Timestamp,
+    pub end: Timestamp,
+    pub inside: bool,
+    pub dry_run: bool,
+}
+
+pub struct DeleteMetrics {
+    pub instances: usize,
+    pub spans: usize,
+    pub span_events: usize,
+    pub events: usize,
+}
+
 struct RawEngine<'b, S> {
     token: GhostToken<'b>,
     storage: S,
@@ -373,6 +401,7 @@ struct RawEngine<'b, S> {
     span_indexes: SpanIndexes,
     span_ancestors: HashMap<Timestamp, Ancestors<'b>>,
     span_event_ids: Vec<Timestamp>,
+    span_events_by_span_ids: HashMap<SpanKey, Vec<Timestamp>>,
     event_indexes: EventIndexes,
     event_ancestors: HashMap<Timestamp, Ancestors<'b>>,
 
@@ -393,6 +422,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             span_indexes: SpanIndexes::new(),
             span_ancestors: HashMap::new(),
             span_event_ids: vec![],
+            span_events_by_span_ids: HashMap::new(),
             event_indexes: EventIndexes::new(),
             event_ancestors: HashMap::new(),
 
@@ -1130,6 +1160,13 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         let timestamp = span_event.timestamp;
         let idx = self.span_event_ids.upper_bound_via_expansion(&timestamp);
         self.span_event_ids.insert(idx, timestamp);
+
+        let by_span_index = self
+            .span_events_by_span_ids
+            .entry(span_event.span_key)
+            .or_default();
+        let idx = by_span_index.upper_bound_via_expansion(&timestamp);
+        by_span_index.insert(idx, timestamp);
     }
 
     pub fn insert_event(&mut self, mut new_event: NewEvent) -> Result<(), EngineInsertError> {
@@ -1202,6 +1239,134 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         self.event_indexes
             .update_with_new_event(&self.token, event, &ancestors);
         self.event_ancestors.insert(event_key, ancestors);
+    }
+
+    pub fn delete(&mut self, filter: DeleteFilter) -> DeleteMetrics {
+        let instances = self.get_instances_in_range_filter(filter.start, filter.end, filter.inside);
+        let root_spans =
+            self.get_root_spans_in_range_filter(filter.start, filter.end, filter.inside);
+        let root_events =
+            self.get_root_events_in_range_filter(filter.start, filter.end, filter.inside);
+
+        let spans_from_root_spans = root_spans
+            .iter()
+            .flat_map(|root| {
+                self.span_indexes
+                    .descendents
+                    .get(root)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+                    .iter()
+                    .cloned()
+            })
+            .collect::<Vec<SpanKey>>();
+        let events_from_root_spans = root_spans
+            .iter()
+            .flat_map(|root| {
+                self.event_indexes
+                    .descendents
+                    .get(root)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+                    .iter()
+                    .cloned()
+            })
+            .collect::<Vec<EventKey>>();
+        let span_events = spans_from_root_spans
+            .iter()
+            .flat_map(|span| {
+                self.span_events_by_span_ids
+                    .get(span)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+                    .iter()
+                    .cloned()
+            })
+            .collect::<Vec<SpanEventKey>>();
+
+        DeleteMetrics {
+            instances: instances.len(),
+            spans: spans_from_root_spans.len(),
+            span_events: span_events.len(),
+            events: root_events.len() + events_from_root_spans.len(),
+        }
+    }
+
+    pub fn get_instances_in_range_filter(
+        &self,
+        start: Timestamp,
+        end: Timestamp,
+        inside: bool,
+    ) -> Vec<InstanceKey> {
+        self.instances
+            .iter()
+            .filter(|(_, (instance, _))| {
+                if inside {
+                    instance.connected_at <= end
+                        && instance.disconnected_at.unwrap_or(Timestamp::MAX) >= start
+                } else {
+                    instance.connected_at > end
+                        || instance.disconnected_at.unwrap_or(Timestamp::MAX) < start
+                }
+            })
+            .map(|(key, _)| *key)
+            .collect()
+    }
+
+    pub fn get_root_spans_in_range_filter(
+        &self,
+        start: Timestamp,
+        end: Timestamp,
+        inside: bool,
+    ) -> Vec<SpanKey> {
+        let filter = if inside {
+            BasicSpanFilter::And(vec![
+                BasicSpanFilter::Created(ValueOperator::Lte, end),
+                BasicSpanFilter::Closed(ValueOperator::Gte, start),
+                BasicSpanFilter::Root,
+            ])
+        } else {
+            BasicSpanFilter::And(vec![
+                BasicSpanFilter::Or(vec![
+                    BasicSpanFilter::Created(ValueOperator::Gt, end),
+                    BasicSpanFilter::Closed(ValueOperator::Lt, start),
+                ]),
+                BasicSpanFilter::Root,
+            ])
+        };
+
+        let indexed_filter = IndexedSpanFilter::build(Some(filter), &self.span_indexes);
+        let iter = IndexedSpanFilterIterator::new_internal(indexed_filter, self);
+
+        iter.collect()
+    }
+
+    pub fn get_root_events_in_range_filter(
+        &self,
+        start: Timestamp,
+        end: Timestamp,
+        inside: bool,
+    ) -> Vec<SpanKey> {
+        let filter = if inside {
+            BasicEventFilter::And(vec![
+                BasicEventFilter::Timestamp(ValueOperator::Lte, end),
+                BasicEventFilter::Timestamp(ValueOperator::Gte, start),
+                BasicEventFilter::Root,
+            ])
+        } else {
+            BasicEventFilter::And(vec![
+                BasicEventFilter::Or(vec![
+                    BasicEventFilter::Timestamp(ValueOperator::Gt, end),
+                    BasicEventFilter::Timestamp(ValueOperator::Lt, start),
+                ]),
+                BasicEventFilter::Root,
+            ])
+        };
+
+        let indexed_filter = IndexedEventFilter::build(Some(filter), &self.event_indexes);
+        let iter = IndexedEventFilterIterator::new_internal(indexed_filter, self);
+
+        iter.collect()
     }
 
     pub fn add_attribute_index(&mut self, name: String) {

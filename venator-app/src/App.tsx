@@ -1,5 +1,6 @@
+import { listen } from '@tauri-apps/api/event';
 import { EventsScreen } from "./screens/events-screen";
-import { AppStatus, Event, getStats, getStatus, Input, Instance, Span, Timestamp } from "./invoke";
+import { AppStatus, deleteEntities, Event, getStats, getStatus, Input, Instance, Span, Timestamp } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
@@ -192,6 +193,28 @@ function App() {
         setStatus(await getStatus());
 
         setInterval(async () => setStatus(await getStatus()), 500);
+
+        await listen('delete-all-clicked', async () => {
+            let metrics = await deleteEntities(null, null, true, true);
+
+            console.log("delete-all received", metrics);
+        });
+        await listen('delete-inside-clicked', async () => {
+            let screen = screens()[selectedScreen()!];
+            let timespan = screen.timespan!;
+
+            let metrics = await deleteEntities(timespan[0], timespan[1], true, true);
+
+            console.log("delete-inside received", metrics);
+        });
+        await listen('delete-outside-clicked', async () => {
+            let screen = screens()[selectedScreen()!];
+            let timespan = screen.timespan!;
+
+            let metrics = await deleteEntities(timespan[0], timespan[1], false, true);
+
+            console.log("delete-outside received", metrics);
+        });
     })
 
     function normalizeTimespan(new_timespan: Timespan): Timespan {

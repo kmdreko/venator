@@ -10,11 +10,11 @@ use ingress::Ingress;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::State;
+use tauri::{Emitter, State};
 use venator_engine::{
-    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Engine, EventView, FileStorage,
-    FilterPredicate, FilterPropertyKind, InstanceView, Order, Query, SpanView, StatsView,
-    SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
+    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, DeleteFilter, DeleteMetrics, Engine,
+    EventView, FileStorage, FilterPredicate, FilterPropertyKind, InstanceView, Order, Query,
+    SpanView, StatsView, SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
 };
 
 mod ingress;
@@ -242,6 +242,26 @@ async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<V
 }
 
 #[tauri::command]
+async fn delete_entities(
+    engine: State<'_, Engine>,
+    start: Option<Timestamp>,
+    end: Option<Timestamp>,
+    inside: bool,
+    dry_run: bool,
+) -> Result<DeleteMetricsView, ()> {
+    let metrics = engine
+        .delete(DeleteFilter {
+            start: start.unwrap_or(Timestamp::MIN),
+            end: end.unwrap_or(Timestamp::MAX),
+            inside,
+            dry_run,
+        })
+        .await;
+
+    Ok(metrics.into())
+}
+
+#[tauri::command]
 async fn get_stats(engine: State<'_, Engine>) -> Result<StatsView, ()> {
     Ok(engine.query_stats().await)
 }
@@ -458,9 +478,21 @@ fn main() {
                     "Data",
                     true,
                     &[
-                        &MenuItem::new(handle, "Delete all", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Delete from timeframe", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Delete outside timeframe", true, None::<&str>)?,
+                        &MenuItem::with_id(handle, "delete-all", "Delete all", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            handle,
+                            "delete-inside",
+                            "Delete from timeframe",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "delete-outside",
+                            "Delete outside timeframe",
+                            true,
+                            None::<&str>,
+                        )?,
                         &PredefinedMenuItem::separator(handle)?,
                         &MenuItem::new(handle, "Manage indexes", false, None::<&str>)?,
                     ],
@@ -477,8 +509,8 @@ fn main() {
                 )?)
                 .build()?;
             app.set_menu(menu)?;
-            app.on_menu_event(|app, event| {
-                if event.id().as_ref() == "open-dataset" {
+            app.on_menu_event(|app, event| match event.id().as_ref() {
+                "open-dataset" => {
                     use tauri_plugin_dialog::DialogExt;
 
                     let Ok(current_exe) = std::env::current_exe() else {
@@ -497,6 +529,16 @@ fn main() {
                             .unwrap();
                     });
                 }
+                "delete-all" => {
+                    app.emit("delete-all-clicked", ()).unwrap();
+                }
+                "delete-inside" => {
+                    app.emit("delete-inside-clicked", ()).unwrap();
+                }
+                "delete-outside" => {
+                    app.emit("delete-outside-clicked", ()).unwrap();
+                }
+                _ => {}
             });
             Ok(())
         })
@@ -513,6 +555,7 @@ fn main() {
             get_spans,
             get_span_count,
             parse_span_filter,
+            delete_entities,
             get_stats,
             subscribe_to_events,
             unsubscribe_from_events,
@@ -565,4 +608,23 @@ struct StatusView {
     ingress_bytes_per_second: f64,
     dataset_message: String,
     engine_load: f64,
+}
+
+#[derive(Serialize)]
+pub struct DeleteMetricsView {
+    instances: usize,
+    spans: usize,
+    span_events: usize,
+    events: usize,
+}
+
+impl From<DeleteMetrics> for DeleteMetricsView {
+    fn from(metrics: DeleteMetrics) -> Self {
+        DeleteMetricsView {
+            instances: metrics.instances,
+            spans: metrics.spans,
+            span_events: metrics.span_events,
+            events: metrics.events,
+        }
+    }
 }
