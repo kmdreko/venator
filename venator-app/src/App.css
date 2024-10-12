@@ -85,4 +85,8 @@ body {
     font-size: 12px;
     line-height: 18px;
     color: #1E1E1E;
+
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
 }

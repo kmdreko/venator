@@ -11,6 +11,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::future::Future;
 use std::rc::Rc;
+use std::time::Instant;
 
 use ghost_cell::{GhostCell, GhostToken};
 use models::{AttributeTypeView, FollowsSpanEvent};
@@ -63,6 +64,9 @@ impl Engine {
             GhostToken::new(|token| {
                 let mut engine = RawEngine::new(storage, token);
 
+                let mut last_check = Instant::now();
+                let mut computed_ms_since_last_check: u128 = 0;
+
                 let mut recv = || {
                     futures::executor::block_on(async {
                         tokio::select! {
@@ -78,6 +82,7 @@ impl Engine {
                 };
 
                 while let Some(cmd) = recv() {
+                    let cmd_start = Instant::now();
                     match cmd {
                         EngineCommand::QueryInstance(query, sender) => {
                             let instances = engine.query_instance(query);
@@ -150,7 +155,22 @@ impl Engine {
                             engine.unsubscribe_from_events(id);
                             let _ = sender.send(());
                         }
+                        EngineCommand::GetStatus(sender) => {
+                            let elapsed_ms = last_check.elapsed().as_millis();
+                            let computed_ms = computed_ms_since_last_check;
+
+                            last_check = Instant::now();
+                            computed_ms_since_last_check = 0;
+
+                            let load = computed_ms as f64 / elapsed_ms as f64;
+
+                            let _ = sender.send(EngineStatusView {
+                                load: load.min(1.0) * 100.0,
+                            });
+                        }
                     }
+                    let cmd_elapsed = cmd_start.elapsed().as_millis();
+                    computed_ms_since_last_check += cmd_elapsed;
                 }
             })
         });
@@ -299,6 +319,12 @@ impl Engine {
             .send(EngineCommand::EventUnsubscribe(id, sender));
         async move { receiver.await.unwrap() }
     }
+
+    pub fn get_status(&self) -> impl Future<Output = EngineStatusView> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self.query_sender.send(EngineCommand::GetStatus(sender));
+        async move { receiver.await.unwrap() }
+    }
 }
 
 enum EngineCommand {
@@ -327,6 +353,12 @@ enum EngineCommand {
         OneshotSender<(SubscriptionId, UnboundedReceiver<EventView>)>,
     ),
     EventUnsubscribe(SubscriptionId, OneshotSender<()>),
+
+    GetStatus(OneshotSender<EngineStatusView>),
+}
+
+pub struct EngineStatusView {
+    pub load: f64,
 }
 
 struct RawEngine<'b, S> {

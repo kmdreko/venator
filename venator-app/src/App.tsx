@@ -190,6 +190,8 @@ function App() {
 
     onMount(async () => {
         setStatus(await getStatus());
+
+        setInterval(async () => setStatus(await getStatus()), 500);
     })
 
     function normalizeTimespan(new_timespan: Timespan): Timespan {
@@ -719,13 +721,32 @@ function App() {
         <div id="statusbar">
             <Show when={status()}>
                 {s => <>
-                    <span style="padding: 0 4px;">{s().dataset_message}</span>
-                    -
-                    <span style="padding: 0 4px;" title={s().ingress_error}>{s().ingress_message}</span>
+                    <span class="statusbar-region">
+                        <span style="padding: 0 4px;">{s().dataset_message}</span>
+                        -
+                        <span style="padding: 0 4px;" title={s().ingress_error}>{s().ingress_message}</span>
+                    </span>
+                    <span class="statusbar-region">
+                        <span style="padding: 0 4px;">{formatBytesPerSecond(s().ingress_bytes_per_second)}</span>
+                        -
+                        <span style="padding: 0 4px;" title={s().ingress_error}>connections: {s().ingress_connections}</span>
+                        -
+                        <span style="padding: 0 4px;">load: {s().engine_load.toFixed(1)}%</span>
+                    </span>
                 </>}
             </Show>
         </div>
     </>);
+}
+
+function formatBytesPerSecond(bytes: number): string {
+    if (bytes > 1000000) {
+        return (bytes / 1000000).toFixed(1) + ' MB/s';
+    } else if (bytes > 1000) {
+        return (bytes / 1000).toFixed(1) + ' KB/s';
+    } else {
+        return bytes.toFixed(1) + ' B/s';
+    }
 }
 
 export default App;

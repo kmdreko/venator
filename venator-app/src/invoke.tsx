@@ -111,7 +111,10 @@ export type Attribute = {
 export type AppStatus = {
     ingress_message: string;
     ingress_error: string;
+    ingress_connections: number;
+    ingress_bytes_per_second: number;
     dataset_message: string;
+    engine_load: number;
 };
 
 export async function getInstances(filter: InstanceFilter): Promise<Instance[]> {

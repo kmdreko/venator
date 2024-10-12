@@ -3,7 +3,10 @@ use std::hash::{BuildHasher, RandomState};
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::num::NonZeroU64;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Instant;
 
 use bincode::{DefaultOptions, Options};
 use serde::{Deserialize, Serialize};
@@ -40,19 +43,34 @@ impl IngressState {
     }
 }
 
+struct IngressStats {
+    last_check: Mutex<Instant>,
+    bytes_since_last_check: AtomicUsize,
+    connected_instances: AtomicUsize,
+}
+
 pub struct Ingress {
     bind: String,
     state: IngressState,
+    stats: Arc<IngressStats>,
 }
 
 impl Ingress {
     pub fn start(bind: String, engine: Engine) -> Ingress {
+        let stats = Arc::new(IngressStats {
+            last_check: Mutex::new(Instant::now()),
+            bytes_since_last_check: AtomicUsize::new(0),
+            connected_instances: AtomicUsize::new(0),
+        });
+
         let b = bind.clone();
-        let thread = std::thread::spawn(|| ingress_task(b, engine));
+        let s = stats.clone();
+        let thread = std::thread::spawn(|| ingress_task(b, engine, s));
 
         Ingress {
             bind,
             state: IngressState::Listening(Some(thread)),
+            stats,
         }
     }
 
@@ -72,10 +90,28 @@ impl Ingress {
             }
         }
     }
+
+    // returns:
+    // - number of instances
+    // - bytes per second
+    pub fn stats(&self) -> (usize, f64) {
+        let now = Instant::now();
+        let last = std::mem::replace(&mut *self.stats.last_check.lock().unwrap(), now);
+        let elapsed = (now - last).as_secs_f64();
+
+        let bytes = self.stats.bytes_since_last_check.load(Ordering::Relaxed);
+        let connected = self.stats.connected_instances.load(Ordering::Relaxed);
+
+        self.stats
+            .bytes_since_last_check
+            .store(0, Ordering::Relaxed);
+
+        (connected, bytes as f64 / elapsed)
+    }
 }
 
 #[tokio::main(worker_threads = 2)]
-pub async fn ingress_task(bind: String, engine: Engine) -> IoError {
+async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) -> IoError {
     let listener = match TcpListener::bind(&bind).await {
         Ok(listener) => listener,
         Err(err) => return err,
@@ -87,8 +123,12 @@ pub async fn ingress_task(bind: String, engine: Engine) -> IoError {
             Err(err) => return err,
         };
 
+        println!("got connection");
+        stats.connected_instances.fetch_add(1, Ordering::Relaxed);
+
         let mut stream = BufReader::new(stream);
         let engine = engine.clone();
+        let stats = stats.clone();
         let deserializer = DefaultOptions::new()
             .with_varint_encoding()
             .with_big_endian()
@@ -118,6 +158,10 @@ pub async fn ingress_task(bind: String, engine: Engine) -> IoError {
                     return;
                 }
             };
+
+            stats
+                .bytes_since_last_check
+                .fetch_add(length as usize + 2, Ordering::Relaxed);
 
             let instance_id = RandomState::new().hash_one(0u64);
             let instance = NewInstance {
@@ -153,6 +197,10 @@ pub async fn ingress_task(bind: String, engine: Engine) -> IoError {
                     println!("failed to read message: {err:?}");
                     break;
                 }
+
+                stats
+                    .bytes_since_last_check
+                    .fetch_add(length as usize + 2, Ordering::Relaxed);
 
                 let msg: Message = match deserializer.deserialize_from(buffer.as_slice()) {
                     Ok(message) => message,
@@ -264,6 +312,8 @@ pub async fn ingress_task(bind: String, engine: Engine) -> IoError {
             // regardless if we poll
             #[allow(clippy::let_underscore_future)]
             let _ = engine.disconnect_instance(instance_id);
+
+            stats.connected_instances.fetch_sub(1, Ordering::Relaxed);
         });
     }
 }

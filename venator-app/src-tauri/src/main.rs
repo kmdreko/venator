@@ -280,14 +280,15 @@ fn create_attribute_index(engine: State<'_, Engine>, name: String) {
 
 #[tauri::command]
 async fn get_status(
-    _engine: State<'_, Engine>,
+    engine: State<'_, Engine>,
     dataset: State<'_, DatasetConfig>,
     ingress: State<'_, Mutex<Option<Ingress>>>,
 ) -> Result<StatusView, String> {
-    let (ingress_message, ingress_error) = match &mut *ingress.lock().unwrap() {
-        Some(ingress) => ingress.status(),
-        None => ("not listening".into(), None),
-    };
+    let ((ingress_message, ingress_error), (connections, bytes_per_second)) =
+        match &mut *ingress.lock().unwrap() {
+            Some(ingress) => (ingress.status(), ingress.stats()),
+            None => (("not listening".into(), None), (0, 0.0)),
+        };
 
     let dataset_message = match &*dataset {
         DatasetConfig::Default(_) => "using default dataset".to_owned(),
@@ -295,10 +296,15 @@ async fn get_status(
         DatasetConfig::Memory => "using :memory:".to_owned(),
     };
 
+    let engine_status = engine.get_status().await;
+
     Ok(StatusView {
         ingress_message,
         ingress_error,
         dataset_message,
+        ingress_connections: connections,
+        ingress_bytes_per_second: bytes_per_second,
+        engine_load: engine_status.load,
     })
 }
 
@@ -555,5 +561,8 @@ impl From<FilterPredicate> for FilterPredicateView {
 struct StatusView {
     ingress_message: String,
     ingress_error: Option<String>,
+    ingress_connections: usize,
+    ingress_bytes_per_second: f64,
     dataset_message: String,
+    engine_load: f64,
 }
