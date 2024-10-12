@@ -286,6 +286,66 @@ impl Storage for FileStorage {
 
         stmt.execute((at, fields)).unwrap();
     }
+
+    fn drop_instances(&mut self, instances: &[Timestamp]) {
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare_cached("DELETE FROM instances WHERE instances.key = ?1")
+            .unwrap();
+
+        for instance_key in instances {
+            stmt.execute((instance_key,)).unwrap();
+        }
+
+        drop(stmt);
+        tx.commit().unwrap();
+    }
+
+    fn drop_spans(&mut self, spans: &[Timestamp]) {
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare_cached("DELETE FROM spans WHERE spans.key = ?1")
+            .unwrap();
+
+        for instance_key in spans {
+            stmt.execute((instance_key,)).unwrap();
+        }
+
+        drop(stmt);
+        tx.commit().unwrap();
+    }
+
+    fn drop_span_events(&mut self, span_events: &[Timestamp]) {
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare_cached("DELETE FROM span_events WHERE span_events.key = ?1")
+            .unwrap();
+
+        for instance_key in span_events {
+            stmt.execute((instance_key,)).unwrap();
+        }
+
+        drop(stmt);
+        tx.commit().unwrap();
+    }
+
+    fn drop_events(&mut self, events: &[Timestamp]) {
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare_cached("DELETE FROM events WHERE events.key = ?1")
+            .unwrap();
+
+        for instance_key in events {
+            stmt.execute((instance_key,)).unwrap();
+        }
+
+        drop(stmt);
+        tx.commit().unwrap();
+    }
 }
 
 fn instance_to_params(instance: Instance) -> impl Params {

@@ -4,12 +4,14 @@ use std::ops::Range;
 use ghost_cell::GhostToken;
 
 use crate::filter::BoundSearch;
-use crate::models::{Event, Span, Timestamp, Value};
-use crate::{Ancestors, InstanceKey};
+use crate::models::{Event, EventKey, Span, Timestamp, Value};
+use crate::{Ancestors, InstanceKey, SpanKey};
 
 mod attribute;
+mod util;
 
 pub(crate) use attribute::AttributeIndex;
+pub(crate) use util::IndexExt;
 
 pub struct EventIndexes {
     pub all: Vec<Timestamp>,
@@ -104,6 +106,48 @@ impl EventIndexes {
                     attribute_index.add_entry(event_key, new_value);
                 }
             }
+        }
+    }
+
+    pub fn remove_events(&mut self, events: &[EventKey]) {
+        self.all.remove_list_sorted(events);
+
+        for level_index in &mut self.levels {
+            level_index.remove_list_sorted(events);
+        }
+
+        for instance_index in self.instances.values_mut() {
+            instance_index.remove_list_sorted(events);
+        }
+
+        for target_index in self.targets.values_mut() {
+            target_index.remove_list_sorted(events);
+        }
+
+        for filename_index in self.filenames.values_mut() {
+            filename_index.remove_list_sorted(events);
+        }
+
+        for descendent_index in self.descendents.values_mut() {
+            descendent_index.remove_list_sorted(events);
+        }
+
+        self.roots.remove_list_sorted(events);
+
+        for attribute_index in self.attributes.values_mut() {
+            attribute_index.remove_entries(events);
+        }
+    }
+
+    pub fn remove_spans(&mut self, spans: &[SpanKey]) {
+        for span_key in spans {
+            self.descendents.remove(span_key);
+        }
+    }
+
+    pub fn remove_instances(&mut self, instances: &[InstanceKey]) {
+        for instance_key in instances {
+            self.instances.remove(instance_key);
         }
     }
 }
@@ -249,6 +293,48 @@ impl SpanIndexes {
         let idx = index.upper_bound_via_expansion(&span_key);
         index.insert(idx, span_key);
     }
+
+    pub fn remove_spans(&mut self, spans: &[SpanKey]) {
+        self.all.remove_list_sorted(spans);
+
+        for level_index in &mut self.levels {
+            level_index.remove_list_sorted(spans);
+        }
+
+        self.durations.remove_spans(spans);
+
+        for instance_index in self.instances.values_mut() {
+            instance_index.remove_list_sorted(spans);
+        }
+
+        for name_index in self.names.values_mut() {
+            name_index.remove_list_sorted(spans);
+        }
+
+        for target_index in self.targets.values_mut() {
+            target_index.remove_list_sorted(spans);
+        }
+
+        for filename_index in self.filenames.values_mut() {
+            filename_index.remove_list_sorted(spans);
+        }
+
+        for descendent_index in self.descendents.values_mut() {
+            descendent_index.remove_list_sorted(spans);
+        }
+
+        self.roots.remove_list_sorted(spans);
+
+        for attribute_index in self.attributes.values_mut() {
+            attribute_index.remove_entries(spans);
+        }
+    }
+
+    pub fn remove_instances(&mut self, instances: &[InstanceKey]) {
+        for instance_key in instances {
+            self.instances.remove(instance_key);
+        }
+    }
 }
 
 pub struct SpanDurationIndex {
@@ -293,5 +379,18 @@ impl SpanDurationIndex {
             (&self.closed_long, 64000000..u64::MAX),
             (&self.open, 0..u64::MAX),
         ]
+    }
+
+    pub fn remove_spans(&mut self, spans: &[SpanKey]) {
+        self.closed_4_ms.remove_list_sorted(spans);
+        self.closed_16_ms.remove_list_sorted(spans);
+        self.closed_64_ms.remove_list_sorted(spans);
+        self.closed_256_ms.remove_list_sorted(spans);
+        self.closed_1_s.remove_list_sorted(spans);
+        self.closed_4_s.remove_list_sorted(spans);
+        self.closed_16_s.remove_list_sorted(spans);
+        self.closed_64_s.remove_list_sorted(spans);
+        self.closed_long.remove_list_sorted(spans);
+        self.open.remove_list_sorted(spans);
     }
 }

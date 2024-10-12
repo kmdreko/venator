@@ -195,25 +195,27 @@ function App() {
         setInterval(async () => setStatus(await getStatus()), 500);
 
         await listen('delete-all-clicked', async () => {
-            let metrics = await deleteEntities(null, null, true, true);
+            await deleteEntities(null, null, true, false);
 
-            console.log("delete-all received", metrics);
+            forceResetScreenFilters();
         });
+
         await listen('delete-inside-clicked', async () => {
             let screen = screens()[selectedScreen()!];
             let timespan = screen.timespan!;
 
-            let metrics = await deleteEntities(timespan[0], timespan[1], true, true);
+            await deleteEntities(timespan[0], timespan[1], true, false);
 
-            console.log("delete-inside received", metrics);
+            forceResetScreenFilters();
         });
+
         await listen('delete-outside-clicked', async () => {
             let screen = screens()[selectedScreen()!];
             let timespan = screen.timespan!;
 
-            let metrics = await deleteEntities(timespan[0], timespan[1], false, true);
+            await deleteEntities(timespan[0], timespan[1], false, false);
 
-            console.log("delete-outside received", metrics);
+            forceResetScreenFilters();
         });
     })
 
@@ -383,6 +385,32 @@ function App() {
         }
 
 
+
+        setScreens(updated_screens);
+    }
+
+    function forceResetScreenFilters() {
+        let current_screens = screens();
+        let updated_screens = [...current_screens];
+        for (let i = 0; i < updated_screens.length; i++) {
+            let raw_filter = [...current_screens[i].raw_filter];
+            let filter = [...current_screens[i].filter];
+
+            switch (current_screens[i].kind) {
+                case 'events':
+                    updated_screens[i] = { ...current_screens[i], raw_filter, filter, store: new EventDataLayer(raw_filter) as any };
+                    break;
+                case 'spans':
+                    updated_screens[i] = { ...current_screens[i], raw_filter, filter, store: new SpanDataLayer(raw_filter) as any };
+                    break;
+                case 'instances':
+                    updated_screens[i] = { ...current_screens[i], raw_filter, filter, store: new InstanceDataLayer(raw_filter) as any };
+                    break;
+                case 'trace':
+                    updated_screens[i] = { ...current_screens[i], raw_filter, filter };
+                    break;
+            }
+        }
 
         setScreens(updated_screens);
     }

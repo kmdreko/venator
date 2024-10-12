@@ -5,6 +5,8 @@ use crate::filter::BoundSearch;
 use crate::models::ValueOperator;
 use crate::{Timestamp, Value};
 
+use super::util::IndexExt;
+
 /// This is an index for a single attribute name.
 
 // Since the values of an attribute can be varied, this keeps separate typed
@@ -117,6 +119,16 @@ impl AttributeIndex {
         }
     }
 
+    pub(crate) fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.strings.remove_entries(keys);
+        self.f64s.remove_entries(keys);
+        self.i64s.remove_entries(keys);
+        self.u64s.remove_entries(keys);
+        self.i128s.remove_entries(keys);
+        self.u128s.remove_entries(keys);
+        self.bools.remove_entries(keys);
+    }
+
     /// This returns a set of indexed filters that when OR'd together will yield
     /// all the values for the provided operator and value.
     pub(crate) fn make_indexed_filter(
@@ -226,6 +238,13 @@ impl AttributeStringIndex {
             .map(Vec::as_slice)
             .unwrap_or_default()
     }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.total.remove_list_sorted(keys);
+        for value_index in self.value_indexes.values_mut() {
+            value_index.remove_list_sorted(keys);
+        }
+    }
 }
 
 struct AttributeF64Index {
@@ -236,6 +255,10 @@ struct AttributeF64Index {
 impl AttributeF64Index {
     fn new() -> AttributeF64Index {
         AttributeF64Index { index: Vec::new() }
+    }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
     }
 }
 
@@ -248,6 +271,10 @@ impl AttributeI64Index {
     fn new() -> AttributeI64Index {
         AttributeI64Index { index: Vec::new() }
     }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
+    }
 }
 
 struct AttributeU64Index {
@@ -258,6 +285,10 @@ struct AttributeU64Index {
 impl AttributeU64Index {
     fn new() -> AttributeU64Index {
         AttributeU64Index { index: Vec::new() }
+    }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
     }
 }
 
@@ -270,6 +301,10 @@ impl AttributeI128Index {
     fn new() -> AttributeI128Index {
         AttributeI128Index { index: Vec::new() }
     }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
+    }
 }
 
 struct AttributeU128Index {
@@ -280,6 +315,10 @@ struct AttributeU128Index {
 impl AttributeU128Index {
     fn new() -> AttributeU128Index {
         AttributeU128Index { index: Vec::new() }
+    }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
     }
 }
 
@@ -294,5 +333,10 @@ impl AttributeBoolIndex {
             trues: Vec::new(),
             falses: Vec::new(),
         }
+    }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.trues.remove_list_sorted(keys);
+        self.falses.remove_list_sorted(keys);
     }
 }

@@ -68,4 +68,9 @@ pub trait Storage {
     fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp);
     fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>);
     fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey);
+
+    fn drop_instances(&mut self, instances: &[Timestamp]);
+    fn drop_spans(&mut self, spans: &[Timestamp]);
+    fn drop_span_events(&mut self, span_events: &[Timestamp]);
+    fn drop_events(&mut self, events: &[Timestamp]);
 }

@@ -23,7 +23,7 @@ use filter::{
     BoundSearch, IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter,
     IndexedSpanFilterIterator,
 };
-use index::{AttributeIndex, EventIndexes, SpanIndexes};
+use index::{AttributeIndex, EventIndexes, IndexExt, SpanIndexes};
 
 pub use filter::input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
 pub use filter::{BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Order, Query};
@@ -1284,11 +1284,46 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             })
             .collect::<Vec<SpanEventKey>>();
 
+        if filter.dry_run {
+            return DeleteMetrics {
+                instances: instances.len(),
+                spans: spans_from_root_spans.len(),
+                span_events: span_events.len(),
+                events: root_events.len() + events_from_root_spans.len(),
+            };
+        }
+
+        let mut instances_to_delete = instances;
+        let mut spans_to_delete = spans_from_root_spans;
+        let mut span_events_to_delete = span_events;
+        let mut events_to_delete = root_events;
+        events_to_delete.extend(events_from_root_spans);
+
+        instances_to_delete.sort(); // this should already be sorted in theory
+        spans_to_delete.sort();
+        span_events_to_delete.sort();
+        events_to_delete.sort();
+
+        // drop smaller scoped entities from storage first to avoid integrity
+        // issues if things go wrong
+
+        self.storage.drop_events(&events_to_delete);
+        self.storage.drop_span_events(&span_events_to_delete);
+        self.storage.drop_spans(&spans_to_delete);
+        self.storage.drop_instances(&instances_to_delete);
+
+        // remove smaller scoped entities from indexes last for some efficiency
+
+        self.remove_instances_bookeeping(&instances_to_delete);
+        self.remove_spans_bookeeping(&spans_to_delete);
+        self.remove_span_events_bookeeping(&span_events_to_delete);
+        self.remove_events_bookeeping(&events_to_delete);
+
         DeleteMetrics {
-            instances: instances.len(),
-            spans: spans_from_root_spans.len(),
-            span_events: span_events.len(),
-            events: root_events.len() + events_from_root_spans.len(),
+            instances: instances_to_delete.len(),
+            spans: spans_to_delete.len(),
+            span_events: span_events_to_delete.len(),
+            events: events_to_delete.len(),
         }
     }
 
@@ -1367,6 +1402,53 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         let iter = IndexedEventFilterIterator::new_internal(indexed_filter, self);
 
         iter.collect()
+    }
+
+    fn remove_instances_bookeeping(&mut self, instances: &[InstanceKey]) {
+        for instance_key in instances {
+            self.instances.remove(instance_key);
+        }
+
+        self.instance_key_map
+            .retain(|_, key| !instances.contains(key));
+
+        self.span_indexes.remove_instances(instances);
+        self.event_indexes.remove_instances(instances);
+    }
+
+    fn remove_spans_bookeeping(&mut self, spans: &[SpanKey]) {
+        for span_key in spans {
+            self.span_ancestors.remove(span_key);
+        }
+
+        for span_key in spans {
+            self.span_id_map.remove(span_key);
+        }
+
+        self.span_key_map.retain(|_, key| !spans.contains(key));
+
+        self.span_indexes.remove_spans(spans);
+
+        self.event_indexes.remove_spans(spans);
+        for span_key in spans {
+            self.span_events_by_span_ids.remove(span_key);
+        }
+    }
+
+    fn remove_span_events_bookeeping(&mut self, span_events: &[SpanEventKey]) {
+        self.span_event_ids.remove_list_sorted(span_events);
+
+        for span_index in self.span_events_by_span_ids.values_mut() {
+            span_index.remove_list_sorted(span_events);
+        }
+    }
+
+    fn remove_events_bookeeping(&mut self, events: &[EventKey]) {
+        for event_key in events {
+            self.event_ancestors.remove(event_key);
+        }
+
+        self.event_indexes.remove_events(events);
     }
 
     pub fn add_attribute_index(&mut self, name: String) {

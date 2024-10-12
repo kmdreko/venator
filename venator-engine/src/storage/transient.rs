@@ -100,4 +100,28 @@ impl Storage for TransientStorage {
             span.follows.push(follows);
         }
     }
+
+    fn drop_instances(&mut self, instances: &[Timestamp]) {
+        for at in instances {
+            self.instances.remove(at);
+        }
+    }
+
+    fn drop_spans(&mut self, spans: &[Timestamp]) {
+        for at in spans {
+            self.spans.remove(at);
+        }
+    }
+
+    fn drop_span_events(&mut self, span_events: &[Timestamp]) {
+        for at in span_events {
+            self.span_events.remove(at);
+        }
+    }
+
+    fn drop_events(&mut self, events: &[Timestamp]) {
+        for at in events {
+            self.events.remove(at);
+        }
+    }
 }
