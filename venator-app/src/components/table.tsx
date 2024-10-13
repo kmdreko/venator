@@ -42,7 +42,22 @@ export const LEVEL: ColumnDef<Event | Span> = {
     },
     headerText: "",
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        function levelText() {
+            switch (props.entry.level) {
+                case 0:
+                    return 'TRACE';
+                case 1:
+                    return 'DEBUG';
+                case 2:
+                    return 'INFO';
+                case 3:
+                    return 'WARN';
+                case 4:
+                    return 'ERROR';
+            }
+        }
+
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={levelText()} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             <div class={`level-${props.entry.level}`}></div>
         </div>;
     },
