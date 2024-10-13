@@ -10,7 +10,8 @@ use ingress::Ingress;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, DeleteFilter, DeleteMetrics, Engine,
     EventView, FileStorage, FilterPredicate, FilterPropertyKind, InstanceView, Order, Query,
@@ -424,14 +425,19 @@ fn main() {
                         &MenuItem::with_id(
                             handle,
                             "open-dataset",
-                            "Open dataset",
+                            "Open dataset in new window",
                             true,
                             None::<&str>,
                         )?,
-                        &MenuItem::new(handle, "Open dataset in new window", true, None::<&str>)?,
                         &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Save", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Save as", true, None::<&str>)?,
+                        &MenuItem::with_id(handle, "save-dataset", "Save", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            handle,
+                            "save-dataset-as",
+                            "Save as",
+                            true,
+                            None::<&str>,
+                        )?,
                         &MenuItem::new(handle, "Export view as CSV", true, None::<&str>)?,
                         &MenuItem::new(handle, "Export view as ...", false, None::<&str>)?,
                         &PredefinedMenuItem::separator(handle)?,
@@ -527,6 +533,20 @@ fn main() {
                             .stderr(Stdio::null())
                             .spawn()
                             .unwrap();
+                    });
+                }
+                "save-dataset-as" => {
+                    let engine = app.state::<Engine>().inner().clone();
+
+                    app.dialog().file().save_file(move |file_path| {
+                        let Some(path) = file_path else { return };
+
+                        let new_storage = FileStorage::new(path.as_path().unwrap());
+
+                        // we have no need for the result, and the command is
+                        // executed regardless if we poll
+                        #[allow(clippy::let_underscore_future)]
+                        let _ = engine.copy_dataset(Box::new(new_storage));
                     });
                 }
                 "delete-all" => {

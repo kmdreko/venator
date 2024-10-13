@@ -160,6 +160,10 @@ impl Engine {
                             engine.unsubscribe_from_events(id);
                             let _ = sender.send(());
                         }
+                        EngineCommand::CopyDataset(to, sender) => {
+                            engine.copy_dataset(to);
+                            let _ = sender.send(());
+                        }
                         EngineCommand::GetStatus(sender) => {
                             let elapsed_ms = last_check.elapsed().as_millis();
                             let computed_ms = computed_ms_since_last_check;
@@ -333,6 +337,14 @@ impl Engine {
         async move { receiver.await.unwrap() }
     }
 
+    pub fn copy_dataset(&self, to: Box<dyn Storage + Send>) -> impl Future<Output = ()> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .query_sender
+            .send(EngineCommand::CopyDataset(to, sender));
+        async move { receiver.await.unwrap() }
+    }
+
     pub fn get_status(&self) -> impl Future<Output = EngineStatusView> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send(EngineCommand::GetStatus(sender));
@@ -368,6 +380,7 @@ enum EngineCommand {
     ),
     EventUnsubscribe(SubscriptionId, OneshotSender<()>),
 
+    CopyDataset(Box<dyn Storage + Send>, OneshotSender<()>),
     GetStatus(OneshotSender<EngineStatusView>),
 }
 
@@ -1449,6 +1462,48 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
 
         self.event_indexes.remove_events(events);
+    }
+
+    pub fn copy_dataset(&self, mut to: Box<dyn Storage + Send>) {
+        let instances = self
+            .storage
+            .get_all_instances()
+            .map(Boo::into_owned)
+            .collect::<Vec<_>>();
+
+        for instance in instances {
+            to.insert_instance(instance);
+        }
+
+        let spans = self
+            .storage
+            .get_all_spans()
+            .map(Boo::into_owned)
+            .collect::<Vec<_>>();
+
+        for span in spans {
+            to.insert_span(span);
+        }
+
+        let span_events = self
+            .storage
+            .get_all_span_events()
+            .map(Boo::into_owned)
+            .collect::<Vec<_>>();
+
+        for span_event in span_events {
+            to.insert_span_event(span_event);
+        }
+
+        let events = self
+            .storage
+            .get_all_events()
+            .map(Boo::into_owned)
+            .collect::<Vec<_>>();
+
+        for event in events {
+            to.insert_event(event);
+        }
     }
 
     pub fn add_attribute_index(&mut self, name: String) {
