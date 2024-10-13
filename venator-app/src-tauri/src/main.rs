@@ -310,10 +310,10 @@ async fn get_status(
             None => (("not listening".into(), None), (0, 0.0)),
         };
 
-    let dataset_message = match &*dataset {
-        DatasetConfig::Default(_) => "using default dataset".to_owned(),
-        DatasetConfig::File(path) => format!("using {}", path.display()),
-        DatasetConfig::Memory => "using :memory:".to_owned(),
+    let dataset_name = match &*dataset {
+        DatasetConfig::Default(_) => "default dataset".to_owned(),
+        DatasetConfig::File(path) => format!("{}", path.display()),
+        DatasetConfig::Memory => ":memory:".to_owned(),
     };
 
     let engine_status = engine.get_status().await;
@@ -321,7 +321,7 @@ async fn get_status(
     Ok(StatusView {
         ingress_message,
         ingress_error,
-        dataset_message,
+        dataset_name,
         ingress_connections: connections,
         ingress_bytes_per_second: bytes_per_second,
         engine_load: engine_status.load,
@@ -606,7 +606,7 @@ struct StatusView {
     ingress_error: Option<String>,
     ingress_connections: usize,
     ingress_bytes_per_second: f64,
-    dataset_message: String,
+    dataset_name: String,
     engine_load: f64,
 }
 

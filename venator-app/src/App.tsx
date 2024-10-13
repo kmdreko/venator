@@ -1,4 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
+import { ask } from '@tauri-apps/plugin-dialog';
 import { EventsScreen } from "./screens/events-screen";
 import { AppStatus, deleteEntities, Event, getStats, getStatus, Input, Instance, Span, Timestamp } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
@@ -195,27 +196,54 @@ function App() {
         setInterval(async () => setStatus(await getStatus()), 500);
 
         await listen('delete-all-clicked', async () => {
-            await deleteEntities(null, null, true, false);
+            let metrics = await deleteEntities(null, null, true, true);
 
-            forceResetScreenFilters();
+            let answer = await ask(`This will delete ${metrics.instances} instances, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+                title: `Delete from ${status()?.dataset_name}`,
+                kind: 'warning',
+            });
+
+            if (answer) {
+                await deleteEntities(null, null, true, false);
+
+                forceResetScreenFilters();
+            }
         });
 
         await listen('delete-inside-clicked', async () => {
             let screen = screens()[selectedScreen()!];
             let timespan = screen.timespan!;
 
-            await deleteEntities(timespan[0], timespan[1], true, false);
+            let metrics = await deleteEntities(timespan[0], timespan[1], true, true);
 
-            forceResetScreenFilters();
+            let answer = await ask(`This will delete ${metrics.instances} instances, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+                title: `Delete from ${status()?.dataset_name}`,
+                kind: 'warning',
+            });
+
+            if (answer) {
+                await deleteEntities(timespan[0], timespan[1], true, false);
+
+                forceResetScreenFilters();
+            }
         });
 
         await listen('delete-outside-clicked', async () => {
             let screen = screens()[selectedScreen()!];
             let timespan = screen.timespan!;
 
-            await deleteEntities(timespan[0], timespan[1], false, false);
+            let metrics = await deleteEntities(timespan[0], timespan[1], false, true);
 
-            forceResetScreenFilters();
+            let answer = await ask(`This will delete ${metrics.instances} instances, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+                title: `Delete from ${status()?.dataset_name}`,
+                kind: 'warning',
+            });
+
+            if (answer) {
+                await deleteEntities(timespan[0], timespan[1], false, false);
+
+                forceResetScreenFilters();
+            }
         });
     })
 
@@ -773,7 +801,7 @@ function App() {
             <Show when={status()}>
                 {s => <>
                     <span class="statusbar-region">
-                        <span style="padding: 0 4px;">{s().dataset_message}</span>
+                        <span style="padding: 0 4px;">using {s().dataset_name}</span>
                         -
                         <span style="padding: 0 4px;" title={s().ingress_error}>{s().ingress_message}</span>
                     </span>

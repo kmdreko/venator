@@ -113,7 +113,7 @@ export type AppStatus = {
     ingress_error: string;
     ingress_connections: number;
     ingress_bytes_per_second: number;
-    dataset_message: string;
+    dataset_name: string;
     engine_load: number;
 };
 
