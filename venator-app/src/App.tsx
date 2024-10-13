@@ -16,58 +16,47 @@ import "./App.css";
 
 const HOUR = 3600000000;
 
+export type ColumnData = {
+    columns: ColumnDef<Span | Event | Instance>[],
+    columnWidths: string[],
+}
+
 type EventsScreenData = {
     kind: 'events',
-    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan,
-    selected: Event | null,
     live: boolean,
     store: EventDataLayer,
-    columns: ColumnDef<Event>[],
-    columnWidths: string[],
 };
 
 type SpansScreenData = {
     kind: 'spans',
-    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan,
-    selected: Span | null,
     live: boolean,
     store: SpanDataLayer,
-    columns: ColumnDef<Span>[],
-    columnWidths: string[],
 };
 
 type TraceScreenData = {
     kind: 'trace',
-    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan | null,
-    selected: Event | Span | null,
     live: boolean,
     store: TraceDataLayer,
     collapsed: { [id: string]: true },
-    columns: ColumnDef<Event | Span>[],
-    columnWidths: string[],
 };
 
 type InstancesScreenData = {
     kind: 'instances',
-    raw_filter: Input[],
     filter: Input[],
     timespan: Timespan,
-    selected: Instance | null,
     live: boolean,
     store: InstanceDataLayer,
-    columns: ColumnDef<Instance>[],
-    columnWidths: string[],
 };
 
 export type ScreenData = EventsScreenData | SpansScreenData | TraceScreenData | InstancesScreenData;
 
-export async function defaultEventsScreen(): Promise<EventsScreenData> {
+export async function defaultEventsScreen(): Promise<[EventsScreenData, ColumnData]> {
     let stats = await getStats();
 
     let start;
@@ -93,20 +82,19 @@ export async function defaultEventsScreen(): Promise<EventsScreenData> {
     let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
     let columnWidths = columns.map(def => def.defaultWidth);
 
-    return {
+    return [{
         kind: 'events',
-        raw_filter: [...filter],
         filter,
         timespan: [start, end],
-        selected: null,
         live: false,
         store: new EventDataLayer(filter),
-        columns,
+    }, {
+        columns: columns as any,
         columnWidths,
-    };
+    }];
 }
 
-export async function defaultSpansScreen(): Promise<SpansScreenData> {
+export async function defaultSpansScreen(): Promise<[SpansScreenData, ColumnData]> {
     let stats = await getStats();
 
     let start;
@@ -139,20 +127,19 @@ export async function defaultSpansScreen(): Promise<SpansScreenData> {
     let columns = [LEVEL, CREATED, INHERENT('name')];
     let columnWidths = columns.map(def => def.defaultWidth);
 
-    return {
+    return [{
         kind: 'spans',
-        raw_filter: [...filter],
         filter,
         timespan: [start, end],
-        selected: null,
         live: false,
         store: new SpanDataLayer(filter),
-        columns,
+    }, {
+        columns: columns as any,
         columnWidths,
-    };
+    }];
 }
 
-export async function defaultInstancesScreen(): Promise<InstancesScreenData> {
+export async function defaultInstancesScreen(): Promise<[InstancesScreenData, ColumnData]> {
     let stats = await getStats();
 
     let start;
@@ -168,26 +155,29 @@ export async function defaultInstancesScreen(): Promise<InstancesScreenData> {
 
     let columns = [CONNECTED, INHERENT('id')];
     let columnWidths = columns.map(def => def.defaultWidth);
-    return {
+    return [{
         kind: 'instances',
-        raw_filter: [],
         filter: [],
         timespan: [start, end],
-        selected: null,
         live: false,
         store: new InstanceDataLayer([]),
-        columns,
+    }, {
+        columns: columns as any,
         columnWidths,
-    };
+    }];
 }
 
 function App() {
     let [screens, setScreens] = createSignal<ScreenData[]>([]);
+    let [rawFilters, setRawFilters] = createSignal<Input[][]>([]);
+    let [selectedRows, setSelectedRows] = createSignal<(Event | Span | Instance | null)[]>([]);
+    let [columnDatas, setColumnDatas] = createSignal<ColumnData[]>([]);
+
     let [selectedScreen, setSelectedScreen] = createSignal<number | undefined>();
     let [status, setStatus] = createSignal<AppStatus | null>(null);
 
     onMount(async () => {
-        createTab(await defaultEventsScreen(), true);
+        createTab(...await defaultEventsScreen(), true);
     });
 
     onMount(async () => {
@@ -370,14 +360,40 @@ function App() {
         return current_screens[current_selected_screen];
     }
 
+    function getCurrentRawFilters(): Input[] | null {
+        let current_selected_screen = selectedScreen();
+        if (current_selected_screen == undefined) {
+            return null;
+        }
+        let current_raw_filters = rawFilters();
+        return current_raw_filters[current_selected_screen];
+    }
+
+    function getCurrentSelectedRow(): Event | Span | Instance | null {
+        let current_selected_screen = selectedScreen();
+        if (current_selected_screen == undefined) {
+            return null;
+        }
+        let current_selected_rows = selectedRows();
+        return current_selected_rows[current_selected_screen];
+    }
+
+    function getCurrentColumnData(): ColumnData | null {
+        let current_selected_screen = selectedScreen();
+        if (current_selected_screen == undefined) {
+            return null;
+        }
+        let current_column_datas = columnDatas();
+        return current_column_datas[current_selected_screen];
+    }
+
     function setScreenFilter(filter: Input[]) {
         let current_selected_screen = selectedScreen()!;
         let current_screens = screens();
         let updated_screens = [...current_screens];
 
-        if (current_screens[current_selected_screen].live) {
-            current_screens[current_selected_screen].store.unsubscribe();
-        }
+        let current_raw_filters = rawFilters();
+        let updated_raw_filters = [...current_raw_filters];
 
         let valid_filter = filter.filter(f => f.input == 'valid');
 
@@ -392,50 +408,54 @@ function App() {
         if (filterText(valid_filter) == filterText(current_screens[current_selected_screen].filter)) {
             // valid filter didn't change, only update raw_filter
 
-            updated_screens[current_selected_screen] = {
-                ...current_screens[current_selected_screen],
-                raw_filter: filter,
-            }
+            updated_raw_filters[current_selected_screen] = filter;
+            setRawFilters(updated_raw_filters);
         } else {
             // valid filter did change
 
+            if (current_screens[current_selected_screen].live) {
+                current_screens[current_selected_screen].store.unsubscribe();
+            }
+
             updated_screens[current_selected_screen] = current_screens[current_selected_screen].kind == 'events'
-                ? { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter, store: new EventDataLayer(filter) }
+                ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new EventDataLayer(filter) }
                 : current_screens[current_selected_screen].kind == 'spans'
-                    ? { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter, store: new SpanDataLayer(filter) }
+                    ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new SpanDataLayer(filter) }
                     : current_screens[current_selected_screen].kind == 'instances'
-                        ? { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter, store: new InstanceDataLayer(filter) }
-                        : { ...current_screens[current_selected_screen], raw_filter: filter, filter: valid_filter };
+                        ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new InstanceDataLayer(filter) }
+                        : { ...current_screens[current_selected_screen], filter: valid_filter };
 
             if (updated_screens[current_selected_screen].live) {
                 updated_screens[current_selected_screen].store.subscribe();
             }
+
+            updated_raw_filters[current_selected_screen] = filter;
+            batch(() => {
+                setRawFilters(updated_raw_filters);
+                setScreens(updated_screens);
+            })
         }
 
-
-
-        setScreens(updated_screens);
     }
 
     function forceResetScreenFilters() {
         let current_screens = screens();
         let updated_screens = [...current_screens];
         for (let i = 0; i < updated_screens.length; i++) {
-            let raw_filter = [...current_screens[i].raw_filter];
             let filter = [...current_screens[i].filter];
 
             switch (current_screens[i].kind) {
                 case 'events':
-                    updated_screens[i] = { ...current_screens[i], raw_filter, filter, store: new EventDataLayer(raw_filter) as any };
+                    updated_screens[i] = { ...current_screens[i], filter, store: new EventDataLayer(filter) as any };
                     break;
                 case 'spans':
-                    updated_screens[i] = { ...current_screens[i], raw_filter, filter, store: new SpanDataLayer(raw_filter) as any };
+                    updated_screens[i] = { ...current_screens[i], filter, store: new SpanDataLayer(filter) as any };
                     break;
                 case 'instances':
-                    updated_screens[i] = { ...current_screens[i], raw_filter, filter, store: new InstanceDataLayer(raw_filter) as any };
+                    updated_screens[i] = { ...current_screens[i], filter, store: new InstanceDataLayer(filter) as any };
                     break;
                 case 'trace':
-                    updated_screens[i] = { ...current_screens[i], raw_filter, filter };
+                    updated_screens[i] = { ...current_screens[i], filter };
                     break;
             }
         }
@@ -474,13 +494,10 @@ function App() {
 
     function setScreenSelected<T>(selected: T | null) {
         let current_selected_screen = selectedScreen()!;
-        let current_screens = screens();
-        let updated_screens = [...current_screens];
-        updated_screens[current_selected_screen] = {
-            ...current_screens[current_selected_screen],
-            selected: selected as any,
-        };
-        setScreens(updated_screens);
+        let current_rows = selectedRows();
+        let updated_rows = [...current_rows];
+        updated_rows[current_selected_screen] = selected as any;
+        setSelectedRows(updated_rows);
     }
 
     function setCollapsed(id: string, collapsed: boolean) {
@@ -505,9 +522,22 @@ function App() {
 
     function removeScreen(idx: number) {
         let current_selected_screen = selectedScreen()!;
+
         let current_screens = screens();
         let updated_screens = [...current_screens];
         updated_screens.splice(idx, 1);
+
+        let current_raw_filters = rawFilters();
+        let updated_raw_filters = [...current_raw_filters];
+        updated_raw_filters.splice(idx, 1);
+
+        let current_rows = selectedRows();
+        let updated_rows = [...current_rows];
+        updated_rows.splice(idx, 1);
+
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
+        updated_column_datas.splice(idx, 1);
 
         if (updated_screens.length == 0) {
             let filter: Input[] = [{
@@ -524,15 +554,14 @@ function App() {
             let now = Date.now() * 1000;
             updated_screens = [{
                 kind: 'events',
-                raw_filter: [...filter],
                 filter,
                 timespan: [now - 5 * 60 * 1000000, now],
-                selected: null,
                 live: false,
                 store: new EventDataLayer(filter),
-                columns,
-                columnWidths,
             }];
+            updated_raw_filters = [[...filter]];
+            updated_rows = [null];
+            updated_column_datas = [{ columns: columns as any, columnWidths }];
         }
 
         let updated_selected_screen = (current_selected_screen > idx) ? current_selected_screen - 1 : current_selected_screen;
@@ -542,16 +571,24 @@ function App() {
 
         batch(() => {
             setScreens(updated_screens);
+            setRawFilters(updated_raw_filters);
+            setSelectedRows(updated_rows);
+            setColumnDatas(updated_column_datas);
             setSelectedScreen(updated_selected_screen);
         })
     }
 
     function removeAllOtherScreens(idx: number) {
-        let current_screens = screens();
-        let selected_screen = current_screens[idx];
+        let selected_screen = screens()[idx];
+        let selected_raw_filter = rawFilters()[idx];
+        let selected_selected_row = selectedRows()[idx];
+        let selected_column_data = columnDatas()[idx];
 
         batch(() => {
             setScreens([selected_screen]);
+            setRawFilters([selected_raw_filter]);
+            setSelectedRows([selected_selected_row]);
+            setColumnDatas([selected_column_data]);
             setSelectedScreen(0);
         })
     }
@@ -562,10 +599,26 @@ function App() {
         }
 
         let current_selected_screen = selectedScreen()!;
+
         let current_screens = screens();
         let updated_screens = [...current_screens];
         let [screen] = updated_screens.splice(fromIdx, 1);
         updated_screens.splice(toIdx, 0, screen);
+
+        let current_raw_filters = rawFilters();
+        let updated_raw_filters = [...current_raw_filters];
+        let [rawFilter] = updated_raw_filters.splice(fromIdx, 1);
+        updated_raw_filters.splice(toIdx, 0, rawFilter);
+
+        let current_selected_rows = selectedRows();
+        let updated_selected_rows = [...current_selected_rows];
+        let [selectedRow] = updated_selected_rows.splice(fromIdx, 1);
+        updated_selected_rows.splice(toIdx, 0, selectedRow);
+
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
+        let [columnData] = updated_column_datas.splice(fromIdx, 1);
+        updated_column_datas.splice(toIdx, 0, columnData);
 
         let updated_selected_screen = current_selected_screen;
         if (current_selected_screen == fromIdx) {
@@ -578,16 +631,38 @@ function App() {
 
         batch(() => {
             setScreens(updated_screens);
+            setRawFilters(current_raw_filters);
+            setSelectedRows(updated_selected_rows);
+            setColumnDatas(updated_column_datas);
             setSelectedScreen(updated_selected_screen);
         })
     }
 
-    function createTab(screen: ScreenData, navigate: boolean) {
+    function createTab(screen: ScreenData, columns: ColumnData, navigate: boolean) {
         let current_screens = screens();
         let updated_screens = [...current_screens];
-        updated_screens.push(screen);
+        updated_screens.push({
+            ...screen,
+            filter: screen.filter.filter(f => f.input == 'valid'),
+        });
+
+        let current_raw_filters = rawFilters();
+        let updated_raw_filters = [...current_raw_filters];
+        updated_raw_filters.push([...screen.filter]);
+
+        let current_selected_rows = selectedRows();
+        let updated_selected_rows = [...current_selected_rows];
+        updated_selected_rows.push(null);
+
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
+        updated_column_datas.push(columns);
+
         batch(() => {
             setScreens(updated_screens);
+            setRawFilters(updated_raw_filters);
+            setSelectedRows(updated_selected_rows);
+            setColumnDatas(updated_column_datas);
             if (navigate) {
                 setSelectedScreen(updated_screens.length - 1);
             }
@@ -596,40 +671,40 @@ function App() {
 
     function setColumnWidth(i: number, width: string) {
         let current_selected_screen = selectedScreen()!;
-        let current_screens = screens();
-        let updated_screens = [...current_screens];
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
 
-        let widths = current_screens[current_selected_screen].columnWidths;
+        let widths = current_column_datas[current_selected_screen].columnWidths;
         widths.splice(i, 1, width);
 
-        updated_screens[current_selected_screen] = {
-            ...current_screens[current_selected_screen],
+        updated_column_datas[current_selected_screen] = {
+            ...current_column_datas[current_selected_screen],
             columnWidths: widths
         };
-        setScreens(updated_screens);
+        setColumnDatas(updated_column_datas);
     }
 
     function setColumnDef<T>(i: number, def: ColumnDef<T>) {
         let current_selected_screen = selectedScreen()!;
-        let current_screens = screens();
-        let updated_screens = [...current_screens];
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
 
-        let defs = current_screens[current_selected_screen].columns;
+        let defs = current_column_datas[current_selected_screen].columns;
         defs.splice(i, 1, def as any);
 
-        updated_screens[current_selected_screen] = {
-            ...current_screens[current_selected_screen],
+        updated_column_datas[current_selected_screen] = {
+            ...current_column_datas[current_selected_screen],
             columns: defs as any
         };
-        setScreens(updated_screens);
+        setColumnDatas(updated_column_datas);
     }
 
     function addColumnAfter<T>(i: number, def: ColumnDef<T>) {
         let current_selected_screen = selectedScreen()!;
-        let current_screens = screens();
+        let current_column_datas = columnDatas();
 
-        let existingColumns = current_screens[current_selected_screen].columns;
-        let existingColumnWidths = current_screens[current_selected_screen].columnWidths;
+        let existingColumns = current_column_datas[current_selected_screen].columns;
+        let existingColumnWidths = current_column_datas[current_selected_screen].columnWidths;
         let updatedColumns = [...existingColumns];
         let updatedColumnWidths = [...existingColumnWidths];
 
@@ -640,21 +715,21 @@ function App() {
         updatedColumns.splice(i + 1, 0, def as any);
         updatedColumnWidths.splice(i + 1, 0, def.defaultWidth);
 
-        let updated_screens = [...current_screens];
-        updated_screens[current_selected_screen] = {
-            ...current_screens[current_selected_screen],
+        let updated_column_datas = [...current_column_datas];
+        updated_column_datas[current_selected_screen] = {
+            ...current_column_datas[current_selected_screen],
             columns: updatedColumns as any,
             columnWidths: updatedColumnWidths,
         };
-        setScreens(updated_screens);
+        setColumnDatas(updated_column_datas);
     }
 
     function removeColumn(i: number) {
         let current_selected_screen = selectedScreen()!;
-        let current_screens = screens();
+        let current_column_datas = columnDatas();
 
-        let existingColumns = current_screens[current_selected_screen].columns;
-        let existingColumnWidths = current_screens[current_selected_screen].columnWidths;
+        let existingColumns = current_column_datas[current_selected_screen].columns;
+        let existingColumnWidths = current_column_datas[current_selected_screen].columnWidths;
         let updatedColumns = [...existingColumns];
         let updatedColumnWidths = [...existingColumnWidths];
         updatedColumns.splice(i, 1);
@@ -666,13 +741,13 @@ function App() {
             updatedColumnWidths[updatedColumnWidths.length - 1] = updatedColumns[updatedColumns.length - 1].defaultWidth;
         }
 
-        let updated_screens = [...current_screens];
-        updated_screens[current_selected_screen] = {
-            ...current_screens[current_selected_screen],
+        let updated_column_datas = [...current_column_datas];
+        updated_column_datas[current_selected_screen] = {
+            ...current_column_datas[current_selected_screen],
             columns: updatedColumns as any,
             columnWidths: updatedColumnWidths,
         };
-        setScreens(updated_screens);
+        setColumnDatas(updated_column_datas);
     }
 
     return (<>
@@ -683,32 +758,32 @@ function App() {
             moveTab: moveScreen,
             activateTab: setSelectedScreen,
         }}>
-            <TabBar screens={screens()} active={selectedScreen()!} />
+            <TabBar screens={screens()} column_datas={columnDatas()} active={selectedScreen()!} />
             <div id="screen">
-                <Show when={getCurrentScreen()}>
-                    {screen => (<Switch>
-                        <Match when={screen().kind == 'events'}>
+                <Show when={selectedScreen() != undefined}>
+                    {(_idx) => (<Switch>
+                        <Match when={getCurrentScreen()!.kind == 'events'}>
                             <EventsScreen
-                                raw_filter={screen().raw_filter}
-                                filter={screen().filter}
+                                raw_filter={getCurrentRawFilters()!}
+                                filter={getCurrentScreen()!.filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
-                                timespan={(screen() as EventsScreenData).timespan}
+                                timespan={(getCurrentScreen() as EventsScreenData).timespan}
                                 setTimespan={setScreenTimespan}
 
-                                columns={(screen() as EventsScreenData).columns}
-                                columnWidths={(screen() as EventsScreenData).columnWidths}
+                                columns={getCurrentColumnData()!.columns}
+                                columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
-                                getEvents={f => getAndCacheEvents(screen() as EventsScreenData, f)}
-                                getEventCounts={(f, w) => getAndCacheEventCounts(screen() as EventsScreenData, f, w)}
+                                getEvents={f => getAndCacheEvents(getCurrentScreen() as EventsScreenData, f)}
+                                getEventCounts={(f, w) => getAndCacheEventCounts(getCurrentScreen() as EventsScreenData, f, w)}
 
-                                live={(screen() as EventsScreenData).live}
+                                live={(getCurrentScreen() as EventsScreenData).live}
                                 setLive={live => {
-                                    let store = (screen() as EventsScreenData).store;
+                                    let store = (getCurrentScreen() as EventsScreenData).store;
                                     if (live) {
                                         store.subscribe();
                                     } else {
@@ -717,78 +792,78 @@ function App() {
                                     setScreenLive(live);
                                 }}
 
-                                selected={(screen() as EventsScreenData).selected}
+                                selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}
                             />
                         </Match>
-                        <Match when={screen().kind == 'spans'}>
+                        <Match when={getCurrentScreen()!.kind == 'spans'}>
                             <SpansScreen
-                                raw_filter={screen().raw_filter}
-                                filter={screen().filter}
+                                raw_filter={getCurrentRawFilters()!}
+                                filter={getCurrentScreen()!.filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
-                                timespan={(screen() as SpansScreenData).timespan}
+                                timespan={(getCurrentScreen() as SpansScreenData).timespan}
                                 setTimespan={setScreenTimespan}
 
-                                columns={(screen() as SpansScreenData).columns}
-                                columnWidths={(screen() as SpansScreenData).columnWidths}
+                                columns={getCurrentColumnData()!.columns}
+                                columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
-                                getSpans={(f, w) => getAndCacheSpans(screen() as SpansScreenData, f, w)}
-                                getPositionedSpans={(f, w) => getAndCachePositionedSpans(screen() as SpansScreenData, f, w)}
+                                getSpans={(f, w) => getAndCacheSpans(getCurrentScreen() as SpansScreenData, f, w)}
+                                getPositionedSpans={(f, w) => getAndCachePositionedSpans(getCurrentScreen() as SpansScreenData, f, w)}
 
-                                selected={(screen() as SpansScreenData).selected}
+                                selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}
                             />
                         </Match>
-                        <Match when={screen().kind == 'trace'}>
+                        <Match when={getCurrentScreen()!.kind == 'trace'}>
                             <TraceScreen
-                                raw_filter={screen().raw_filter}
-                                filter={screen().filter}
+                                raw_filter={getCurrentRawFilters()!}
+                                filter={getCurrentScreen()!.filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
-                                timespan={screen().timespan}
+                                timespan={getCurrentScreen()!.timespan}
                                 setTimespan={setScreenTimespan}
 
-                                columns={(screen() as TraceScreenData).columns}
-                                columnWidths={(screen() as TraceScreenData).columnWidths}
+                                columns={getCurrentColumnData()!.columns}
+                                columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
-                                getEntries={f => getEntries(screen() as TraceScreenData, f)}
+                                getEntries={f => getEntries(getCurrentScreen() as TraceScreenData, f)}
 
-                                collapsed={(screen() as TraceScreenData).collapsed}
+                                collapsed={(getCurrentScreen() as TraceScreenData).collapsed}
                                 setCollapsed={setCollapsed}
 
-                                selected={(screen() as TraceScreenData).selected}
+                                selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}
                             />
                         </Match>
-                        <Match when={screen().kind == 'instances'}>
+                        <Match when={getCurrentScreen()!.kind == 'instances'}>
                             <InstancesScreen
-                                raw_filter={screen().raw_filter}
-                                filter={screen().filter}
+                                raw_filter={getCurrentRawFilters()!}
+                                filter={getCurrentScreen()!.filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
-                                timespan={(screen() as InstancesScreenData).timespan}
+                                timespan={(getCurrentScreen() as InstancesScreenData).timespan}
                                 setTimespan={setScreenTimespan}
 
-                                columns={(screen() as InstancesScreenData).columns}
-                                columnWidths={(screen() as InstancesScreenData).columnWidths}
+                                columns={getCurrentColumnData()!.columns}
+                                columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
-                                getInstances={f => getAndCacheInstances(screen() as InstancesScreenData, f)}
-                                getPositionedInstances={f => getAndCachePositionedInstances(screen() as InstancesScreenData, f)}
+                                getInstances={f => getAndCacheInstances(getCurrentScreen() as InstancesScreenData, f)}
+                                getPositionedInstances={f => getAndCachePositionedInstances(getCurrentScreen() as InstancesScreenData, f)}
 
-                                selected={(screen() as InstancesScreenData).selected}
+                                selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}
                             />
                         </Match>

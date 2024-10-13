@@ -5,7 +5,7 @@ import { LogicalPosition } from '@tauri-apps/api/dpi';
 import { Ancestor, Attribute, createAttributeIndex, Event, FilterPredicate, FullSpanId, getEventCount, getInstanceCount, getSpanCount, Input, Instance, Span } from '../invoke'
 import { Timespan } from '../models';
 import { NavigationContext } from '../context/navigation';
-import { ScreenData } from '../App';
+import { ColumnData, ScreenData } from '../App';
 import { ATTRIBUTE, COLLAPSABLE, COMBINED, INHERENT, TIMESPAN } from './table';
 import { TraceDataLayer } from '../utils/datalayer';
 
@@ -400,7 +400,7 @@ export function DetailedMetaId(props: { value: string, created_at: number, close
             items: [
                 {
                     text: "open trace in new tab", action: () => {
-                        navigation?.createTab(createDefaultTraceScreen(props.value), true)
+                        navigation?.createTab(...createDefaultTraceScreen(props.value), true)
                     }
                 },
             ]
@@ -463,7 +463,7 @@ export function DetailedMetaParents(props: { id?: FullSpanId, name?: string, anc
             items: [
                 {
                     text: "open trace in new tab", action: () => {
-                        navigation?.createTab(createDefaultTraceScreen(id), true)
+                        navigation?.createTab(...createDefaultTraceScreen(id), true)
                     }
                 },
             ]
@@ -659,7 +659,7 @@ function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string)
     </>);
 }
 
-function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
+function createDefaultTraceScreen(spanId: FullSpanId): [ScreenData, ColumnData] {
     let filter: Input[] = [{
         text: "#level: >=TRACE",
         input: 'valid',
@@ -681,16 +681,15 @@ function createDefaultTraceScreen(spanId: FullSpanId): ScreenData {
     let columns = [COLLAPSABLE, TIMESPAN, COMBINED(INHERENT('name'), ATTRIBUTE('message'))];
     let columnWidths = columns.map(def => def.defaultWidth);
 
-    return {
+    return [{
         kind: 'trace',
-        raw_filter: [...filter],
         filter,
         timespan: null,
-        selected: null,
         live: false,
         store: new TraceDataLayer(filter),
         collapsed: {},
-        columns,
+    }, {
+        columns: columns as any,
         columnWidths,
-    };
+    }];
 }
