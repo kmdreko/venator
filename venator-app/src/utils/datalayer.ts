@@ -415,11 +415,6 @@ export class SpanDataLayer {
     }
 
     getSpans = async (filter: PartialFilter, wait?: boolean): Promise<Span[] | null> => {
-        if (filter.order.slice(0) == 'desc') {
-            console.warn("lol no");
-            return [];
-        }
-
         if (within(this.#range, filter.start, filter.end)) {
             return this.#getSpansInCache(filter);
         } else if (overlaps(this.#range, filter.start, filter.end)) {
@@ -489,6 +484,69 @@ export class SpanDataLayer {
                 return this.#getSpansInCache(filter);
             }
 
+
+            if (filter.start < this.#range[0] && filter.order == 'desc') {
+                let startIndex = partitionPointSpansLower(this.#spans, filter.start);
+                let endIndex = partitionPointSpansUpper(this.#spans, filter.previous ?? filter.end);
+                if (endIndex - startIndex >= 50) {
+                    return this.#spans.slice(endIndex - 50, endIndex).reverse();
+                }
+
+                if (wait === false) {
+                    return null;
+                }
+
+                await this.#expandStart(filter.end - filter.start);
+
+                return this.#getSpansInCache(filter);
+            }
+
+            if (filter.end > this.#range[1] && filter.order == 'desc') {
+                if (this.#expandEndTask != null) {
+                    await this.#expandEndTask;
+
+                    if (filter.start >= this.#range[0]) {
+                        return this.#getSpansInCache(filter);
+                    }
+                }
+
+                // create query from end to range[1]
+                // - if it returns 50, reset the cache
+                // - if it returns less, append it to current cache
+
+                let newFilter = {
+                    filter: this.#filter,
+                    ...filter,
+                    start: this.#range[1] + 1,
+                };
+                let newSpans = await getSpans(newFilter);
+
+                if (newSpans.length == 50) {
+                    // reset the cache
+                    this.#spans = [...newSpans.reverse()];
+                    this.#range = getRetrievedSpanRange(filter, newSpans);
+                    this.#slots = [];
+                    this.#slotmap = {};
+                    this.#expandStartTask = null;
+                    this.#expandEndTask = null;
+
+                    this.#calculateSlots(newSpans);
+                    this.#expandStart(filter.end - filter.start);
+                    this.#expandEnd(filter.end - filter.start);
+
+                    return newSpans;
+                } else {
+                    let retrievedRange = getRetrievedSpanRange(filter, newSpans);
+                    let denseStartIndex = partitionPointSpansLower(newSpans, this.#range[1] + 1);
+
+                    this.#range = [this.#range[0], retrievedRange[1]];
+                    this.#spans = [...this.#spans, ...newSpans.slice(denseStartIndex)];
+                    this.#calculateSlots(newSpans);
+
+                    return this.#getSpansInCache(filter);
+                }
+            }
+
             console.warn("fallback");
             if (wait === false) {
                 return null;
@@ -542,55 +600,121 @@ export class SpanDataLayer {
         let startIndex = partitionPointSpansLower(this.#spans, filter.start);
         let endIndex = partitionPointSpansUpper(this.#spans, filter.end);
 
-        let preRangeSpansInFilter = [];
-        if (!filter.previous || filter.previous < filter.start) {
-            // beginning is sparse
-            let preRangeStart = (filter.previous)
-                ? partitionPointSpansUpper(this.#spans, filter.previous)
-                : 0;
+        if (filter.order == 'asc') {
+            if (!filter.previous || filter.previous < filter.start) {
+                // beginning is sparse
+                let preRangeStart = (filter.previous)
+                    ? partitionPointSpansUpper(this.#spans, filter.previous)
+                    : 0;
 
-            let preRangeEnd = startIndex;
+                let preRangeSpansInFilter = [];
+                let preRangeEnd = startIndex;
 
-            let preRangeSpans = this.#spans.slice(preRangeStart, preRangeEnd);
-            for (let span of preRangeSpans) {
-                if (span.closed_at == null || span.closed_at >= filter.start) {
-                    preRangeSpansInFilter.push(span);
-                    if (preRangeSpansInFilter.length == 50) {
-                        return preRangeSpansInFilter;
+                let preRangeSpans = this.#spans.slice(preRangeStart, preRangeEnd);
+                for (let span of preRangeSpans) {
+                    if (span.closed_at == null || span.closed_at >= filter.start) {
+                        preRangeSpansInFilter.push(span);
+                        if (preRangeSpansInFilter.length == 50) {
+                            return preRangeSpansInFilter;
+                        }
                     }
                 }
-            }
 
-            if ((endIndex - startIndex) + preRangeSpansInFilter.length > 50) {
-                endIndex = startIndex + 50 - preRangeSpansInFilter.length;
-            }
+                if ((endIndex - startIndex) + preRangeSpansInFilter.length > 50) {
+                    endIndex = startIndex + 50 - preRangeSpansInFilter.length;
+                }
 
-            if (this.#spans.length - endIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {
-                this.#expandEnd(filter.end - filter.start);
-            }
-            if (startIndex < 50 && Math.max(filter.start, filter.previous ?? 0) < this.#range[0] + (filter.end - filter.start)) {
-                this.#expandStart(filter.end - filter.start);
-            }
+                if (this.#spans.length - endIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {
+                    this.#expandEnd(filter.end - filter.start);
+                }
+                if (startIndex < 50 && Math.max(filter.start, filter.previous ?? 0) < this.#range[0] + (filter.end - filter.start)) {
+                    this.#expandStart(filter.end - filter.start);
+                }
 
-            return [...preRangeSpansInFilter, ...this.#spans.slice(startIndex, endIndex)];
-        } else {
-            // beginning is dense
-            if (filter.previous && filter.previous > filter.start) {
-                startIndex = partitionPointSpansUpper(this.#spans, filter.previous);
-            }
+                return [...preRangeSpansInFilter, ...this.#spans.slice(startIndex, endIndex)];
+            } else {
+                // beginning is dense
+                if (filter.previous && filter.previous > filter.start) {
+                    startIndex = partitionPointSpansUpper(this.#spans, filter.previous);
+                }
 
-            if ((endIndex - startIndex) > 50) {
-                endIndex = startIndex + 50;
-            }
+                if ((endIndex - startIndex) > 50) {
+                    endIndex = startIndex + 50;
+                }
 
-            if (this.#spans.length - endIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {
-                this.#expandEnd(filter.end - filter.start);
-            }
-            if (startIndex < 50 && Math.max(filter.start, filter.previous ?? 0) < this.#range[0] + (filter.end - filter.start)) {
-                this.#expandStart(filter.end - filter.start);
-            }
+                if (this.#spans.length - endIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {
+                    this.#expandEnd(filter.end - filter.start);
+                }
+                if (startIndex < 50 && Math.max(filter.start, filter.previous ?? 0) < this.#range[0] + (filter.end - filter.start)) {
+                    this.#expandStart(filter.end - filter.start);
+                }
 
-            return this.#spans.slice(startIndex, endIndex);
+                return this.#spans.slice(startIndex, endIndex);
+            }
+        } else /* filter.order == 'desc' */ {
+            if (!filter.previous || filter.previous > filter.start) {
+                // beginning (end?) is dense
+                let actualEndIndex = filter.previous
+                    ? partitionPointSpansUpper(this.#spans, filter.previous)
+                    : endIndex;
+
+                if (actualEndIndex - startIndex >= 50) {
+                    startIndex = actualEndIndex - 50;
+                    return this.#spans.slice(startIndex, actualEndIndex).reverse();
+                }
+
+                // the rest is sparse
+                let spans = this.#spans.slice(startIndex, actualEndIndex).reverse();
+                let span_rev_idx = 0;
+                for (let span of this.#spans.slice(0, startIndex).reverse()) {
+                    if (span.closed_at == null || span.closed_at >= filter.start) {
+                        spans.push(span);
+                        if (spans.length == 50) {
+                            startIndex = startIndex - span_rev_idx;
+
+                            if (this.#spans.length - actualEndIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {
+                                this.#expandEnd(filter.end - filter.start);
+                            }
+                            if (startIndex < 50 && Math.max(filter.start, filter.previous ?? 0) < this.#range[0] + (filter.end - filter.start)) {
+                                this.#expandStart(filter.end - filter.start);
+                            }
+
+                            return spans;
+                        }
+                    }
+
+                    span_rev_idx += 1;
+                }
+
+                return spans;
+            } else {
+                // sparse only
+                let actualEndIndex = partitionPointSpansUpper(this.#spans, filter.previous);
+
+                let spans = [];
+                let span_rev_idx = 0;
+                for (let span of this.#spans.slice(0, actualEndIndex).reverse()) {
+                    if (span.closed_at == null || span.closed_at >= filter.start) {
+                        spans.push(span);
+                        if (spans.length == 50) {
+                            startIndex = actualEndIndex - span_rev_idx;
+
+                            if (this.#spans.length - actualEndIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {
+                                this.#expandEnd(filter.end - filter.start);
+                            }
+                            if (startIndex < 50 && Math.max(filter.start, filter.previous ?? 0) < this.#range[0] + (filter.end - filter.start)) {
+                                this.#expandStart(filter.end - filter.start);
+                            }
+
+                            return spans;
+                        }
+                    }
+
+                    span_rev_idx += 1;
+                }
+
+                return spans;
+            }
         }
     }
 

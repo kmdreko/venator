@@ -516,7 +516,7 @@ export type TableProps<T> = {
 
 export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
     const [entries, setEntries] = createSignal([] as T[]);
-    const [status, setStatus] = createSignal('partial' as 'partial' | 'loading' | 'done');
+    const [status, setStatus] = createSignal('loading' as 'partial' | 'loading' | 'done');
     const [order, setOrder] = createSignal('asc' as 'asc' | 'desc');
 
     var table_wrapper: any;
