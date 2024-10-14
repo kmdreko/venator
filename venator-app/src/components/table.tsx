@@ -95,6 +95,24 @@ export const CREATED: ColumnDef<Span> = {
     },
 };
 
+export const CLOSED: ColumnDef<Span> = {
+    defaultWidth: "176px",
+    header: (props) => {
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+            <EditableHeaderText onchange={props.setProperty}>
+                #closed
+            </EditableHeaderText>
+            <button onclick={props.addColumn}>+</button>
+        </ResizeableHeader>);
+    },
+    headerText: "#closed",
+    data: (props) => {
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+            {props.entry.closed_at ? formatTimestamp(props.entry.closed_at) : '---'}
+        </div>;
+    },
+};
+
 export const CONNECTED: ColumnDef<Instance> = {
     defaultWidth: "176px",
     header: (props) => {
@@ -107,6 +125,24 @@ export const CONNECTED: ColumnDef<Instance> = {
     data: (props) => {
         return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             {formatTimestamp(props.entry.connected_at)}
+        </div>;
+    },
+};
+
+export const DISCONNECTED: ColumnDef<Instance> = {
+    defaultWidth: "176px",
+    header: (props) => {
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+            <EditableHeaderText onchange={props.setProperty}>
+                #closed
+            </EditableHeaderText>
+            <button onclick={props.addColumn}>+</button>
+        </ResizeableHeader>);
+    },
+    headerText: "#disconnected",
+    data: (props) => {
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+            {props.entry.disconnected_at ? formatTimestamp(props.entry.disconnected_at) : '---'}
         </div>;
     },
 };
@@ -146,6 +182,42 @@ export const INHERENT = (inherent: string): ColumnDef<Event | Span | Instance> =
         </div>;
     },
 });
+
+export const PARENT: ColumnDef<Event | Span> = {
+    defaultWidth: "minmax(100px, 1fr)",
+    header: (props) => {
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+            <EditableHeaderText onchange={props.setProperty}>
+                #parent
+            </EditableHeaderText>
+            <button onclick={props.addColumn}>+</button>
+        </ResizeableHeader>);
+    },
+    headerText: '#duration',
+    data: (props) => {
+        function renderedParent(e: Event | Span) {
+            let parent = e.ancestors[0];
+            if (parent == null) {
+                return '---';
+            } else {
+                return parent.name;
+            }
+        }
+
+        function parentTitle(e: Event | Span) {
+            let parent = e.ancestors[0];
+            if (parent == null) {
+                return 'none';
+            } else {
+                return parent.id;
+            }
+        }
+
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={parentTitle(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+            {renderedParent(props.entry)}
+        </div>;
+    },
+};
 
 export const DURATION: ColumnDef<Span | Instance> = {
     defaultWidth: "minmax(100px, 1fr)",
@@ -196,7 +268,7 @@ export const UNKNOWN = (property: string): ColumnDef<Event | Span | Instance> =>
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
-            <EditableHeaderText onchange={props.setProperty}>
+            <EditableHeaderText onchange={props.setProperty} title="unknown property">
                 {property}
             </EditableHeaderText>
             <button onclick={props.addColumn}>+</button>
@@ -282,8 +354,14 @@ export const COLLAPSABLE: ColumnDef<Event | Span> = {
 export const COMBINED = (spanDef: ColumnDef<Span>, eventDef: ColumnDef<Event>): ColumnDef<Span | Event> => ({
     defaultWidth: spanDef.defaultWidth,
     header: (props) => {
+        function desc() {
+            return `using '${spanDef.headerText}' for spans and '${eventDef.headerText}' for events`;
+        }
+
         return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
-            <div class="header-text">{spanDef.headerText} / {eventDef.headerText}</div>
+            <EditableHeaderText onchange={props.setProperty} title={desc()}>
+                {spanDef.headerText} / {eventDef.headerText}
+            </EditableHeaderText>
             <button onclick={props.addColumn}>+</button>
         </ResizeableHeader>);
     },
@@ -305,38 +383,77 @@ function formatTimestamp(timestamp: number): string {
         datetime.getMilliseconds().toString().padStart(3, '0');
 }
 
-let CACHE_START_LAST = 0;
-let CACHE_START_DELAY_MS = 250;
-
-export type TableProps<T> = {
-    timespan: Timespan,
-
-    columns: ColumnDef<T>[],
-    columnWidths: string[],
-    columnUpdate: (i: number, def: ColumnDef<T>) => void,
-    columnUpdateWidth: (i: number, width: string) => void,
-    columnInsert: (i: number, def: ColumnDef<T>) => void,
-    columnRemove: (i: number) => void,
-    columnDefault: ColumnDef<T>,
-    columnMin: number,
-
-    selectedRow: T | null,
-    setSelectedRow: (e: T | null) => void,
-    hoveredRow: T | null,
-    setHoveredRow: (e: T | null) => void,
-
-    getEntries: (filter: PartialFilter, wait?: boolean) => Promise<T[] | null>,
-};
-
-export function getColumnDef<T extends Event | Span | Instance>(property: string): ColumnDef<T> {
-    if (property == 'name' || property == '#name') {
-        return INHERENT('name');
+export function parseEventColumn(property: string): ColumnDef<Event> {
+    // if (property == 'instance' || property == '#instance') {
+    //     return INSTANCE;
+    // }
+    if (property == 'parent' || property == '#parent') {
+        return PARENT;
     }
     if (property == 'target' || property == '#target') {
         return INHERENT('target');
     }
     if (property == 'file' || property == '#file') {
         return INHERENT('file');
+    }
+
+    if (property.startsWith('#')) {
+        return UNKNOWN(property);
+    }
+
+    if (property.startsWith('@')) {
+        return ATTRIBUTE(property.slice(1));
+    }
+
+    return ATTRIBUTE(property);
+}
+
+export function parseSpanColumn(property: string): ColumnDef<Span> {
+    // if (property == 'instance' || property == '#instance') {
+    //     return INSTANCE;
+    // }
+    // if (property == 'created' || property == '#created') {
+    //     return CREATED;
+    // }
+    if (property == 'closed' || property == '#closed') {
+        return CLOSED;
+    }
+    if (property == 'duration' || property == '#duration') {
+        return DURATION;
+    }
+    if (property == 'name' || property == '#name') {
+        return INHERENT('name');
+    }
+    if (property == 'parent' || property == '#parent') {
+        return PARENT;
+    }
+    if (property == 'target' || property == '#target') {
+        return INHERENT('target');
+    }
+    if (property == 'file' || property == '#file') {
+        return INHERENT('file');
+    }
+
+    if (property.startsWith('#')) {
+        return UNKNOWN(property);
+    }
+
+    if (property.startsWith('@')) {
+        return ATTRIBUTE(property.slice(1));
+    }
+
+    return ATTRIBUTE(property);
+}
+
+export function parseInstanceColumn(property: string): ColumnDef<Instance> {
+    if (property == 'id' || property == '#id') {
+        return INHERENT('id');
+    }
+    // if (property == 'connected' || property == '#connected') {
+    //     return CONNECTED;
+    // }
+    if (property == 'disconnected' || property == '#disconnected') {
+        return DISCONNECTED;
     }
     if (property == 'duration' || property == '#duration') {
         return DURATION as any;
@@ -352,6 +469,50 @@ export function getColumnDef<T extends Event | Span | Instance>(property: string
 
     return ATTRIBUTE(property);
 }
+
+export function parseTraceColumn(property: string): ColumnDef<Event | Span> {
+    if (property.includes('/')) {
+        let idx = property.indexOf('/');
+        let span_property = property.slice(0, idx).trim();
+        let event_property = property.slice(idx + 1).trim();
+        return COMBINED(
+            parseSpanColumn(span_property),
+            parseEventColumn(event_property),
+        );
+    }
+
+    let span_def = parseSpanColumn(property);
+    let event_def = parseEventColumn(property);
+    if (span_def.headerText == event_def.headerText) {
+        return span_def as ColumnDef<Event | Span>;
+    } else {
+        return COMBINED(span_def, event_def);
+    }
+}
+
+let CACHE_START_LAST = 0;
+let CACHE_START_DELAY_MS = 250;
+
+export type TableProps<T> = {
+    timespan: Timespan,
+
+    columns: ColumnDef<T>[],
+    columnWidths: string[],
+    columnUpdate: (i: number, def: ColumnDef<T>) => void,
+    columnUpdateWidth: (i: number, width: string) => void,
+    columnInsert: (i: number, def: ColumnDef<T>) => void,
+    columnRemove: (i: number) => void,
+    columnDefault: ColumnDef<T>,
+    columnMin: number,
+    columnParser: (property: string) => ColumnDef<T>,
+
+    selectedRow: T | null,
+    setSelectedRow: (e: T | null) => void,
+    hoveredRow: T | null,
+    setHoveredRow: (e: T | null) => void,
+
+    getEntries: (filter: PartialFilter, wait?: boolean) => Promise<T[] | null>,
+};
 
 export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
     const [entries, setEntries] = createSignal([] as T[]);
@@ -489,7 +650,7 @@ export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
                 orderToggle={toggleOrder}
                 last={i() == props.columns.length - 1}
                 setWidth={(w: string) => props.columnUpdateWidth(i(), w)}
-                setProperty={(p: string) => props.columnUpdate(i(), getColumnDef(p))}
+                setProperty={(p: string) => props.columnUpdate(i(), props.columnParser(p))}
                 addColumn={() => props.columnInsert(i(), props.columnDefault)}
                 delColumn={() => removeColumn(i())}
             />)}
@@ -516,6 +677,7 @@ export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
 type EditableHeaderTextProps = {
     onchange: (value: string) => void,
     children: JSX.Element,
+    title?: string,
 }
 
 function EditableHeaderText(props: EditableHeaderTextProps) {
@@ -530,7 +692,7 @@ function EditableHeaderText(props: EditableHeaderTextProps) {
         }
     }
 
-    return (<div class="header-text">
+    return (<div class="header-text" title={props.title}>
         <div contenteditable onblur={onblur} onkeydown={onkeydown}>{props.children}</div>
     </div>);
 }

@@ -5,7 +5,7 @@ import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { Input, parseSpanFilter, Span } from '../invoke';
 import { PartialFilter, PositionedSpan, Timespan } from "../models";
-import { ColumnDef, getColumnDef, INHERENT, Table } from "../components/table";
+import { ColumnDef, INHERENT, parseSpanColumn, Table } from "../components/table";
 import { SpanGraph } from "../components/span-graph";
 
 import './spans-screen.css';
@@ -74,6 +74,7 @@ export function SpansScreen(props: SpansScreenProps) {
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getSpans}
+                columnParser={parseSpanColumn}
             />
 
             <Show when={props.selected}>
@@ -83,7 +84,7 @@ export function SpansScreen(props: SpansScreenProps) {
                     updateSelectedRow={props.setSelected}
                     filter={props.filter}
                     addToFilter={async f => props.addToFilter(await parseSpanFilter(f))}
-                    addColumn={c => props.columnInsert(-1, getColumnDef(c))}
+                    addColumn={c => props.columnInsert(-1, parseSpanColumn(c))}
                 />}
             </Show>
         </div>

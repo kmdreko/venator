@@ -5,7 +5,7 @@ import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { parseSpanFilter, Span, Event, Input } from '../invoke';
 import { PaginationFilter, Timespan } from "../models";
-import { ATTRIBUTE, ColumnDef, COMBINED, INHERENT, Table } from "../components/table";
+import { ATTRIBUTE, ColumnDef, COMBINED, INHERENT, parseTraceColumn, Table } from "../components/table";
 import { TraceGraph } from "../components/trace-graph";
 
 import './trace-screen.css';
@@ -93,6 +93,7 @@ export function TraceScreen(props: TraceScreenProps) {
                         hoveredRow={hoveredRow()}
                         setHoveredRow={setHoveredRow}
                         getEntries={getUncollapsedEntries}
+                        columnParser={parseTraceColumn}
                     />
                 </CollapsableContext.Provider>
             </Show>
@@ -103,7 +104,7 @@ export function TraceScreen(props: TraceScreenProps) {
                     updateSelectedRow={props.setSelected}
                     filter={props.filter}
                     addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
-                    addColumn={() => { }} // TODO: need way to ensure column name works for both
+                    addColumn={c => props.columnInsert(-1, parseTraceColumn(c))}
                 />
             </Show>
             <Show when={(props.selected as any)?.created_at}>
@@ -113,7 +114,7 @@ export function TraceScreen(props: TraceScreenProps) {
                     updateSelectedRow={props.setSelected}
                     filter={props.filter}
                     addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
-                    addColumn={() => { }} // TODO: need way to ensure column name works for both
+                    addColumn={c => props.columnInsert(-1, parseTraceColumn(c))}
                 />
             </Show>
         </div>

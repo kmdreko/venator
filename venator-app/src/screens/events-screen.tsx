@@ -6,7 +6,7 @@ import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { Event, Input, parseEventFilter } from '../invoke';
 import { Counts, PartialEventCountFilter, PartialFilter, Timespan } from "../models";
-import { ATTRIBUTE, ColumnDef, getColumnDef, Table } from "../components/table";
+import { ATTRIBUTE, ColumnDef, parseEventColumn, Table } from "../components/table";
 
 import './events-screen.css';
 
@@ -78,6 +78,7 @@ export function EventsScreen(props: EventsScreenProps) {
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getEvents}
+                columnParser={parseEventColumn}
             />
 
             <Show when={props.selected}>
@@ -87,7 +88,7 @@ export function EventsScreen(props: EventsScreenProps) {
                     updateSelectedRow={props.setSelected}
                     filter={props.filter}
                     addToFilter={async f => props.addToFilter(await parseEventFilter(f))}
-                    addColumn={c => props.columnInsert(-1, getColumnDef(c))}
+                    addColumn={c => props.columnInsert(-1, parseEventColumn(c))}
                 />}
             </Show>
         </div>

@@ -43,6 +43,10 @@
     border-color: gray;
 }
 
+#table .header .header-text div[contenteditable]:focus {
+    outline: 0px solid transparent;
+}
+
 #table .header button {
     flex: 0;
     border: none;
