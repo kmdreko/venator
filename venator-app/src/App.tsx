@@ -1,7 +1,8 @@
 import { listen } from '@tauri-apps/api/event';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { ask, message, save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { EventsScreen } from "./screens/events-screen";
-import { AppStatus, deleteEntities, Event, getStats, getStatus, Input, Instance, Span, Timestamp } from "./invoke";
+import { AppStatus, deleteEntities, Event, getEvents, getInstances, getSpans, getStats, getStatus, Input, Instance, Span, Timestamp } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
@@ -184,6 +185,108 @@ function App() {
         setStatus(await getStatus());
 
         setInterval(async () => setStatus(await getStatus()), 500);
+
+        await listen('save-as-csv-clicked', async () => {
+            let current_screen_idx = selectedScreen()!;
+            let current_screen = screens()[current_screen_idx];
+
+            if (current_screen.kind == 'trace') {
+                await message('CSVs cannot be generated from the Trace view', { title: "Export Error", kind: 'error' });
+                return;
+            }
+
+            function encodeCsvValue(v: string) {
+                if (v.includes('"') || v.includes(',') || v.includes('\n')) {
+                    let escaped = v.replace('"', '\\"').replace('\n', '\\n');
+                    return `"${escaped}"`;
+                } else {
+                    return v;
+                }
+            }
+
+            let columns = columnDatas()[current_screen_idx].columns;
+            let timespan = current_screen.timespan!;
+            let csvData = columns.map(c => c.headerText).map(encodeCsvValue).join(',') + '\n';
+
+            if (current_screen.kind == 'events') {
+                let previous: number | undefined;
+
+                while (true) {
+                    let events = await getEvents({
+                        filter: current_screen.filter.filter(f => f.input == 'valid'),
+                        start: timespan[0],
+                        end: timespan[1],
+                        order: 'asc', // TODO: use screen ordering
+                        previous,
+                    });
+
+                    for (let e of events) {
+                        csvData += columns.map(c => c.dataText(e)).map(encodeCsvValue).join(',') + '\n';
+                    }
+
+                    if (events.length < 50) {
+                        break;
+                    }
+
+                    previous = events[events.length - 1].timestamp;
+                }
+            } else if (current_screen.kind == 'spans') {
+                let previous: number | undefined;
+
+                while (true) {
+                    let spans = await getSpans({
+                        filter: current_screen.filter.filter(f => f.input == 'valid'),
+                        start: timespan[0],
+                        end: timespan[1],
+                        order: 'asc', // TODO: use screen ordering
+                        previous,
+                    });
+
+                    for (let s of spans) {
+                        csvData += columns.map(c => c.dataText(s)).map(encodeCsvValue).join(',') + '\n';
+                    }
+
+                    if (spans.length < 50) {
+                        break;
+                    }
+
+                    previous = spans[spans.length - 1].created_at;
+                }
+            } else if (current_screen.kind == 'instances') {
+                let previous: number | undefined;
+
+                while (true) {
+                    let instances = await getInstances({
+                        filter: current_screen.filter.filter(f => f.input == 'valid'),
+                        start: timespan[0],
+                        end: timespan[1],
+                        order: 'asc', // TODO: use screen ordering
+                        previous,
+                    });
+
+                    for (let i of instances) {
+                        csvData += columns.map(c => c.dataText(i)).map(encodeCsvValue).join(',') + '\n';
+                    }
+
+                    if (instances.length < 50) {
+                        break;
+                    }
+
+                    previous = instances[instances.length - 1].connected_at;
+                }
+            }
+
+            let file = await save({
+                title: 'Export',
+                filters: [{ name: "CSV", extensions: ['csv'] }],
+            });
+
+            if (file == undefined) {
+                return;
+            }
+
+            await writeTextFile(file, csvData);
+        });
 
         await listen('delete-all-clicked', async () => {
             let metrics = await deleteEntities(null, null, true, true);

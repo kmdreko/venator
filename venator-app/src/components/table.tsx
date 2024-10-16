@@ -33,34 +33,36 @@ export type ColumnDef<T> = {
     header: ColumnHeaderComponent,
     headerText: string,
     data: ColumnDataComponent<T>,
+    dataText: (t: T) => string,
 };
+
+function levelText(entity: Event | Span) {
+    switch (entity.level) {
+        case 0:
+            return 'TRACE';
+        case 1:
+            return 'DEBUG';
+        case 2:
+            return 'INFO';
+        case 3:
+            return 'WARN';
+        case 4:
+            return 'ERROR';
+    }
+}
 
 export const LEVEL: ColumnDef<Event | Span> = {
     defaultWidth: "17px",
     header: (props) => {
         return <div class="header level" style={`z-index: ${props.n}`}></div>;
     },
-    headerText: "",
+    headerText: "#level",
     data: (props) => {
-        function levelText() {
-            switch (props.entry.level) {
-                case 0:
-                    return 'TRACE';
-                case 1:
-                    return 'DEBUG';
-                case 2:
-                    return 'INFO';
-                case 3:
-                    return 'WARN';
-                case 4:
-                    return 'ERROR';
-            }
-        }
-
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={levelText()} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={levelText(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             <div class={`level-${props.entry.level}`}></div>
         </div>;
     },
+    dataText: (entity) => levelText(entity),
 };
 
 export const TIMESTAMP: ColumnDef<Event> = {
@@ -77,6 +79,7 @@ export const TIMESTAMP: ColumnDef<Event> = {
             {formatTimestamp(props.entry.timestamp)}
         </div>;
     },
+    dataText: (event) => formatTimestamp(event.timestamp),
 };
 
 export const CREATED: ColumnDef<Span> = {
@@ -93,6 +96,7 @@ export const CREATED: ColumnDef<Span> = {
             {formatTimestamp(props.entry.created_at)}
         </div>;
     },
+    dataText: (span) => formatTimestamp(span.created_at),
 };
 
 export const CLOSED: ColumnDef<Span> = {
@@ -111,6 +115,7 @@ export const CLOSED: ColumnDef<Span> = {
             {props.entry.closed_at ? formatTimestamp(props.entry.closed_at) : '---'}
         </div>;
     },
+    dataText: (span) => span.closed_at ? formatTimestamp(span.closed_at) : '',
 };
 
 export const CONNECTED: ColumnDef<Instance> = {
@@ -127,6 +132,7 @@ export const CONNECTED: ColumnDef<Instance> = {
             {formatTimestamp(props.entry.connected_at)}
         </div>;
     },
+    dataText: (instance) => formatTimestamp(instance.connected_at),
 };
 
 export const DISCONNECTED: ColumnDef<Instance> = {
@@ -145,6 +151,7 @@ export const DISCONNECTED: ColumnDef<Instance> = {
             {props.entry.disconnected_at ? formatTimestamp(props.entry.disconnected_at) : '---'}
         </div>;
     },
+    dataText: (instance) => instance.disconnected_at ? formatTimestamp(instance.disconnected_at) : '',
 };
 
 export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Instance> => ({
@@ -163,6 +170,7 @@ export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Instance>
             {props.entry.attributes.find(a => a.name == attribute)?.value ?? '---'}
         </div>;
     },
+    dataText: (entity) => entity.attributes.find(a => a.name == attribute)?.value ?? '',
 });
 
 export const INHERENT = (inherent: string): ColumnDef<Event | Span | Instance> => ({
@@ -181,7 +189,17 @@ export const INHERENT = (inherent: string): ColumnDef<Event | Span | Instance> =
             {(props.entry as any)[inherent] ?? '---'}
         </div>;
     },
+    dataText: (entity) => (entity as any)[inherent] ?? '',
 });
+
+function renderedParent(e: Event | Span) {
+    let parent = e.ancestors[0];
+    if (parent == null) {
+        return null;
+    } else {
+        return parent.name;
+    }
+}
 
 export const PARENT: ColumnDef<Event | Span> = {
     defaultWidth: "minmax(100px, 1fr)",
@@ -195,15 +213,6 @@ export const PARENT: ColumnDef<Event | Span> = {
     },
     headerText: '#duration',
     data: (props) => {
-        function renderedParent(e: Event | Span) {
-            let parent = e.ancestors[0];
-            if (parent == null) {
-                return '---';
-            } else {
-                return parent.name;
-            }
-        }
-
         function parentTitle(e: Event | Span) {
             let parent = e.ancestors[0];
             if (parent == null) {
@@ -214,10 +223,38 @@ export const PARENT: ColumnDef<Event | Span> = {
         }
 
         return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={parentTitle(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
-            {renderedParent(props.entry)}
+            {renderedParent(props.entry) ?? 'none'}
         </div>;
     },
+    dataText: (entity) => renderedParent(entity) ?? '',
 };
+
+function renderedDuration(e: Span | Instance) {
+    let start: number = (e as any).created_at ?? (e as any).connected_at;
+    let end: number | null = (e as any).closed_at ?? (e as any).disconnected_at;
+    if (end == null) {
+        return null;
+    }
+
+    let duration = end - start;
+
+    const MILLISECOND = 1000;
+    const SECOND = 1000000;
+    const MINUTE = 60000000;
+    const HOUR = 3600000000;
+    const DAY = 86400000000;
+
+    if (duration / DAY >= 1.0)
+        return `${(duration / DAY).toPrecision(3)}d`;
+    else if (duration / HOUR >= 1.0)
+        return `${(duration / HOUR).toPrecision(3)}h`;
+    else if (duration / MINUTE >= 1.0)
+        return `${(duration / MINUTE).toPrecision(3)}min`;
+    else if (duration / SECOND >= 1.0)
+        return `${(duration / SECOND).toPrecision(3)}s`;
+    else
+        return `${(duration / MILLISECOND).toPrecision(3)}ms`;
+}
 
 export const DURATION: ColumnDef<Span | Instance> = {
     defaultWidth: "minmax(100px, 1fr)",
@@ -231,37 +268,11 @@ export const DURATION: ColumnDef<Span | Instance> = {
     },
     headerText: '#duration',
     data: (props) => {
-        function renderedDuration(e: Span | Instance) {
-            let start: number = (e as any).created_at ?? (e as any).connected_at;
-            let end: number | null = (e as any).closed_at ?? (e as any).disconnected_at;
-            if (end == null) {
-                return '---';
-            }
-
-            let duration = end - start;
-
-            const MILLISECOND = 1000;
-            const SECOND = 1000000;
-            const MINUTE = 60000000;
-            const HOUR = 3600000000;
-            const DAY = 86400000000;
-
-            if (duration / DAY >= 1.0)
-                return `${(duration / DAY).toPrecision(3)}d`;
-            else if (duration / HOUR >= 1.0)
-                return `${(duration / HOUR).toPrecision(3)}h`;
-            else if (duration / MINUTE >= 1.0)
-                return `${(duration / MINUTE).toPrecision(3)}min`;
-            else if (duration / SECOND >= 1.0)
-                return `${(duration / SECOND).toPrecision(3)}s`;
-            else
-                return `${(duration / MILLISECOND).toPrecision(3)}ms`;
-        }
-
         return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
-            {renderedDuration(props.entry)}
+            {renderedDuration(props.entry) ?? '---'}
         </div>;
     },
+    dataText: (entity) => renderedDuration(entity) ?? '',
 };
 
 export const UNKNOWN = (property: string): ColumnDef<Event | Span | Instance> => ({
@@ -280,6 +291,7 @@ export const UNKNOWN = (property: string): ColumnDef<Event | Span | Instance> =>
             ---
         </div>;
     },
+    dataText: () => '',
 });
 
 export const TIMESPAN: ColumnDef<Event | Span> = {
@@ -320,6 +332,7 @@ export const TIMESPAN: ColumnDef<Event | Span> = {
             <div class="time-bar" style={{ ...position(props.entry as Span) }}></div>
         </div>);
     },
+    dataText: () => '',
 };
 
 export const COLLAPSABLE: ColumnDef<Event | Span> = {
@@ -349,6 +362,7 @@ export const COLLAPSABLE: ColumnDef<Event | Span> = {
                 {collapsed() ? '⏶' : '⏷'}
             </div>);
     },
+    dataText: () => '',
 };
 
 export const COMBINED = (spanDef: ColumnDef<Span>, eventDef: ColumnDef<Event>): ColumnDef<Span | Event> => ({
@@ -373,6 +387,13 @@ export const COMBINED = (spanDef: ColumnDef<Span>, eventDef: ColumnDef<Event>): 
             return spanDef.data(props as ColumnDataProps<Span>);
         }
     },
+    dataText: (entity) => {
+        if ((entity as any).timestamp != undefined) {
+            return eventDef.dataText(entity as Event);
+        } else {
+            return spanDef.dataText(entity as Span);
+        }
+    }
 });
 
 function formatTimestamp(timestamp: number): string {

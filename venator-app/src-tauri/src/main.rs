@@ -412,6 +412,7 @@ fn main() {
     let ingress = bind.map(|bind| Ingress::start(bind.to_owned(), engine.clone()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
@@ -438,7 +439,13 @@ fn main() {
                             true,
                             None::<&str>,
                         )?,
-                        &MenuItem::new(handle, "Export view as CSV", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            handle,
+                            "save-as-csv",
+                            "Export view as CSV",
+                            true,
+                            None::<&str>,
+                        )?,
                         &MenuItem::new(handle, "Export view as ...", false, None::<&str>)?,
                         &PredefinedMenuItem::separator(handle)?,
                         &MenuItem::new(handle, "Exit", true, None::<&str>)?,
@@ -548,6 +555,9 @@ fn main() {
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.copy_dataset(Box::new(new_storage));
                     });
+                }
+                "save-as-csv" => {
+                    app.emit("save-as-csv-clicked", ()).unwrap();
                 }
                 "delete-all" => {
                     app.emit("delete-all-clicked", ()).unwrap();
