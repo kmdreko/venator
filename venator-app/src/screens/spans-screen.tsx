@@ -22,6 +22,7 @@ export type SpansScreenProps = {
     columnWidths: string[],
     columnUpdate: (i: number, def: ColumnDef<Span>) => void,
     columnUpdateWidth: (i: number, width: string) => void,
+    columnMove: (i: number, to: number) => void,
     columnInsert: (i: number, def: ColumnDef<Span>) => void,
     columnRemove: (i: number) => void,
 
@@ -65,6 +66,7 @@ export function SpansScreen(props: SpansScreenProps) {
                 columnWidths={props.columnWidths}
                 columnUpdate={props.columnUpdate}
                 columnUpdateWidth={props.columnUpdateWidth}
+                columnMove={props.columnMove}
                 columnInsert={props.columnInsert}
                 columnRemove={props.columnRemove}
                 columnDefault={INHERENT('name')}

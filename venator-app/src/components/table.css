@@ -134,3 +134,8 @@
     top: 10%;
     height: 80%;
 }
+
+#table .data:hover {
+    translate: -1px -1px;
+    border: 1px solid rgb(150, 150, 150);
+}

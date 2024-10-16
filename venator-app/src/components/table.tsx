@@ -1,19 +1,24 @@
 import { batch, createEffect, createSignal, For, JSX, Show, useContext } from "solid-js";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { PartialFilter, Timespan } from "../models";
 import { Event, Instance, Span, Timestamp } from "../invoke";
 
 import './table.css';
 import { CollapsableContext } from "../context/collapsable";
 import { Dynamic } from "solid-js/web";
+import { Menu } from "@tauri-apps/api/menu";
 
 export type ColumnHeaderComponent = (props: ColumnHeaderProps) => JSX.Element;
 export type ColumnHeaderProps = {
     last: boolean,
     order: 'asc' | 'desc',
     n: number,
+    total: number,
+    min: number,
     orderToggle: () => void,
     setWidth: (width: string) => void,
     setProperty: (property: string) => void,
+    moveColumn: (offset: number) => void,
     addColumn: () => void,
     delColumn: () => void,
 }
@@ -35,6 +40,22 @@ export type ColumnDef<T> = {
     data: ColumnDataComponent<T>,
     dataText: (t: T) => string,
 };
+
+function getNavigationOptions(idx: number, end: number, min: number, move: (to: number) => void) {
+    let minIdx = min - 1;
+    let maxIdx = end - 1;
+
+    if (idx < minIdx) {
+        return [];
+    }
+
+    return [
+        { text: "move left", enabled: idx != minIdx, action: () => move(idx - 1) },
+        { text: "move far left", enabled: idx != minIdx, action: () => move(minIdx) },
+        { text: "move right", enabled: idx != maxIdx, action: () => move(idx + 1) },
+        { text: "move far right", enabled: idx != maxIdx, action: () => move(maxIdx) },
+    ];
+}
 
 function levelText(entity: Event | Span) {
     switch (entity.level) {
@@ -102,7 +123,21 @@ export const CREATED: ColumnDef<Span> = {
 export const CLOSED: ColumnDef<Span> = {
     defaultWidth: "176px",
     header: (props) => {
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty}>
                 #closed
             </EditableHeaderText>
@@ -138,7 +173,21 @@ export const CONNECTED: ColumnDef<Instance> = {
 export const DISCONNECTED: ColumnDef<Instance> = {
     defaultWidth: "176px",
     header: (props) => {
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty}>
                 #closed
             </EditableHeaderText>
@@ -157,7 +206,21 @@ export const DISCONNECTED: ColumnDef<Instance> = {
 export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Instance> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty}>
                 @{attribute}
             </EditableHeaderText>
@@ -176,7 +239,21 @@ export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Instance>
 export const INHERENT = (inherent: string): ColumnDef<Event | Span | Instance> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty}>
                 #{inherent}
             </EditableHeaderText>
@@ -204,7 +281,21 @@ function renderedParent(e: Event | Span) {
 export const PARENT: ColumnDef<Event | Span> = {
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty}>
                 #parent
             </EditableHeaderText>
@@ -259,7 +350,21 @@ function renderedDuration(e: Span | Instance) {
 export const DURATION: ColumnDef<Span | Instance> = {
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty}>
                 #duration
             </EditableHeaderText>
@@ -278,7 +383,21 @@ export const DURATION: ColumnDef<Span | Instance> = {
 export const UNKNOWN = (property: string): ColumnDef<Event | Span | Instance> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty} title="unknown property">
                 {property}
             </EditableHeaderText>
@@ -372,7 +491,21 @@ export const COMBINED = (spanDef: ColumnDef<Span>, eventDef: ColumnDef<Event>): 
             return `using '${spanDef.headerText}' for spans and '${eventDef.headerText}' for events`;
         }
 
-        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "duplicate column", action: () => props.addColumn() },
+                    { item: 'Separator' },
+                    ...getNavigationOptions(props.total - props.n, props.total, props.min, props.moveColumn),
+                    { item: 'Separator' },
+                    { text: "remove column", action: () => props.delColumn() },
+                    { text: "remove all other columns", enabled: false, action: () => { } },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty} title={desc()}>
                 {spanDef.headerText} / {eventDef.headerText}
             </EditableHeaderText>
@@ -521,6 +654,7 @@ export type TableProps<T> = {
     columnWidths: string[],
     columnUpdate: (i: number, def: ColumnDef<T>) => void,
     columnUpdateWidth: (i: number, width: string) => void,
+    columnMove: (i: number, to: number) => void,
     columnInsert: (i: number, def: ColumnDef<T>) => void,
     columnRemove: (i: number) => void,
     columnDefault: ColumnDef<T>,
@@ -667,11 +801,14 @@ export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
         <For each={props.columns}>
             {(column, i) => (<Dynamic component={column.header}
                 n={props.columns.length - i()}
+                total={props.columns.length}
+                min={props.columnMin}
                 order={order()}
                 orderToggle={toggleOrder}
                 last={i() == props.columns.length - 1}
                 setWidth={(w: string) => props.columnUpdateWidth(i(), w)}
                 setProperty={(p: string) => props.columnUpdate(i(), props.columnParser(p))}
+                moveColumn={(to: number) => props.columnMove(i(), to)}
                 addColumn={() => props.columnInsert(i(), props.columnDefault)}
                 delColumn={() => removeColumn(i())}
             />)}
@@ -723,6 +860,7 @@ type ResizeableHeaderProps = {
     enabled: boolean,
     onchange: (value: string) => void,
     onremove: () => void,
+    oncontextmenu?: (e: MouseEvent) => void,
     children: JSX.Element,
 }
 
@@ -772,7 +910,7 @@ function ResizeableHeader(props: ResizeableHeaderProps) {
         }
     }
 
-    return (<div class="header" style={`z-index: ${props.n}`} ref={header_ref} onauxclick={onclick} onmousedown={onmousedown}>
+    return (<div class="header" style={`z-index: ${props.n}`} ref={header_ref} onauxclick={onclick} onmousedown={onmousedown} oncontextmenu={props.oncontextmenu}>
         {props.children}
         <Show when={props.enabled}>
             <div class="grabber" classList={{ grabbed: dragging() }} onmousedown={ongrab} onmousemove={onmove} onmouseup={onrelease} onmouseleave={onrelease}></div>

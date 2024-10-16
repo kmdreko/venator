@@ -787,6 +787,26 @@ function App() {
         setColumnDatas(updated_column_datas);
     }
 
+    function moveColumn(fromIdx: number, toIdx: number) {
+        let current_selected_screen = selectedScreen()!;
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
+
+        let current_columns = current_column_datas[current_selected_screen].columns;
+        let updated_columns = [...current_columns];
+        let [column_data] = updated_columns.splice(fromIdx, 1);
+        updated_columns.splice(toIdx, 0, column_data);
+
+        // TODO: do something different with widths?
+
+        updated_column_datas[current_selected_screen] = {
+            ...current_column_datas[current_selected_screen],
+            columns: updated_columns,
+        }
+
+        setColumnDatas(updated_column_datas);
+    }
+
     function setColumnDef<T>(i: number, def: ColumnDef<T>) {
         let current_selected_screen = selectedScreen()!;
         let current_column_datas = columnDatas();
@@ -878,6 +898,7 @@ function App() {
                                 columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
+                                columnMove={moveColumn}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
@@ -912,6 +933,7 @@ function App() {
                                 columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
+                                columnMove={moveColumn}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
@@ -935,6 +957,7 @@ function App() {
                                 columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
+                                columnMove={moveColumn}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
@@ -960,6 +983,7 @@ function App() {
                                 columnWidths={getCurrentColumnData()!.columnWidths}
                                 columnUpdate={setColumnDef}
                                 columnUpdateWidth={setColumnWidth}
+                                columnMove={moveColumn}
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
