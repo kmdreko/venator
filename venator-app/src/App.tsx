@@ -69,6 +69,12 @@ export async function defaultEventsScreen(): Promise<[EventsScreenData, ColumnDa
     } else {
         start = stats.start!;
         end = stats.end!;
+
+        let duration = end - start;
+        start -= duration * 0.05;
+        end += duration * 0.05;
+
+        [start, end] = normalizeTimespan([start, end]);
     }
 
     let filter: Input[] = [{
@@ -107,6 +113,12 @@ export async function defaultSpansScreen(): Promise<[SpansScreenData, ColumnData
     } else {
         start = stats.start!;
         end = stats.end!;
+
+        let duration = end - start;
+        start -= duration * 0.05;
+        end += duration * 0.05;
+
+        [start, end] = normalizeTimespan([start, end]);
     }
 
     let filter: Input[] = [{
@@ -152,6 +164,12 @@ export async function defaultInstancesScreen(): Promise<[InstancesScreenData, Co
     } else {
         start = stats.start!;
         end = stats.end!;
+
+        let duration = end - start;
+        start -= duration * 0.05;
+        end += duration * 0.05;
+
+        [start, end] = normalizeTimespan([start, end]);
     }
 
     let columns = [CONNECTED, INHERENT('id')];
@@ -166,6 +184,53 @@ export async function defaultInstancesScreen(): Promise<[InstancesScreenData, Co
         columns: columns as any,
         columnWidths,
     }];
+}
+
+function normalizeTimespan(new_timespan: Timespan): Timespan {
+    let [new_start, new_end] = new_timespan;
+
+    if (new_end <= new_start) {
+        console.warn("attempted to set non-linear timespan");
+    }
+
+    const DAY = 86400000000;
+    const MILLISECOND = 1000;
+
+    let duration = new_end - new_start;
+    if (duration > 60 * DAY) {
+        duration = 60 * DAY;
+        let middle = new_start / 2 + new_end / 2;
+
+        new_start = middle - duration / 2;
+        new_end = middle + duration / 2;
+    }
+    if (duration < 1 * MILLISECOND) {
+        duration = 1 * MILLISECOND;
+        let middle = new_start / 2 + new_end / 2;
+
+        new_start = middle - duration / 2;
+        new_end = middle + duration / 2;
+    }
+
+    new_start = Math.round(new_start);
+    new_end = Math.round(new_end);
+
+    const TIME_MIN = 1;
+    const TIME_MAX = Date.now() * 1000;
+
+    if (new_start < TIME_MIN) {
+        let shift = TIME_MIN - new_start;
+        new_start += shift;
+        new_end += shift;
+    }
+
+    if (new_end > TIME_MAX) {
+        let shift = new_end - TIME_MAX;
+        new_start -= shift;
+        new_end -= shift;
+    }
+
+    return [new_start, new_end];
 }
 
 function App() {
@@ -339,53 +404,6 @@ function App() {
             }
         });
     })
-
-    function normalizeTimespan(new_timespan: Timespan): Timespan {
-        let [new_start, new_end] = new_timespan;
-
-        if (new_end <= new_start) {
-            console.warn("attempted to set non-linear timespan");
-        }
-
-        const DAY = 86400000000;
-        const MILLISECOND = 1000;
-
-        let duration = new_end - new_start;
-        if (duration > 60 * DAY) {
-            duration = 60 * DAY;
-            let middle = new_start / 2 + new_end / 2;
-
-            new_start = middle - duration / 2;
-            new_end = middle + duration / 2;
-        }
-        if (duration < 1 * MILLISECOND) {
-            duration = 1 * MILLISECOND;
-            let middle = new_start / 2 + new_end / 2;
-
-            new_start = middle - duration / 2;
-            new_end = middle + duration / 2;
-        }
-
-        new_start = Math.round(new_start);
-        new_end = Math.round(new_end);
-
-        const TIME_MIN = 1;
-        const TIME_MAX = Date.now() * 1000;
-
-        if (new_start < TIME_MIN) {
-            let shift = TIME_MIN - new_start;
-            new_start += shift;
-            new_end += shift;
-        }
-
-        if (new_end > TIME_MAX) {
-            let shift = new_end - TIME_MAX;
-            new_start -= shift;
-            new_end -= shift;
-        }
-
-        return [new_start, new_end];
-    }
 
     async function getAndCacheEvents(screen: EventsScreenData, filter: PartialFilter): Promise<Event[]> {
         return await screen.store.getEvents(filter);
