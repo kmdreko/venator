@@ -76,6 +76,7 @@ export function InstancesScreen(props: InstancesScreenProps) {
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getInstances}
+                addToFilter={async f => props.addToFilter(await parseInstanceFilter(f))}
                 columnParser={parseInstanceColumn}
             />
 

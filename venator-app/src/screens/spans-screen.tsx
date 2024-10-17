@@ -76,6 +76,7 @@ export function SpansScreen(props: SpansScreenProps) {
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getSpans}
+                addToFilter={async f => props.addToFilter(await parseSpanFilter(f))}
                 columnParser={parseSpanColumn}
             />
 

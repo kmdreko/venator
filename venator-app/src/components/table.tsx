@@ -7,6 +7,7 @@ import './table.css';
 import { CollapsableContext } from "../context/collapsable";
 import { Dynamic } from "solid-js/web";
 import { Menu } from "@tauri-apps/api/menu";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 export type ColumnHeaderComponent = (props: ColumnHeaderProps) => JSX.Element;
 export type ColumnHeaderProps = {
@@ -31,6 +32,7 @@ export type ColumnDataProps<T> = {
     timespan: Timespan,
     onClick: (e: MouseEvent) => void,
     onHover: (e: MouseEvent, enter: boolean) => void,
+    addToFilter: (filter: string) => void,
 }
 
 export type ColumnDef<T> = {
@@ -229,8 +231,51 @@ export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Instance>
     },
     headerText: `@${attribute}`,
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
-            {props.entry.attributes.find(a => a.name == attribute)?.value ?? '---'}
+        let value = props.entry.attributes.find(a => a.name == attribute)?.value;
+
+        async function showContextMenu(e: MouseEvent) {
+            let shortName = attribute.length > 16 ? attribute.slice(0, 14) + ".." : attribute;
+            let shortValue = value ? value.length > 16 ? value.slice(0, 14) + ".." : value : '';
+
+            function escape(s: string): string {
+                return s.replace(/"/g, '\\"');
+            }
+
+            function include() {
+                let predicate = `@${attribute}:"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            function includeAll() {
+                let predicate = `@${attribute}:*`;
+                props.addToFilter(predicate);
+            }
+
+            function exclude() {
+                let predicate = `@${attribute}:!"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            function excludeAll() {
+                let predicate = `@${attribute}:!*`;
+                props.addToFilter(predicate);
+            }
+
+            let menu = await Menu.new({
+                items: [
+                    { text: "copy value", action: () => writeText(value ?? '') },
+                    { item: 'Separator' },
+                    { text: `include @${shortName}:${shortValue} in filter`, enabled: value != null, action: include },
+                    { text: `include all @${shortName} in filter`, action: includeAll },
+                    { text: `exclude @${shortName}:${shortValue} from filter`, enabled: value != null, action: exclude },
+                    { text: `exclude all @${shortName} from filter`, action: excludeAll },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
+            {value ?? '---'}
         </div>;
     },
     dataText: (entity) => entity.attributes.find(a => a.name == attribute)?.value ?? '',
@@ -262,7 +307,37 @@ export const INHERENT = (inherent: string): ColumnDef<Event | Span | Instance> =
     },
     headerText: `#${inherent}`,
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        let value = (props.entry as any)[inherent] as string | undefined;
+
+        async function showContextMenu(e: MouseEvent) {
+            let shortValue = value ? value.length > 16 ? value.slice(0, 14) + ".." : value : '';
+
+            function escape(s: string): string {
+                return s.replace(/"/g, '\\"');
+            }
+
+            function include() {
+                let predicate = `#${inherent}:"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            function exclude() {
+                let predicate = `#${inherent}:!"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            let menu = await Menu.new({
+                items: [
+                    { text: "copy value", action: () => writeText(value ?? '') },
+                    { item: 'Separator' },
+                    { text: `include #${inherent}:${shortValue} in filter`, enabled: value != null && inherent != 'id', action: include },
+                    { text: `exclude #${inherent}:${shortValue} from filter`, enabled: value != null && inherent != 'id', action: exclude },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {(props.entry as any)[inherent] ?? '---'}
         </div>;
     },
@@ -302,8 +377,10 @@ export const PARENT: ColumnDef<Event | Span> = {
             <button onclick={props.addColumn}>+</button>
         </ResizeableHeader>);
     },
-    headerText: '#duration',
+    headerText: '#parent',
     data: (props) => {
+        let value = renderedParent(props.entry);
+
         function parentTitle(e: Event | Span) {
             let parent = e.ancestors[0];
             if (parent == null) {
@@ -313,7 +390,35 @@ export const PARENT: ColumnDef<Event | Span> = {
             }
         }
 
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={parentTitle(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        async function showContextMenu(e: MouseEvent) {
+            let shortValue = value ? value.length > 16 ? value.slice(0, 14) + ".." : value : '';
+
+            function escape(s: string): string {
+                return s.replace(/"/g, '\\"');
+            }
+
+            function include() {
+                let predicate = `#parent:"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            function exclude() {
+                let predicate = `#parent:!"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            let menu = await Menu.new({
+                items: [
+                    { text: "copy value", action: () => writeText(value ?? '') },
+                    { item: 'Separator' },
+                    { text: `include #parent:${shortValue} in filter`, enabled: value != null, action: include },
+                    { text: `exclude #parent:${shortValue} from filter`, enabled: value != null, action: exclude },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={parentTitle(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {renderedParent(props.entry) ?? 'none'}
         </div>;
     },
@@ -373,7 +478,16 @@ export const DURATION: ColumnDef<Span | Instance> = {
     },
     headerText: '#duration',
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        async function showContextMenu(e: MouseEvent) {
+            let menu = await Menu.new({
+                items: [
+                    { text: "copy value", action: () => writeText(renderedDuration(props.entry) ?? '') },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {renderedDuration(props.entry) ?? '---'}
         </div>;
     },
@@ -667,6 +781,7 @@ export type TableProps<T> = {
     setHoveredRow: (e: T | null) => void,
 
     getEntries: (filter: PartialFilter, wait?: boolean) => Promise<T[] | null>,
+    addToFilter: (filter: string) => void,
 };
 
 export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
@@ -824,6 +939,7 @@ export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
                         timespan={props.timespan}
                         onClick={(e: MouseEvent) => onClickRow(e, row)}
                         onHover={(e: MouseEvent, enter: boolean) => onHoverRow(e, row, enter)}
+                        addToFilter={props.addToFilter}
                     />)}
                 </For>);
             }}

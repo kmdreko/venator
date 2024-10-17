@@ -80,6 +80,7 @@ export function EventsScreen(props: EventsScreenProps) {
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
                 getEntries={props.getEvents}
+                addToFilter={async f => props.addToFilter(await parseEventFilter(f))}
                 columnParser={parseEventColumn}
             />
 

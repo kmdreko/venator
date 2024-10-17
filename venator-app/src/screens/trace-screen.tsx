@@ -95,6 +95,7 @@ export function TraceScreen(props: TraceScreenProps) {
                         hoveredRow={hoveredRow()}
                         setHoveredRow={setHoveredRow}
                         getEntries={getUncollapsedEntries}
+                        addToFilter={() => { }} // TODO: need way to ensure filter satisfies both events and spans
                         columnParser={parseTraceColumn}
                     />
                 </CollapsableContext.Provider>
