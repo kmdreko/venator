@@ -290,7 +290,11 @@ export function EventCountGraph(props: EventCountGraphProps) {
         setZoomRange([time, time]);
     }
 
-    function mouseup(this: HTMLElement, _e: MouseEvent) {
+    function mouseup(this: HTMLElement, e: MouseEvent) {
+        if (e.button != 0) {
+            return;
+        }
+
         let [new_start, new_end] = zoomRange()!;
         if (new_start == new_end) {
             setZoomRange(null);
