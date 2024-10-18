@@ -78,21 +78,26 @@
 }
 
 .event-count-graph-bar-level-0 {
+    min-height: 1px;
     background-color: #1E1E1E;
 }
 
 .event-count-graph-bar-level-1 {
+    min-height: 1px;
     background-color: #1E1E1E;
 }
 
 .event-count-graph-bar-level-2 {
+    min-height: 1px;
     background-color: #1E1E1E;
 }
 
 .event-count-graph-bar-level-3 {
+    min-height: 1px;
     background-color: #FB8C00;
 }
 
 .event-count-graph-bar-level-4 {
+    min-height: 1px;
     background-color: #E65100;
 }

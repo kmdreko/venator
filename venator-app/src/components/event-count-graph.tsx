@@ -336,11 +336,11 @@ export function EventCountGraph(props: EventCountGraphProps) {
                         return <span class="event-count-graph-bar"></span>;
                     } else {
                         return <span class="event-count-graph-bar">
-                            <div class="event-count-graph-bar-level-0" style={{ height: `${bar[0] / barHeightMax() * 100}%` }}></div>
-                            <div class="event-count-graph-bar-level-1" style={{ height: `${bar[1] / barHeightMax() * 100}%` }}></div>
-                            <div class="event-count-graph-bar-level-2" style={{ height: `${bar[2] / barHeightMax() * 100}%` }}></div>
-                            <div class="event-count-graph-bar-level-3" style={{ height: `${bar[3] / barHeightMax() * 100}%` }}></div>
-                            <div class="event-count-graph-bar-level-4" style={{ height: `${bar[4] / barHeightMax() * 100}%` }}></div>
+                            <Show when={bar[0] != 0}><div class="event-count-graph-bar-level-0" style={{ height: `${bar[0] / barHeightMax() * 100}%` }}></div></Show>
+                            <Show when={bar[1] != 0}><div class="event-count-graph-bar-level-1" style={{ height: `${bar[1] / barHeightMax() * 100}%` }}></div></Show>
+                            <Show when={bar[2] != 0}><div class="event-count-graph-bar-level-2" style={{ height: `${bar[2] / barHeightMax() * 100}%` }}></div></Show>
+                            <Show when={bar[3] != 0}><div class="event-count-graph-bar-level-3" style={{ height: `${bar[3] / barHeightMax() * 100}%` }}></div></Show>
+                            <Show when={bar[4] != 0}><div class="event-count-graph-bar-level-4" style={{ height: `${bar[4] / barHeightMax() * 100}%` }}></div></Show>
                         </span>;
                     }
                 }}
