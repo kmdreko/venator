@@ -59,6 +59,7 @@
 
     background-color: gray;
     opacity: 50%;
+    pointer-events: none;
 }
 
 .event-count-graph-selection {

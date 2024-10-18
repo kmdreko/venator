@@ -335,7 +335,7 @@ export function EventCountGraph(props: EventCountGraphProps) {
                     if (bar == null) {
                         return <span class="event-count-graph-bar"></span>;
                     } else {
-                        return <span class="event-count-graph-bar">
+                        return <span class="event-count-graph-bar" title={`${bar[0] + bar[1] + bar[2] + bar[3] + bar[4]} total`}>
                             <Show when={bar[0] != 0}><div class="event-count-graph-bar-level-0" style={{ height: `${bar[0] / barHeightMax() * 100}%` }}></div></Show>
                             <Show when={bar[1] != 0}><div class="event-count-graph-bar-level-1" style={{ height: `${bar[1] / barHeightMax() * 100}%` }}></div></Show>
                             <Show when={bar[2] != 0}><div class="event-count-graph-bar-level-2" style={{ height: `${bar[2] / barHeightMax() * 100}%` }}></div></Show>
