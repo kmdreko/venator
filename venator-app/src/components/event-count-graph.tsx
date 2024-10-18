@@ -28,22 +28,26 @@ export function EventCountGraph(props: EventCountGraphProps) {
     }
 
     function cursorStyle(cursor: number): { left: string } {
-        let [start, end] = props.timespan;
-        let duration = end - start;
+        let current_bars = bars();
+        let first_bar_start = current_bars[0][0][0];
+        let last_bar_end = current_bars[current_bars.length - 1][0][1];
+        let bar_duration = last_bar_end - first_bar_start;
 
-        let left = (cursor - start) / duration;
+        let left = (cursor - first_bar_start) / bar_duration;
 
         return { left: `calc(${left * 100}% - 1px)` }
     }
 
     function selectionStyle([zstart, zend]: [number, number]): { left: string, right: string } {
-        let [start, end] = props.timespan;
-        let duration = end - start;
-
         let [zrstart, zrend] = (zend > zstart) ? [zstart, zend] : [zend, zstart];
 
-        let left = (zrstart - start) / duration;
-        let right = (end - zrend) / duration;
+        let current_bars = bars();
+        let first_bar_start = current_bars[0][0][0];
+        let last_bar_end = current_bars[current_bars.length - 1][0][1];
+        let bar_duration = last_bar_end - first_bar_start;
+
+        let left = (zrstart - first_bar_start) / bar_duration;
+        let right = (last_bar_end - zrend) / bar_duration;
 
         return {
             left: `${left * 100}%`,
@@ -254,10 +258,14 @@ export function EventCountGraph(props: EventCountGraphProps) {
 
             e.preventDefault();
 
-            let [start, end] = props.timespan;
-            let duration = end - start;
             let proportion = (e.pageX - self.offsetLeft) / self.offsetWidth;
-            let time = proportion * duration + start;
+
+            let current_bars = bars();
+            let first_bar_start = current_bars[0][0][0];
+            let last_bar_end = current_bars[current_bars.length - 1][0][1];
+            let bar_duration = last_bar_end - first_bar_start;
+
+            let time = proportion * bar_duration + first_bar_start;
 
             setMouseTime(time);
 
@@ -282,11 +290,14 @@ export function EventCountGraph(props: EventCountGraphProps) {
             return;
         }
 
-        let [start, end] = props.timespan;
-        let duration = end - start;
         let proportion = (e.pageX - this.offsetLeft) / this.offsetWidth;
 
-        let time = proportion * duration + start;
+        let current_bars = bars();
+        let first_bar_start = current_bars[0][0][0];
+        let last_bar_end = current_bars[current_bars.length - 1][0][1];
+        let bar_duration = last_bar_end - first_bar_start;
+
+        let time = proportion * bar_duration + first_bar_start;
         setZoomRange([time, time]);
     }
 
