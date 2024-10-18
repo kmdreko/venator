@@ -2,6 +2,8 @@ import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEven
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "../models";
 import { Channel } from "@tauri-apps/api/core";
 
+type IsVolatile = boolean;
+
 export class EventDataLayer {
     // the filter to use fetching events
     //
@@ -15,7 +17,7 @@ export class EventDataLayer {
     #events: Event[];
 
     // the cached event counts by "{start}-{end}" and level
-    #counts: { [range: string]: Counts };
+    #counts: { [range: string]: [Counts, IsVolatile] };
 
     #expandStartTask: Promise<void> | null;
     #expandEndTask: Promise<void> | null;
@@ -275,12 +277,15 @@ export class EventDataLayer {
     getEventCounts = async (filter: PartialEventCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> => {
         let key = `${filter.start}-${filter.end}`;
 
-        if (this.#counts[key] != undefined) {
-            return this.#counts[key];
+        // the latest second should not be considered reliable
+        let inVolatileRange = filter.end >= Date.now() * 1000 - 1000000;
+
+        if (this.#counts[key] != undefined && !this.#counts[key][1]) {
+            return this.#counts[key][0];
         }
 
         if (wait === false) {
-            return null;
+            return this.#counts[key] != undefined ? this.#counts[key][0] : null;
         }
 
         let counts = await Promise.all([
@@ -291,9 +296,9 @@ export class EventDataLayer {
             getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "ERROR"] }], ...filter }),
         ]);
 
-        // cache if enabled and not within a second of current time
-        if ((cache == undefined || cache == true) && filter.end < Date.now() * 1000 - 1000000) {
-            this.#counts[key] = counts;
+        // cache if enabled
+        if (cache == undefined || cache == true) {
+            this.#counts[key] = [counts, inVolatileRange];
         }
 
         return counts;

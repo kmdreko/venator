@@ -45,7 +45,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
 
     let countText = () => {
         let [count, exact] = props.count;
-        return `${count}${exact ? '' : '+'}`;
+        return `${count}${exact && !props.live ? '' : '+'}`;
     };
 
     let countTextClasses = () => {
