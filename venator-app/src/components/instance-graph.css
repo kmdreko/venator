@@ -11,6 +11,16 @@
     color: #505050;
 }
 
+.instance-graph-stats .stat-name {
+    margin-right: 4px;
+}
+
+.instance-graph-stats .stat-value {
+    font-weight: 500;
+    color: black;
+    margin-right: 8px;
+}
+
 .instance-graph {
     flex: 1;
 

@@ -11,6 +11,16 @@
     color: #505050;
 }
 
+.event-count-graph-stats .stat-name {
+    margin-right: 4px;
+}
+
+.event-count-graph-stats .stat-value {
+    font-weight: 500;
+    color: black;
+    margin-right: 8px;
+}
+
 .event-count-graph {
     flex: 1;
 

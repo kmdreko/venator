@@ -11,6 +11,16 @@
     color: #505050;
 }
 
+.trace-graph-stats .stat-name {
+    margin-right: 4px;
+}
+
+.trace-graph-stats .stat-value {
+    font-weight: 500;
+    color: black;
+    margin-right: 8px;
+}
+
 .trace-graph {
     flex: 1;
 

@@ -11,6 +11,16 @@
     color: #505050;
 }
 
+.span-graph-stats .stat-name {
+    margin-right: 4px;
+}
+
+.span-graph-stats .stat-value {
+    font-weight: 500;
+    color: black;
+    margin-right: 8px;
+}
+
 .span-graph {
     flex: 1;
 

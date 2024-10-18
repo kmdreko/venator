@@ -319,9 +319,14 @@ export function EventCountGraph(props: EventCountGraphProps) {
     }
 
     return <div class="event-count-graph-container" onwheel={wheel} onmousemove={mousedrag}>
-        <div class="event-count-graph-stats">{barHeightMax()} max - {barSize()} / bar
+        <div class="event-count-graph-stats">
+            <span class="stat-name">height:</span>
+            <span class="stat-value">{barHeightMax()}</span>
+            <span class="stat-name">bar:</span>
+            <span class="stat-value">{barSize()}</span>
             <Show when={mouseTime() != null}>
-                {' '}- {formatTimestamp(mouseTime()!)}
+                <span class="stat-name">cursor:</span>
+                <span class="stat-value">{formatTimestamp(mouseTime()!)}</span>
             </Show>
         </div>
         <div class="event-count-graph" style={offsets()} onmouseenter={mousemove} onmousemove={mousemove} onmouseleave={mouseout} onmousedown={mousedown} onmouseup={mouseup}>

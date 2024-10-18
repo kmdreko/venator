@@ -256,9 +256,12 @@ export function SpanGraph(props: SpanGraphProps) {
     }
 
     return <div class="span-graph-container" onwheel={wheel} onmousemove={mousedrag}>
-        <div class="span-graph-stats">{barHeightMax()} max
+        <div class="span-graph-stats">
+            <span class="stat-name">height:</span>
+            <span class="stat-value">{barHeightMax()}</span>
             <Show when={mouseTime() != null}>
-                {' '}- {formatTimestamp(mouseTime()![0])}
+                <span class="stat-name">cursor:</span>
+                <span class="stat-value">{formatTimestamp(mouseTime()![0])}</span>
             </Show>
         </div>
         <div class="span-graph" onmouseenter={mousemove} onmousemove={mousemove} onmouseleave={mouseout} onmousedown={mousedown} onmouseup={mouseup}>
