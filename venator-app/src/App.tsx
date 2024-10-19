@@ -245,7 +245,6 @@ function App() {
 
     let undoHistories: UndoHistory[] = [];
     let root_element = document.querySelector('#root')!;
-    root_element.setAttribute('data-theme', 'light');
 
     onMount(async () => {
         createTab(...await defaultEventsScreen(), true);
@@ -364,6 +363,14 @@ function App() {
 
         await listen('redo-clicked', () => {
             performRedo();
+        });
+
+        await listen('set-theme-light-clicked', () => {
+            root_element.setAttribute('data-theme', 'light');
+        });
+
+        await listen('set-theme-dark-clicked', () => {
+            root_element.setAttribute('data-theme', 'dark');
         });
 
         await listen('delete-all-clicked', async () => {

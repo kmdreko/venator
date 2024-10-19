@@ -120,6 +120,11 @@
     background-color: var(--level-2-bg-color);
 }
 
+[data-theme="dark"] #table .data .level-2 {
+    background-color: var(--level-2-bg-color);
+    outline: 1px solid var(--border-normal-color);
+}
+
 #table .data .level-3 {
     background-color: var(--level-3-bg-color);
 }

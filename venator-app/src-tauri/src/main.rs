@@ -483,7 +483,27 @@ fn main() {
                         &MenuItem::new(handle, "Zoom in timeframe", true, None::<&str>)?,
                         &MenuItem::new(handle, "Zoom out timeframe", true, None::<&str>)?,
                         &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Theme", true, None::<&str>)?,
+                        &Submenu::with_items(
+                            handle,
+                            "Theme",
+                            true,
+                            &[
+                                &MenuItem::with_id(
+                                    handle,
+                                    "set-theme-light",
+                                    "Light",
+                                    true,
+                                    None::<&str>,
+                                )?,
+                                &MenuItem::with_id(
+                                    handle,
+                                    "set-theme-dark",
+                                    "Dark",
+                                    true,
+                                    None::<&str>,
+                                )?,
+                            ],
+                        )?,
                     ],
                 )?)
                 .item(&Submenu::with_items(
@@ -564,6 +584,12 @@ fn main() {
                 }
                 "redo" => {
                     app.emit("redo-clicked", ()).unwrap();
+                }
+                "set-theme-light" => {
+                    app.emit("set-theme-light-clicked", ()).unwrap();
+                }
+                "set-theme-dark" => {
+                    app.emit("set-theme-dark-clicked", ()).unwrap();
                 }
                 "delete-all" => {
                     app.emit("delete-all-clicked", ()).unwrap();
