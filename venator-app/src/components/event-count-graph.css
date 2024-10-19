@@ -8,7 +8,7 @@
 
 .event-count-graph-stats {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
 }
 
 .event-count-graph-stats .stat-name {
@@ -17,7 +17,7 @@
 
 .event-count-graph-stats .stat-value {
     font-weight: 500;
-    color: black;
+    color: var(--text-normal);
     margin-right: 8px;
 }
 
@@ -34,14 +34,14 @@
 
 .event-count-graph-x-axis {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
     position: relative;
     min-height: 20px;
 }
 
 .event-count-graph-x-axis-marker {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
     position: absolute;
     translate: -50% 0%;
 }
@@ -59,7 +59,7 @@
 
 .event-count-graph-y-line {
     width: 100%;
-    border-bottom: 1px solid #CCCCCC;
+    border-bottom: 1px solid var(--border-light-color);
 }
 
 .event-count-graph-cursor {
@@ -90,25 +90,25 @@
 
 .event-count-graph-bar-level-0 {
     min-height: 1px;
-    background-color: #1E1E1E;
+    background-color: var(--level-0-bar-color);
 }
 
 .event-count-graph-bar-level-1 {
     min-height: 1px;
-    background-color: #1E1E1E;
+    background-color: var(--level-1-bar-color);
 }
 
 .event-count-graph-bar-level-2 {
     min-height: 1px;
-    background-color: #1E1E1E;
+    background-color: var(--level-2-bar-color);
 }
 
 .event-count-graph-bar-level-3 {
     min-height: 1px;
-    background-color: #FB8C00;
+    background-color: var(--level-3-bar-color);
 }
 
 .event-count-graph-bar-level-4 {
     min-height: 1px;
-    background-color: #E65100;
+    background-color: var(--level-4-bar-color);
 }

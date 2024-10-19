@@ -1,7 +1,7 @@
 .filter-input-container {
     font-family: monospace;
-    background-color: white;
-    border: 1px solid gray;
+    background-color: var(--bg-highlight-color);
+    border: 1px solid var(--border-dark-color);
     padding: 2px 4px;
     border-radius: 3px;
     white-space: pre-wrap;
@@ -19,7 +19,7 @@
 
 .predicate {
     display: inline;
-    border: 1px solid gray;
+    border: 1px solid var(--border-dark-color);
     border-radius: 3px;
     margin: 2px 0px;
     padding: 2px 4px;
@@ -27,14 +27,6 @@
 
 .predicate:hover {
     border: 1px solid black;
-}
-
-.predicate.level-predicate-2:hover {
-    background-color: #444444;
-}
-
-.predicate.error:hover {
-    border-color: darkred;
 }
 
 .filter-input:focus .predicate {
@@ -57,34 +49,34 @@
 }
 
 .level-predicate-0 {
-    background-color: white;
-    border: 1px solid #A8A8A8;
+    background-color: var(--level-0-bg-color);
+    border: 1px solid var(--border-normal-color);
 }
 
 .level-predicate-1 {
-    background-color: #A8A8A8;
-    border: 1px solid #A8A8A8;
+    background-color: var(--level-1-bg-color);
+    border: 1px solid var(--level-1-bg-color);
 }
 
 .level-predicate-2 {
-    color: white;
-    background-color: #1E1E1E;
-    border: 1px solid #1E1E1E;
+    color: var(--level-2-color);
+    background-color: var(--level-2-bg-color);
+    border: 1px solid var(--level-2-bg-color);
 }
 
 .level-predicate-3 {
-    background-color: #FB8C00;
-    border: 1px solid #FB8C00;
+    background-color: var(--level-3-bg-color);
+    border: 1px solid var(--level-3-bg-color);
 }
 
 .level-predicate-4 {
-    background-color: #E65100;
-    border: 1px solid #E65100;
+    background-color: var(--level-4-bg-color);
+    border: 1px solid var(--level-4-bg-color);
 }
 
 .meta-predicate {
-    background-color: #CCCCCC;
-    border-color: #A8A8A8;
+    background-color: var(--border-light-color);
+    border-color: var(--border-normal-color);
 }
 
 .predicate.focused {
@@ -93,6 +85,10 @@
 }
 
 .predicate.error {
-    border-color: red;
+    border-color: var(--border-error);
     background-color: transparent;
+}
+
+.predicate.error:hover {
+    border-color: color-mix(in lab, var(--border-error) 70%, black 30%);
 }

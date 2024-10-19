@@ -14,13 +14,13 @@
     margin-left: 8px;
     font-size: 12px;
     font-weight: normal;
-    color: #505050;
+    color: var(--text-light);
 }
 
 .screen-header .sub-header.warn-text {
-    color: #c16c00;
+    color: var(--text-warn);
 }
 
 .screen-header .sub-header.error-text {
-    color: #d13200;
+    color: var(--text-error);
 }

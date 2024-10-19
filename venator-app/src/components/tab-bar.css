@@ -25,8 +25,8 @@
     flex: 0 1 220px;
     min-width: 10px;
     height: 21px;
-    background-color: #CCCCCC;
-    border-bottom: 1px solid #A8A8A8;
+    background-color: color-mix(in lab, var(--bg-screen-color) 90%, black 10%);
+    border-bottom: 1px solid color-mix(in lab, var(--bg-screen-color) 80%, black 20%);
     padding: 0px 8px;
 
     text-wrap: nowrap;
@@ -36,13 +36,13 @@
 }
 
 .tab:not(.active):hover {
-    background-color: #bdbdbd;
+    background-color: color-mix(in lab, var(--bg-screen-color) 85%, black 15%);
 }
 
 .tab.active {
     flex: 0 0 220px;
     height: 24px;
-    background-color: #E8E8E8;
+    background-color: var(--bg-screen-color);
     border-bottom: none;
 }
 
@@ -61,13 +61,13 @@
     padding: 0px;
     padding-left: 4px;
     font-size: 12px;
-    color: gray;
+    color: var(--text-click-inactive-color);
 
     display: none;
 }
 
 .tab button:hover {
-    color: black;
+    color: var(--text-click-active-color);
 }
 
 .tab button:active {

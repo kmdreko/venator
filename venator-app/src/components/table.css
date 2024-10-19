@@ -1,7 +1,7 @@
 #table {
     flex: 1;
     max-height: 100%;
-    border: 1px solid #A8A8A8;
+    border: 1px solid var(--border-normal-color);
     border-top: none;
     overflow-y: auto;
 
@@ -14,9 +14,9 @@
 #table .header {
     top: 0;
     position: sticky;
-    background-color: #E8E8E8;
-    border-bottom: 1px solid #CCCCCC;
-    border-right: 1px solid #CCCCCC;
+    background-color: var(--bg-screen-color);
+    border-bottom: 1px solid var(--border-light-color);
+    border-right: 1px solid var(--border-light-color);
     font-size: 12px;
     font-weight: bold;
     text-align: left;
@@ -38,9 +38,9 @@
 
 #table .header .header-text:focus-within {
     font-weight: 600;
-    background-color: white;
+    background-color: var(--bg-highlight-color);
     padding: 0 8px;
-    border-color: gray;
+    border-color: var(--border-dark-color);
 }
 
 #table .header .header-text div[contenteditable]:focus {
@@ -50,11 +50,12 @@
 #table .header button {
     flex: 0;
     border: none;
+    color: var(--text-click-inactive-color);
     background-color: transparent;
 }
 
 #table .header button:hover {
-    background-color: #dbdbdb;
+    color: var(--text-click-active-color);
 }
 
 #table .header .grabber {
@@ -74,9 +75,9 @@
 
 #table .data {
     position: relative;
-    background-color: white;
-    border-bottom: 1px solid #CCCCCC;
-    border-right: 1px solid #CCCCCC;
+    background-color: var(--bg-highlight-color);
+    border-bottom: 1px solid var(--border-light-color);
+    border-right: 1px solid var(--border-light-color);
     padding: 0 4px;
     font-family: monospace;
     font-size: 13px;
@@ -85,11 +86,11 @@
 }
 
 #table .data.selected {
-    background-color: #dbdbdb;
+    background-color: var(--bg-secondary-color);
 }
 
 #table .data:not(.selected).hovered {
-    background-color: #E8E8E8;
+    background-color: color-mix(in lab, var(--bg-highlight-color) 85%, gray 15%);
 }
 
 #table .data .level-0,
@@ -107,28 +108,28 @@
     width: 5px;
     height: 12px;
     margin-left: 1px;
-    background-color: white;
-    outline: 1px solid #A8A8A8;
+    background-color: var(--level-0-bg-color);
+    outline: 1px solid var(--border-normal-color);
 }
 
 #table .data .level-1 {
-    background-color: #A8A8A8;
+    background-color: var(--level-1-bg-color);
 }
 
 #table .data .level-2 {
-    background-color: #1E1E1E;
+    background-color: var(--level-2-bg-color);
 }
 
 #table .data .level-3 {
-    background-color: #FB8C00;
+    background-color: var(--level-3-bg-color);
 }
 
 #table .data .level-4 {
-    background-color: #E65100;
+    background-color: var(--level-4-bg-color);
 }
 
 #table .data .time-bar {
-    background-color: black;
+    background-color: var(--level-2-bg-color);
     position: absolute;
     min-width: 3px;
     top: 10%;
@@ -137,5 +138,5 @@
 
 #table .data:hover {
     translate: -1px -1px;
-    border: 1px solid rgb(150, 150, 150);
+    border: 1px solid var(--border-dark-color);
 }

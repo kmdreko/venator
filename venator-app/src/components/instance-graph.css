@@ -8,7 +8,7 @@
 
 .instance-graph-stats {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
 }
 
 .instance-graph-stats .stat-name {
@@ -17,7 +17,7 @@
 
 .instance-graph-stats .stat-value {
     font-weight: 500;
-    color: black;
+    color: var(--text-normal);
     margin-right: 8px;
 }
 
@@ -35,14 +35,14 @@
 
 .instance-graph-x-axis {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
     position: relative;
     min-height: 20px;
 }
 
 .instance-graph-x-axis-marker {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
     position: absolute;
     translate: -50% 0%;
 }
@@ -60,7 +60,7 @@
 
 .instance-graph-y-line {
     width: 100%;
-    border-bottom: 1px solid #CCCCCC;
+    border-bottom: 1px solid var(--border-light-color);
 }
 
 .instance-graph-cursor {
@@ -84,5 +84,5 @@
     min-width: 1px;
     height: 4px;
     position: absolute;
-    background-color: black;
+    background-color: var(--level-2-bar-color);
 }

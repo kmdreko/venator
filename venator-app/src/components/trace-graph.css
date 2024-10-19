@@ -8,7 +8,7 @@
 
 .trace-graph-stats {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
 }
 
 .trace-graph-stats .stat-name {
@@ -17,7 +17,7 @@
 
 .trace-graph-stats .stat-value {
     font-weight: 500;
-    color: black;
+    color: var(--text-normal);
     margin-right: 8px;
 }
 
@@ -35,14 +35,14 @@
 
 .trace-graph-x-axis {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
     position: relative;
     min-height: 20px;
 }
 
 .trace-graph-x-axis-marker {
     flex: 0;
-    color: #505050;
+    color: var(--text-light);
     position: absolute;
     translate: -50% 0%;
 }
@@ -60,7 +60,7 @@
 
 .trace-graph-y-line {
     width: 100%;
-    border-bottom: 1px solid #CCCCCC;
+    border-bottom: 1px solid var(--border-light-color);
 }
 
 .trace-graph-cursor {
@@ -79,21 +79,21 @@
 }
 
 .trace-graph-bar.level-0 {
-    background-color: #1E1E1E;
+    background-color: var(--level-0-bar-color);
 }
 
 .trace-graph-bar.level-1 {
-    background-color: #1E1E1E;
+    background-color: var(--level-1-bar-color);
 }
 
 .trace-graph-bar.level-2 {
-    background-color: #1E1E1E;
+    background-color: var(--level-2-bar-color);
 }
 
 .trace-graph-bar.level-3 {
-    background-color: #FB8C00;
+    background-color: var(--level-3-bar-color);
 }
 
 .trace-graph-bar.level-4 {
-    background-color: #E65100;
+    background-color: var(--level-4-bar-color);
 }
