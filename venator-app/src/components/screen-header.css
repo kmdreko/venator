@@ -10,6 +10,10 @@
     margin-bottom: 0px;
 }
 
+[data-theme="dark"] .screen-header h1 img {
+    filter: invert(90%);
+}
+
 .screen-header .sub-header {
     margin-left: 8px;
     font-size: 12px;

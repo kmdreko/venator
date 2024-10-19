@@ -26,7 +26,7 @@
 }
 
 .predicate:hover {
-    border: 1px solid black;
+    border: 1px solid var(--text-normal);
 }
 
 .filter-input:focus .predicate {
@@ -49,11 +49,13 @@
 }
 
 .level-predicate-0 {
+    color: var(--level-0-color);
     background-color: var(--level-0-bg-color);
     border: 1px solid var(--border-normal-color);
 }
 
 .level-predicate-1 {
+    color: var(--level-1-color);
     background-color: var(--level-1-bg-color);
     border: 1px solid var(--level-1-bg-color);
 }
@@ -65,11 +67,13 @@
 }
 
 .level-predicate-3 {
+    color: var(--level-3-color);
     background-color: var(--level-3-bg-color);
     border: 1px solid var(--level-3-bg-color);
 }
 
 .level-predicate-4 {
+    color: var(--level-4-color);
     background-color: var(--level-4-bg-color);
     border: 1px solid var(--level-4-bg-color);
 }

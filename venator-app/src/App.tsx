@@ -244,6 +244,8 @@ function App() {
     let [status, setStatus] = createSignal<AppStatus | null>(null);
 
     let undoHistories: UndoHistory[] = [];
+    let root_element = document.querySelector('#root')!;
+    root_element.setAttribute('data-theme', 'light');
 
     onMount(async () => {
         createTab(...await defaultEventsScreen(), true);

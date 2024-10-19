@@ -51,7 +51,6 @@
     position: absolute;
     width: 100%;
     height: 100%;
-    z-index: -1;
 
     display: flex;
     flex-direction: column;
@@ -85,4 +84,5 @@
     height: 4px;
     position: absolute;
     background-color: var(--level-2-bar-color);
+    z-index: 1;
 }

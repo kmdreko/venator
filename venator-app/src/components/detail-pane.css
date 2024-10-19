@@ -71,11 +71,13 @@
 
 .detailed-level-0 {
     margin-left: 1px;
+    color: var(--level-0-color);
     background-color: var(--level-0-bg-color);
     outline: 1px solid var(--border-normal-color);
 }
 
 .detailed-level-1 {
+    color: var(--level-1-color);
     background-color: var(--level-1-bg-color);
 }
 
@@ -151,6 +153,10 @@
 
 .detail-info-attributes-source {
     user-select: none;
+}
+
+[data-theme="dark"] .detail-info-attributes-source img {
+    filter: invert(90%);
 }
 
 .detail-info-attributes-name {

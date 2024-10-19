@@ -16,13 +16,28 @@ body {
     font-weight: 400;
 
     color: #0f0f0f;
-    background-color: #e8e8e8;
 
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
+}
+
+::selection {
+    background-color: var(--text-selection-bg-color);
+    color: var(--text-selection-color);
+}
+
+#root {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    color: var(--text-normal);
+}
+
+#root[data-theme="light"] {
+    color-scheme: light;
 
     --bg-tab-color: #2b2b2b;
     --bg-screen-color: #e8e8e8;
@@ -60,15 +75,43 @@ body {
     --level-4-bar-color: #e65100;
 }
 
-::selection {
-    background-color: var(--text-selection-bg-color);
-    color: var(--text-selection-color);
-}
+#root[data-theme="dark"] {
+    color-scheme: dark;
 
-#root {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
+    --bg-tab-color: #141414;
+    --bg-screen-color: #2b2b2b;
+    --bg-secondary-color: #333333;
+    --bg-highlight-color: #141414;
+
+    --border-dark-color: #636363;
+    --border-normal-color: #5e5e5e;
+    --border-light-color: #494949;
+    --border-error: red;
+
+    --text-normal: #cacaca;
+    --text-light: #aaaaaa;
+    --text-warn: #c16c00;
+    --text-error: #d13200;
+    --text-click-inactive-color: gray;
+    --text-click-active-color: #d1d1d1;
+    --text-selection-color: white;
+    --text-selection-bg-color: #1e1e1e;
+
+    --level-0-color: #0f0f0f;
+    --level-0-bg-color: #e0e0e0;
+    --level-0-bar-color: #727272;
+    --level-1-color: #0f0f0f;
+    --level-1-bg-color: #a8a8a8;
+    --level-1-bar-color: #727272;
+    --level-2-color: white;
+    --level-2-bg-color: #1e1e1e;
+    --level-2-bar-color: #727272;
+    --level-3-color: #0f0f0f;
+    --level-3-bg-color: #fb8c00;
+    --level-3-bar-color: #fb8c00;
+    --level-4-color: #0f0f0f;
+    --level-4-bg-color: #e65100;
+    --level-4-bar-color: #e65100;
 }
 
 #menu-controls span {
@@ -76,6 +119,7 @@ body {
 }
 
 #screen {
+    background-color: var(--bg-screen-color);
     flex: 1;
     height: 0;
     position: relative;

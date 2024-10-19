@@ -1,6 +1,6 @@
 .tabbar {
     height: 28px;
-    background: #2b2b2b;
+    background: var(--bg-tab-color);
     padding: 0 20px;
     user-select: none;
 

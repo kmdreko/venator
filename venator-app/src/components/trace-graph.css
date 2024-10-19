@@ -51,7 +51,6 @@
     position: absolute;
     width: 100%;
     height: 100%;
-    z-index: -1;
 
     display: flex;
     flex-direction: column;
@@ -76,6 +75,7 @@
     min-width: 1px;
     height: 4px;
     position: absolute;
+    z-index: 1;
 }
 
 .trace-graph-bar.level-0 {
