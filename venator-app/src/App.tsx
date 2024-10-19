@@ -12,6 +12,7 @@ import { TraceScreen } from "./screens/trace-screen";
 import { ATTRIBUTE, ColumnDef, CONNECTED, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./components/table";
 import { InstancesScreen } from "./screens/instances-screen";
 import { TabBar } from "./components/tab-bar";
+import { UndoHistory } from './utils/undo';
 
 import "./App.css";
 
@@ -242,6 +243,8 @@ function App() {
     let [selectedScreen, setSelectedScreen] = createSignal<number | undefined>();
     let [status, setStatus] = createSignal<AppStatus | null>(null);
 
+    let undoHistories: UndoHistory[] = [];
+
     onMount(async () => {
         createTab(...await defaultEventsScreen(), true);
     });
@@ -353,6 +356,14 @@ function App() {
             await writeTextFile(file, csvData);
         });
 
+        await listen('undo-clicked', () => {
+            performUndo();
+        });
+
+        await listen('redo-clicked', () => {
+            performRedo();
+        });
+
         await listen('delete-all-clicked', async () => {
             let metrics = await deleteEntities(null, null, true, true);
 
@@ -401,6 +412,16 @@ function App() {
                 await deleteEntities(timespan[0], timespan[1], false, false);
 
                 forceResetScreenFilters();
+            }
+        });
+
+        window.addEventListener('keypress', (e: KeyboardEvent) => {
+            console.log(e.ctrlKey, e.altKey, e.shiftKey, e.key);
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == '\x1A') {
+                performUndo();
+            }
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == '\x19') {
+                performRedo();
             }
         });
     })
@@ -530,6 +551,7 @@ function App() {
             // valid filter didn't change, only update raw_filter
 
             updated_raw_filters[current_selected_screen] = filter;
+            undoHistories[current_selected_screen].updateWithFilter(filter);
             setRawFilters(updated_raw_filters);
         } else {
             // valid filter did change
@@ -552,6 +574,7 @@ function App() {
 
             updated_raw_filters[current_selected_screen] = filter;
             batch(() => {
+                undoHistories[current_selected_screen].updateWithFilter(filter);
                 setRawFilters(updated_raw_filters);
                 setScreens(updated_screens);
             })
@@ -587,18 +610,21 @@ function App() {
     function addToFilter(filter: Input[]) {
         let current_selected_screen = selectedScreen()!;
         let current_screens = screens();
-
         setScreenFilter([...current_screens[current_selected_screen].filter, ...filter]);
     }
 
     function setScreenTimespan(timespan: Timespan) {
+        let normalizedTimespan = normalizeTimespan(timespan);
+
         let current_selected_screen = selectedScreen()!;
         let current_screens = screens();
         let updated_screens = [...current_screens];
         updated_screens[current_selected_screen] = {
             ...current_screens[current_selected_screen],
-            timespan: normalizeTimespan(timespan),
+            timespan: normalizedTimespan,
         };
+
+        undoHistories[current_selected_screen].updateWithTimespan(normalizedTimespan);
         setScreens(updated_screens);
     }
 
@@ -660,6 +686,8 @@ function App() {
         let updated_column_datas = [...current_column_datas];
         updated_column_datas.splice(idx, 1);
 
+        undoHistories.splice(idx, 1);
+
         if (updated_screens.length == 0) {
             let filter: Input[] = [{
                 text: "#level: >=TRACE",
@@ -683,6 +711,12 @@ function App() {
             updated_raw_filters = [[...filter]];
             updated_rows = [null];
             updated_column_datas = [{ columns: columns as any, columnWidths }];
+            undoHistories = [new UndoHistory({
+                timespan: updated_screens[0].timespan!,
+                raw_filter: [...filter],
+                columns: [...columns as any],
+                columnWidths: [...columnWidths],
+            })];
         }
 
         let updated_selected_screen = (current_selected_screen > idx) ? current_selected_screen - 1 : current_selected_screen;
@@ -706,6 +740,9 @@ function App() {
         let selected_column_data = columnDatas()[idx];
 
         batch(() => {
+            let history = undoHistories[idx];
+            undoHistories = [history];
+
             setScreens([selected_screen]);
             setRawFilters([selected_raw_filter]);
             setSelectedRows([selected_selected_row]);
@@ -751,6 +788,9 @@ function App() {
         }
 
         batch(() => {
+            let [history] = undoHistories.splice(fromIdx, 1);
+            undoHistories.splice(toIdx, 0, history);
+
             setScreens(updated_screens);
             setRawFilters(current_raw_filters);
             setSelectedRows(updated_selected_rows);
@@ -780,6 +820,13 @@ function App() {
         updated_column_datas.push(columns);
 
         batch(() => {
+            undoHistories.push(new UndoHistory({
+                timespan: screen.timespan!,
+                raw_filter: [...screen.filter],
+                columns: [...columns.columns],
+                columnWidths: [...columns.columnWidths],
+            }));
+
             setScreens(updated_screens);
             setRawFilters(updated_raw_filters);
             setSelectedRows(updated_selected_rows);
@@ -798,10 +845,14 @@ function App() {
         let widths = current_column_datas[current_selected_screen].columnWidths;
         widths.splice(i, 1, width);
 
+        let current_columns = current_column_datas[current_selected_screen].columns;
+
         updated_column_datas[current_selected_screen] = {
             ...current_column_datas[current_selected_screen],
             columnWidths: widths
         };
+
+        undoHistories[current_selected_screen].updateWithColumnData(current_columns, widths);
         setColumnDatas(updated_column_datas);
     }
 
@@ -816,12 +867,14 @@ function App() {
         updated_columns.splice(toIdx, 0, column_data);
 
         // TODO: do something different with widths?
+        let current_columns_widths = current_column_datas[current_selected_screen].columnWidths;
 
         updated_column_datas[current_selected_screen] = {
             ...current_column_datas[current_selected_screen],
             columns: updated_columns,
         }
 
+        undoHistories[current_selected_screen].updateWithColumnData(updated_columns, current_columns_widths);
         setColumnDatas(updated_column_datas);
     }
 
@@ -833,10 +886,14 @@ function App() {
         let defs = current_column_datas[current_selected_screen].columns;
         defs.splice(i, 1, def as any);
 
+        let current_columns_widths = current_column_datas[current_selected_screen].columnWidths;
+
         updated_column_datas[current_selected_screen] = {
             ...current_column_datas[current_selected_screen],
             columns: defs as any
         };
+
+        undoHistories[current_selected_screen].updateWithColumnData(defs, current_columns_widths);
         setColumnDatas(updated_column_datas);
     }
 
@@ -862,6 +919,8 @@ function App() {
             columns: updatedColumns as any,
             columnWidths: updatedColumnWidths,
         };
+
+        undoHistories[current_selected_screen].updateWithColumnData(updatedColumns, updatedColumnWidths);
         setColumnDatas(updated_column_datas);
     }
 
@@ -888,7 +947,99 @@ function App() {
             columns: updatedColumns as any,
             columnWidths: updatedColumnWidths,
         };
+
+        undoHistories[current_selected_screen].updateWithColumnData(updatedColumns, updatedColumnWidths);
         setColumnDatas(updated_column_datas);
+    }
+
+    function performUndo() {
+        let current_selected_screen = selectedScreen()!;
+
+        let data = undoHistories[current_selected_screen].undo();
+        if (data == null) {
+            return;
+        }
+
+        let filter = data.raw_filter.filter(f => f.input == 'valid');
+
+        let current_screens = screens();
+        let updated_screens = [...current_screens];
+        switch (current_screens[current_selected_screen].kind) {
+            case 'events':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new EventDataLayer(filter) as any };
+                break;
+            case 'spans':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new SpanDataLayer(filter) as any };
+                break;
+            case 'instances':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new InstanceDataLayer(filter) as any };
+                break;
+            case 'trace':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter };
+                break;
+        }
+
+        let current_raw_filters = rawFilters();
+        let updated_raw_filters = [...current_raw_filters];
+        updated_raw_filters[current_selected_screen] = [...data.raw_filter];
+
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
+        updated_column_datas[current_selected_screen] = {
+            columns: [...data.columns],
+            columnWidths: [...data.columnWidths],
+        };
+
+        batch(() => {
+            setScreens(updated_screens);
+            setRawFilters(updated_raw_filters);
+            setColumnDatas(updated_column_datas);
+        });
+    }
+
+    function performRedo() {
+        let current_selected_screen = selectedScreen()!;
+
+        let data = undoHistories[current_selected_screen].redo();
+        if (data == null) {
+            return;
+        }
+
+        let filter = data.raw_filter.filter(f => f.input == 'valid');
+
+        let current_screens = screens();
+        let updated_screens = [...current_screens];
+        switch (current_screens[current_selected_screen].kind) {
+            case 'events':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new EventDataLayer(filter) as any };
+                break;
+            case 'spans':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new SpanDataLayer(filter) as any };
+                break;
+            case 'instances':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new InstanceDataLayer(filter) as any };
+                break;
+            case 'trace':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter };
+                break;
+        }
+
+        let current_raw_filters = rawFilters();
+        let updated_raw_filters = [...current_raw_filters];
+        updated_raw_filters[current_selected_screen] = [...data.raw_filter];
+
+        let current_column_datas = columnDatas();
+        let updated_column_datas = [...current_column_datas];
+        updated_column_datas[current_selected_screen] = {
+            columns: [...data.columns],
+            columnWidths: [...data.columnWidths],
+        };
+
+        batch(() => {
+            setScreens(updated_screens);
+            setRawFilters(updated_raw_filters);
+            setColumnDatas(updated_column_datas);
+        });
     }
 
     return (<>

@@ -456,8 +456,8 @@ fn main() {
                     "Edit",
                     true,
                     &[
-                        &MenuItem::new(handle, "Undo", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Redo", true, None::<&str>)?,
+                        &MenuItem::with_id(handle, "undo", "Undo", true, Some("ctrl+z"))?,
+                        &MenuItem::with_id(handle, "redo", "Redo", true, Some("ctrl+y"))?,
                         &PredefinedMenuItem::separator(handle)?,
                         &MenuItem::new(handle, "Cut filter", true, None::<&str>)?,
                         &MenuItem::new(handle, "Copy filter", true, None::<&str>)?,
@@ -558,6 +558,12 @@ fn main() {
                 }
                 "save-as-csv" => {
                     app.emit("save-as-csv-clicked", ()).unwrap();
+                }
+                "undo" => {
+                    app.emit("undo-clicked", ()).unwrap();
+                }
+                "redo" => {
+                    app.emit("redo-clicked", ()).unwrap();
                 }
                 "delete-all" => {
                     app.emit("delete-all-clicked", ()).unwrap();
