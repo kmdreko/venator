@@ -15,9 +15,14 @@ export type TimeControlProps = {
 
 export function TimeControls(props: TimeControlProps) {
     const [updateTimeout, setUpdateTimeout] = createSignal<number | undefined>(undefined);
+    const [dateParseError, setDateParseError] = createSignal(false);
+    const [durationParseError, setDurationParseError] = createSignal(false);
 
     createEffect(() => {
         props.timespan;
+
+        setDateParseError(false);
+        setDurationParseError(false);
 
         let existing_handle = untrack(updateTimeout);
         if (existing_handle != undefined) {
@@ -141,17 +146,74 @@ export function TimeControls(props: TimeControlProps) {
         return props.enabled && props.timespan != null;
     }
 
+    function focusoutOnEnter(this: HTMLDivElement, e: KeyboardEvent) {
+        if (e.key == "Enter") {
+            e.preventDefault();
+            this.blur();
+        }
+    }
+
+    function onDateTimeBlur(this: HTMLDivElement) {
+        let timestamp = Date.parse(this.innerText) * 1000;
+        if (isNaN(timestamp)) {
+            setDateParseError(true);
+            return;
+        }
+
+        let [start, end] = props.timespan!;
+        let duration = end - start;
+        props.updateTimespan([timestamp, timestamp + duration]);
+        setDateParseError(false);
+    }
+
+    function onDurationBlur(this: HTMLDivElement) {
+        let text = this.innerText;
+        let whitespace = text.indexOf(' ');
+        if (whitespace == -1) {
+            setDurationParseError(true);
+            return;
+        }
+
+        let value = parseFloat(text.substring(0, whitespace));
+        if (isNaN(value)) {
+            setDurationParseError(true);
+            return;
+        }
+
+        let unit = text.substring(whitespace).trim().toLowerCase();
+        let scale = 1;
+        if (unit == "d" || unit == "day" || unit == "days") {
+            scale = 86400000000;
+        } else if (unit == "h" || unit == "hour" || unit == "hours") {
+            scale = 3600000000;
+        } else if (unit == "m" || unit == "minute" || unit == "minutes") {
+            scale = 60000000;
+        } else if (unit == "s" || unit == "second" || unit == "seconds") {
+            scale = 1000000;
+        } else if (unit == "ms" || unit == "millisecond" || unit == "milliseconds") {
+            scale = 1000;
+        } else {
+            setDurationParseError(true);
+            return;
+        }
+
+        let duration = value * scale;
+        let [start, _] = props.timespan!;
+        setDurationParseError(false);
+        props.updateTimespan([start, start + duration]);
+    }
+
     return <div class="time-controls" classList={{ enabled: enabled() }}>
         <div class="time-control">
             <button class="left" onclick={enabled() ? decStartTime : () => { }}>&lt;</button>
-            <div class="main" style="width: 150px;">
+            <div contenteditable={enabled() ? "plaintext-only" : false} onblur={onDateTimeBlur} onkeypress={focusoutOnEnter} class="main" classList={{ error: dateParseError() }} style="width: 150px;">
                 {renderedStartTime()}
             </div>
             <button class="right" onclick={enabled() ? incStartTime : () => { }}>&gt;</button>
         </div>
         <div class="time-control">
             <button class="left" onclick={enabled() ? decDuration : () => { }}>-</button>
-            <div class="main" style="width: 100px;">
+            <div contenteditable={enabled() ? "plaintext-only" : false} onblur={onDurationBlur} onkeypress={focusoutOnEnter} class="main" classList={{ error: durationParseError() }} style="width: 100px;">
                 {renderedDuration()}
             </div>
             <button class="right" onclick={enabled() ? incDuration : () => { }}>+</button>

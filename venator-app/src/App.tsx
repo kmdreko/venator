@@ -424,15 +424,16 @@ function App() {
             }
         });
 
-        window.addEventListener('keypress', (e: KeyboardEvent) => {
-            console.log(e.ctrlKey, e.altKey, e.shiftKey, e.key);
-            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == '\x1A') {
+        document.onkeydown = function (e) {
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'z') {
+                e.preventDefault();
                 performUndo();
             }
-            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == '\x19') {
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'y') {
+                e.preventDefault();
                 performRedo();
             }
-        });
+        }
     })
 
     async function getAndCacheEvents(screen: EventsScreenData, filter: PartialFilter): Promise<Event[]> {
