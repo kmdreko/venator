@@ -8,8 +8,8 @@ export type Timespan = [Timestamp, Timestamp];
 export type PartialFilter = {
     order: 'asc' | 'desc';
     limit?: number;
-    start: Timestamp;
-    end: Timestamp;
+    start: Timestamp | null;
+    end: Timestamp | null;
     previous?: Timestamp;
 };
 

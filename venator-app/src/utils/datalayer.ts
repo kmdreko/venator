@@ -59,6 +59,11 @@ export class EventDataLayer {
     }
 
     getEvents = async (filter: PartialFilter): Promise<Event[]> => {
+        // don't try to cache unbounded shenanigans
+        if (filter.start == null || filter.end == null) {
+            return await getEvents({ filter: this.#filter, ...filter });
+        }
+
         let start: number, end: number;
         if (filter.order == 'asc') {
             start = (filter.previous) ? filter.previous + 1 : filter.start;
@@ -420,6 +425,11 @@ export class SpanDataLayer {
     }
 
     getSpans = async (filter: PartialFilter, wait?: boolean): Promise<Span[] | null> => {
+        // don't try to cache unbounded shenanigans
+        if (filter.start == null || filter.end == null) {
+            return await getSpans({ filter: this.#filter, ...filter });
+        }
+
         if (within(this.#range, filter.start, filter.end)) {
             return this.#getSpansInCache(filter);
         } else if (overlaps(this.#range, filter.start, filter.end)) {
@@ -601,6 +611,12 @@ export class SpanDataLayer {
     #getSpansInCache = (filter: PartialFilter): Span[] => {
         // this is a helper function that will get the spans assuming they are
         // already in the cache
+
+        // don't try to cache unbounded shenanigans
+        if (filter.start == null || filter.end == null) {
+            // this shouldn't happen
+            return [];
+        }
 
         let startIndex = partitionPointSpansLower(this.#spans, filter.start);
         let endIndex = partitionPointSpansUpper(this.#spans, filter.end);
@@ -1112,16 +1128,16 @@ function getRetrievedEventRange(filter: PartialFilter, events: Event[]): Timespa
     if (events.length != 50) { // TODO: change to filter.limit
         // this means the range was exhausted since the limit was not reached
         if (filter.order == 'asc') {
-            return [filter.previous ? filter.previous + 1 : filter.start, filter.end];
+            return [filter.previous ? filter.previous + 1 : filter.start!, filter.end!];
         } else {
-            return [filter.start, filter.previous ? filter.previous - 1 : filter.end];
+            return [filter.start!, filter.previous ? filter.previous - 1 : filter.end!];
         }
     } else {
         // the limit was hit, so we don't know if the range was exhausted
         if (filter.order == 'asc') {
-            return [filter.previous ? filter.previous + 1 : filter.start, events[events.length - 1].timestamp];
+            return [filter.previous ? filter.previous + 1 : filter.start!, events[events.length - 1].timestamp];
         } else {
-            return [events[events.length - 1].timestamp, filter.previous ? filter.previous - 1 : filter.end];
+            return [events[events.length - 1].timestamp, filter.previous ? filter.previous - 1 : filter.end!];
         }
     }
 }
@@ -1132,16 +1148,16 @@ function getRetrievedSpanRange(filter: PartialFilter, spans: Span[]): Timespan {
     if (spans.length != 50) { // TODO: change to filter.limit
         // this means the range was exhausted since the limit was not reached
         if (filter.order == 'asc') {
-            return [(filter.previous && filter.previous > filter.start) ? filter.previous + 1 : filter.start, filter.end];
+            return [(filter.previous && filter.previous > filter.start!) ? filter.previous + 1 : filter.start!, filter.end!];
         } else {
-            return [filter.start, filter.previous ? filter.previous - 1 : filter.end];
+            return [filter.start!, filter.previous ? filter.previous - 1 : filter.end!];
         }
     } else {
         // the limit was hit, so we don't know if the range was exhausted
         if (filter.order == 'asc') {
-            return [(filter.previous && filter.previous > filter.start) ? filter.previous + 1 : filter.start, spans[spans.length - 1].created_at];
+            return [(filter.previous && filter.previous > filter.start!) ? filter.previous + 1 : filter.start!, spans[spans.length - 1].created_at];
         } else {
-            return [Math.max(spans[spans.length - 1].created_at, filter.start), filter.previous ? filter.previous - 1 : filter.end];
+            return [Math.max(spans[spans.length - 1].created_at, filter.start!), filter.previous ? filter.previous - 1 : filter.end!];
         }
     }
 }

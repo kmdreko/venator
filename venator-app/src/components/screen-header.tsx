@@ -1,5 +1,6 @@
 import { ScreenKind, Timespan } from "../models";
 import { TimeControls } from "./time-controls";
+import { Timestamp } from "../invoke";
 
 import "./screen-header.css";
 import eventIcon from '../assets/event.svg';
@@ -16,6 +17,8 @@ export type ScreenHeaderProps = {
     countThresholds: [number, number],
     live: boolean,
     setLive: (live: boolean) => void,
+    getTimestampBefore: (timestamp: Timestamp) => Promise<Timestamp | null>,
+    getTimestampAfter: (timestamp: Timestamp) => Promise<Timestamp | null>,
 };
 
 export function ScreenHeader(props: ScreenHeaderProps) {
@@ -72,6 +75,8 @@ export function ScreenHeader(props: ScreenHeaderProps) {
             enabled={props.timeControlsEnabled}
             live={props.live}
             setLive={props.setLive}
+            getTimestampBefore={props.getTimestampBefore}
+            getTimestampAfter={props.getTimestampAfter}
         />
     </div>);
 }

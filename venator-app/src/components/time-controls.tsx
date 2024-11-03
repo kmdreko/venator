@@ -4,6 +4,9 @@ import { Timespan } from '../models';
 import './time-controls.css';
 import playIcon from '../assets/live-play.svg';
 import pauseIcon from '../assets/live-pause.svg';
+import { Menu } from '@tauri-apps/api/menu';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
+import { Timestamp } from '../invoke';
 
 export type TimeControlProps = {
     enabled: boolean,
@@ -11,6 +14,8 @@ export type TimeControlProps = {
     updateTimespan: (timespan: Timespan) => void,
     live: boolean,
     setLive: (live: boolean) => void,
+    getTimestampBefore: (timestamp: Timestamp) => Promise<Timestamp | null>,
+    getTimestampAfter: (timestamp: Timestamp) => Promise<Timestamp | null>,
 };
 
 export function TimeControls(props: TimeControlProps) {
@@ -112,6 +117,40 @@ export function TimeControls(props: TimeControlProps) {
         props.updateTimespan([new_start, new_end]);
     }
 
+    async function decStartTimeToData() {
+        let current_timespan = props.timespan!;
+        let [start, end] = current_timespan;
+        let duration = end - start;
+
+        let new_end = await props.getTimestampBefore(end);
+        if (new_end == null) {
+            return;
+        }
+
+        let padded_end = new_end + duration * 0.05;
+        let padded_start = padded_end - duration;
+
+        console.log(padded_start, padded_end, duration);
+        props.updateTimespan([padded_start, padded_end])
+    }
+
+    async function incStartTimeToData() {
+        let current_timespan = props.timespan!;
+        let [start, end] = current_timespan;
+        let duration = end - start;
+
+        let new_start = await props.getTimestampAfter(start);
+        if (new_start == null) {
+            return;
+        }
+
+        let padded_start = new_start - duration * 0.05;
+        let padded_end = padded_start + duration;
+
+        console.log(padded_start, padded_end, duration);
+        props.updateTimespan([padded_start, padded_end])
+    }
+
     function decDuration() {
         let current_timespan = props.timespan!;
         let bias = 0.5;
@@ -203,13 +242,33 @@ export function TimeControls(props: TimeControlProps) {
         props.updateTimespan([start, start + duration]);
     }
 
+    async function showLeftContextMenu(e: MouseEvent) {
+        let menu = await Menu.new({
+            items: [
+                { text: "go left", action: decStartTime },
+                { text: "go left to data", action: decStartTimeToData },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
+    async function showRightContextMenu(e: MouseEvent) {
+        let menu = await Menu.new({
+            items: [
+                { text: "go right", action: incStartTime },
+                { text: "go right to data", action: incStartTimeToData },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
     return <div class="time-controls" classList={{ enabled: enabled() }}>
         <div class="time-control">
-            <button class="left" onclick={enabled() ? decStartTime : () => { }}>&lt;</button>
+            <button class="left" onclick={enabled() ? decStartTime : () => { }} onauxclick={showLeftContextMenu}>&lt;</button>
             <div contenteditable={enabled() ? "plaintext-only" : false} onblur={onDateTimeBlur} onkeypress={focusoutOnEnter} class="main" classList={{ error: dateParseError() }} style="width: 150px;">
                 {renderedStartTime()}
             </div>
-            <button class="right" onclick={enabled() ? incStartTime : () => { }}>&gt;</button>
+            <button class="right" onclick={enabled() ? incStartTime : () => { }} onauxclick={showRightContextMenu}>&gt;</button>
         </div>
         <div class="time-control">
             <button class="left" onclick={enabled() ? decDuration : () => { }}>-</button>

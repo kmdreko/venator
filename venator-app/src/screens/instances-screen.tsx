@@ -3,7 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { InstanceDetailPane } from "../components/detail-pane";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { Input, Instance, parseInstanceFilter } from '../invoke';
+import { Input, Instance, parseInstanceFilter, Timestamp } from '../invoke';
 import { PartialFilter, PositionedInstance, Timespan } from "../models";
 import { ColumnDef, INHERENT, parseInstanceColumn, Table } from "../components/table";
 import { InstanceGraph } from "../components/instance-graph";
@@ -37,6 +37,44 @@ export function InstancesScreen(props: InstancesScreenProps) {
     const [hoveredRow, setHoveredRow] = createSignal<Instance | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
+    async function getTimestampBefore(timestamp: Timestamp) {
+        // TODO: this gets the most recent "connected_at" and not the most
+        // recent "disconnected_at" that a user is probably expecting, however 
+        // at the moment that is more complicated to get and unclear what to
+        // return if the timestamp is intersecting an instance
+
+        let instances = await props.getInstances({
+            order: 'desc',
+            start: null,
+            end: timestamp,
+            limit: 1,
+        });
+
+        if (instances == null || instances.length == 0) {
+            return null;
+        }
+
+        return instances[0].connected_at;
+    }
+
+    async function getTimestampAfter(timestamp: Timestamp) {
+        // TODO: this will return a timestamp "before" the one provided if it
+        // intersects an instance
+
+        let instances = await props.getInstances({
+            order: 'asc',
+            start: timestamp,
+            end: null,
+            limit: 1,
+        });
+
+        if (instances == null || instances.length == 0) {
+            return null;
+        }
+
+        return instances[0].connected_at;
+    }
+
     return (<div class="instances-screen">
         <ScreenHeader
             screenKind="instances"
@@ -46,6 +84,8 @@ export function InstancesScreen(props: InstancesScreenProps) {
             timeControlsEnabled={true}
             live={false}
             setLive={() => { }}
+            getTimestampBefore={getTimestampBefore}
+            getTimestampAfter={getTimestampAfter}
         />
 
         <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseInstanceFilter} />

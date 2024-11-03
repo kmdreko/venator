@@ -3,7 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { SpanDetailPane } from "../components/detail-pane";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { Input, parseSpanFilter, Span } from '../invoke';
+import { Input, parseSpanFilter, Span, Timestamp } from '../invoke';
 import { PartialFilter, PositionedSpan, Timespan } from "../models";
 import { ColumnDef, INHERENT, parseSpanColumn, Table } from "../components/table";
 import { SpanGraph } from "../components/span-graph";
@@ -37,6 +37,44 @@ export function SpansScreen(props: SpansScreenProps) {
     const [hoveredRow, setHoveredRow] = createSignal<Span | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
+    async function getTimestampBefore(timestamp: Timestamp) {
+        // TODO: this gets the most recent "created_at" and not the most recent
+        // "closed_at" that a user is probably expecting, however at the moment
+        // that is more complicated to get and unclear what to return if the
+        // timestamp is intersecting a span
+
+        let spans = await props.getSpans({
+            order: 'desc',
+            start: null,
+            end: timestamp,
+            limit: 1,
+        });
+
+        if (spans == null || spans.length == 0) {
+            return null;
+        }
+
+        return spans[0].created_at;
+    }
+
+    async function getTimestampAfter(timestamp: Timestamp) {
+        // TODO: this will return a timestamp "before" the one provided if it
+        // intersects a span
+
+        let spans = await props.getSpans({
+            order: 'asc',
+            start: timestamp,
+            end: null,
+            limit: 1,
+        });
+
+        if (spans == null || spans.length == 0) {
+            return null;
+        }
+
+        return spans[0].created_at;
+    }
+
     return (<div class="spans-screen">
         <ScreenHeader
             screenKind="spans"
@@ -46,6 +84,8 @@ export function SpansScreen(props: SpansScreenProps) {
             timeControlsEnabled={true}
             live={false}
             setLive={() => { }}
+            getTimestampBefore={getTimestampBefore}
+            getTimestampAfter={getTimestampAfter}
         />
 
         <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseSpanFilter} />

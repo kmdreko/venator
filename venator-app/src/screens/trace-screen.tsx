@@ -62,6 +62,8 @@ export function TraceScreen(props: TraceScreenProps) {
             timeControlsEnabled={false}
             live={false}
             setLive={() => { }}
+            getTimestampBefore={async () => null}
+            getTimestampAfter={async () => null}
         />
 
         <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseSpanFilter} />

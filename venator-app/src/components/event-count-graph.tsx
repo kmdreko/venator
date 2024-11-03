@@ -322,7 +322,7 @@ export function EventCountGraph(props: EventCountGraphProps) {
         <div class="event-count-graph-stats">
             <span class="stat-name">height:</span>
             <span class="stat-value">{barHeightMax()}</span>
-            <span class="stat-name">bar:</span>
+            <span class="stat-name">bar-width:</span>
             <span class="stat-value">{barSize()}</span>
             <Show when={mouseTime() != null}>
                 <span class="stat-name">cursor:</span>

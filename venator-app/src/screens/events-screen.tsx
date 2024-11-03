@@ -4,7 +4,7 @@ import { EventDetailPane } from "../components/detail-pane";
 import { EventCountGraph } from "../components/event-count-graph";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { Event, Input, parseEventFilter } from '../invoke';
+import { Event, Input, parseEventFilter, Timestamp } from '../invoke';
 import { Counts, PartialEventCountFilter, PartialFilter, Timespan } from "../models";
 import { ATTRIBUTE, ColumnDef, parseEventColumn, Table } from "../components/table";
 
@@ -40,6 +40,36 @@ export function EventsScreen(props: EventsScreenProps) {
     const [hoveredRow, setHoveredRow] = createSignal<Event | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
+    async function getTimestampBefore(timestamp: Timestamp) {
+        let events = await props.getEvents({
+            order: 'desc',
+            start: null,
+            end: timestamp,
+            limit: 1,
+        });
+
+        if (events.length == 0) {
+            return null;
+        }
+
+        return events[0].timestamp;
+    }
+
+    async function getTimestampAfter(timestamp: Timestamp) {
+        let events = await props.getEvents({
+            order: 'asc',
+            start: timestamp,
+            end: null,
+            limit: 1,
+        });
+
+        if (events.length == 0) {
+            return null;
+        }
+
+        return events[0].timestamp;
+    }
+
     return (<div class="events-screen">
         <ScreenHeader
             screenKind="events"
@@ -50,6 +80,8 @@ export function EventsScreen(props: EventsScreenProps) {
             timeControlsEnabled={true}
             live={props.live}
             setLive={props.setLive}
+            getTimestampBefore={getTimestampBefore}
+            getTimestampAfter={getTimestampAfter}
         />
 
         <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseEventFilter} />
