@@ -156,7 +156,7 @@ export function TimeControls(props: TimeControlProps) {
             </div>
             <button class="right" onclick={enabled() ? incDuration : () => { }}>+</button>
         </div>
-        <button class="live" onclick={() => props.setLive(!props.live)}>
+        <button classList={{ "live": true, "active": props.live }} onclick={() => props.setLive(!props.live)}>
             <img src={props.live ? pauseIcon : playIcon} style="width:14px;height:14px;" />
         </button>
     </div>;
