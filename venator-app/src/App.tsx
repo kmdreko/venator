@@ -633,6 +633,14 @@ function App() {
             timespan: normalizedTimespan,
         };
 
+        if (updated_screens[current_selected_screen].live) {
+            let duration = normalizedTimespan[1] - normalizedTimespan[0];
+            let snap_dist = duration * 0.10;
+            if (normalizedTimespan[1] < Date.now() * 1000 - snap_dist) {
+                updated_screens[current_selected_screen].live = false;
+            }
+        }
+
         undoHistories[current_selected_screen].updateWithTimespan(normalizedTimespan);
         setScreens(updated_screens);
     }
@@ -645,6 +653,14 @@ function App() {
             ...current_screens[current_selected_screen],
             live,
         };
+
+        let store = (updated_screens[current_selected_screen] as EventsScreenData).store;
+        if (live) {
+            store.subscribe();
+        } else {
+            store.unsubscribe();
+        }
+
         setScreens(updated_screens);
     }
 
@@ -1084,15 +1100,7 @@ function App() {
                                 getEventCounts={(f, w) => getAndCacheEventCounts(getCurrentScreen() as EventsScreenData, f, w)}
 
                                 live={(getCurrentScreen() as EventsScreenData).live}
-                                setLive={live => {
-                                    let store = (getCurrentScreen() as EventsScreenData).store;
-                                    if (live) {
-                                        store.subscribe();
-                                    } else {
-                                        store.unsubscribe();
-                                    }
-                                    setScreenLive(live);
-                                }}
+                                setLive={setScreenLive}
 
                                 selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}
