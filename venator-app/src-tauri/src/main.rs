@@ -474,8 +474,14 @@ fn main() {
                         &MenuItem::new(handle, "Duplicate tab", true, None::<&str>)?,
                         &MenuItem::new(handle, "Close all tabs", true, None::<&str>)?,
                         &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Focus", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Focus all", true, None::<&str>)?,
+                        &MenuItem::with_id(handle, "focus", "Focus", true, Some("ctrl+g"))?,
+                        &MenuItem::with_id(
+                            handle,
+                            "focus-all",
+                            "Focus all",
+                            true,
+                            Some("ctrl+shift+g"),
+                        )?,
                         &PredefinedMenuItem::separator(handle)?,
                         &MenuItem::new(handle, "Go to start", true, None::<&str>)?,
                         &MenuItem::new(handle, "Go to end", true, None::<&str>)?,
@@ -584,6 +590,12 @@ fn main() {
                 }
                 "redo" => {
                     app.emit("redo-clicked", ()).unwrap();
+                }
+                "focus" => {
+                    app.emit("focus-clicked", ()).unwrap();
+                }
+                "focus-all" => {
+                    app.emit("focus-all-clicked", ()).unwrap();
                 }
                 "set-theme-light" => {
                     app.emit("set-theme-light-clicked", ()).unwrap();

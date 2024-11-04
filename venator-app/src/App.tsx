@@ -365,6 +365,14 @@ function App() {
             performRedo();
         });
 
+        await listen('focus-clicked', () => {
+            performFocus();
+        });
+
+        await listen('focus-all-clicked', () => {
+            performFocusAll();
+        });
+
         await listen('set-theme-light-clicked', () => {
             root_element.setAttribute('data-theme', 'light');
         });
@@ -432,6 +440,14 @@ function App() {
             if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'y') {
                 e.preventDefault();
                 performRedo();
+            }
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'g') {
+                e.preventDefault();
+                performFocus();
+            }
+            if (e.ctrlKey && !e.altKey && e.shiftKey && e.key == 'G') {
+                e.preventDefault();
+                performFocusAll();
             }
         }
     })
@@ -1066,6 +1082,216 @@ function App() {
             setRawFilters(updated_raw_filters);
             setColumnDatas(updated_column_datas);
         });
+    }
+
+    async function performFocus() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+
+        if (current_screens[current_selected_screen].kind == 'events') {
+            let [start, end] = current_screens[current_selected_screen].timespan;
+
+            let start_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+                order: 'asc',
+                start,
+                end: null,
+                limit: 1,
+            });
+
+            let end_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+                order: 'desc',
+                start: null,
+                end,
+                limit: 1,
+            });
+
+            let start_timestamp = start_events.length == 0 ? null : start_events[0].timestamp;
+            let end_timestamp = end_events.length == 0 ? null : end_events[0].timestamp;
+
+            if (start_timestamp == null || end_timestamp == null) {
+                return;
+            }
+
+            let duration = end_timestamp - start_timestamp;
+            let padded_start = start_timestamp - duration * 0.05;
+            let padded_end = end_timestamp + duration * 0.05;
+
+            setScreenTimespan([padded_start, padded_end]);
+        } else if (current_screens[current_selected_screen].kind == 'spans') {
+            let [start, end] = current_screens[current_selected_screen].timespan;
+
+            let start_spans = await getAndCacheSpans(current_screens[current_selected_screen], {
+                order: 'asc',
+                start,
+                end: null,
+                limit: 1,
+            });
+
+            let end_spans = await getAndCacheSpans(current_screens[current_selected_screen], {
+                order: 'desc',
+                start: null,
+                end,
+                limit: 1,
+            });
+
+            // TODO: this will return a timestamp "before" the one provided if it
+            // intersects a span
+            let start_timestamp = (start_spans == null || start_spans.length == 0) ? null : start_spans[0].created_at;
+
+            // TODO: this gets the most recent "created_at" and not the most recent
+            // "closed_at" that a user is probably expecting, however at the moment
+            // that is more complicated to get and unclear what to return if the
+            // timestamp is intersecting a span
+            let end_timestamp = (end_spans == null || end_spans.length == 0) ? null : end_spans[0].created_at;
+
+            if (start_timestamp == null || end_timestamp == null) {
+                return;
+            }
+
+            let duration = end_timestamp - start_timestamp;
+            let padded_start = start_timestamp - duration * 0.05;
+            let padded_end = end_timestamp + duration * 0.05;
+
+            setScreenTimespan([padded_start, padded_end]);
+        } else if (current_screens[current_selected_screen].kind == 'instances') {
+            let [start, end] = current_screens[current_selected_screen].timespan;
+
+            let start_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+                order: 'asc',
+                start,
+                end: null,
+                limit: 1,
+            });
+
+            let end_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+                order: 'desc',
+                start: null,
+                end,
+                limit: 1,
+            });
+
+            // TODO: this will return a timestamp "before" the one provided if it
+            // intersects an instance
+            let start_timestamp = (start_instances == null || start_instances.length == 0) ? null : start_instances[0].connected_at;
+
+            // TODO: this gets the most recent "connected_at" and not the most
+            // recent "disconnected_at" that a user is probably expecting, however 
+            // at the moment that is more complicated to get and unclear what to
+            // return if the timestamp is intersecting an instance
+            let end_timestamp = (end_instances == null || end_instances.length == 0) ? null : end_instances[0].connected_at;
+
+            if (start_timestamp == null || end_timestamp == null) {
+                return;
+            }
+
+            let duration = end_timestamp - start_timestamp;
+            let padded_start = start_timestamp - duration * 0.05;
+            let padded_end = end_timestamp + duration * 0.05;
+
+            setScreenTimespan([padded_start, padded_end]);
+        }
+    }
+
+    async function performFocusAll() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+
+        if (current_screens[current_selected_screen].kind == 'events') {
+            let start_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+                order: 'asc',
+                start: null,
+                end: null,
+                limit: 1,
+            });
+
+            let end_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+                order: 'desc',
+                start: null,
+                end: null,
+                limit: 1,
+            });
+
+            let start_timestamp = start_events.length == 0 ? null : start_events[0].timestamp;
+            let end_timestamp = end_events.length == 0 ? null : end_events[0].timestamp;
+
+            if (start_timestamp == null || end_timestamp == null) {
+                return;
+            }
+
+            let duration = end_timestamp - start_timestamp;
+            let padded_start = start_timestamp - duration * 0.05;
+            let padded_end = end_timestamp + duration * 0.05;
+
+            setScreenTimespan([padded_start, padded_end]);
+        } else if (current_screens[current_selected_screen].kind == 'spans') {
+            let start_spans = await getAndCacheSpans(current_screens[current_selected_screen], {
+                order: 'asc',
+                start: null,
+                end: null,
+                limit: 1,
+            });
+
+            let end_spans = await getAndCacheSpans(current_screens[current_selected_screen], {
+                order: 'desc',
+                start: null,
+                end: null,
+                limit: 1,
+            });
+
+            // TODO: this will return a timestamp "before" the one provided if it
+            // intersects a span
+            let start_timestamp = (start_spans == null || start_spans.length == 0) ? null : start_spans[0].created_at;
+
+            // TODO: this gets the most recent "created_at" and not the most recent
+            // "closed_at" that a user is probably expecting, however at the moment
+            // that is more complicated to get and unclear what to return if the
+            // timestamp is intersecting a span
+            let end_timestamp = (end_spans == null || end_spans.length == 0) ? null : end_spans[0].created_at;
+
+            if (start_timestamp == null || end_timestamp == null) {
+                return;
+            }
+
+            let duration = end_timestamp - start_timestamp;
+            let padded_start = start_timestamp - duration * 0.05;
+            let padded_end = end_timestamp + duration * 0.05;
+
+            setScreenTimespan([padded_start, padded_end]);
+        } else if (current_screens[current_selected_screen].kind == 'instances') {
+            let start_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+                order: 'asc',
+                start: null,
+                end: null,
+                limit: 1,
+            });
+
+            let end_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+                order: 'desc',
+                start: null,
+                end: null,
+                limit: 1,
+            });
+
+            // TODO: this will return a timestamp "before" the one provided if it
+            // intersects an instance
+            let start_timestamp = (start_instances == null || start_instances.length == 0) ? null : start_instances[0].connected_at;
+
+            // TODO: this gets the most recent "connected_at" and not the most
+            // recent "disconnected_at" that a user is probably expecting, however 
+            // at the moment that is more complicated to get and unclear what to
+            // return if the timestamp is intersecting an instance
+            let end_timestamp = (end_instances == null || end_instances.length == 0) ? null : end_instances[0].connected_at;
+
+            if (start_timestamp == null || end_timestamp == null) {
+                return;
+            }
+
+            let duration = end_timestamp - start_timestamp;
+            let padded_start = start_timestamp - duration * 0.05;
+            let padded_end = end_timestamp + duration * 0.05;
+
+            setScreenTimespan([padded_start, padded_end]);
+        }
     }
 
     return (<>
