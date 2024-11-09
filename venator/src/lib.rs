@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -6,7 +8,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tracing::span::{Attributes, Id, Record};
-use tracing::{debug, error, Event, Subscriber};
+use tracing::{debug, error, Event, Subscriber, Value};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
@@ -14,29 +16,91 @@ mod fields;
 mod ids;
 mod messaging;
 
+use fields::OwnedValue;
 use ids::VenatorId;
 use messaging::{Handshake, Message};
 
+/// This is a builder for configuring a [`Venator`] layer. Use [`.build()`](VenatorBuilder::build)
+/// to finalize.
 pub struct VenatorBuilder {
     host: Option<String>,
-    fields: BTreeMap<String, String>,
+    fields: BTreeMap<String, OwnedValue>,
 }
 
 impl VenatorBuilder {
-    pub fn with_host(mut self, host: String) -> VenatorBuilder {
-        self.host = Some(host);
+    /// This will set the host address of the `Venator` layer used to connect to
+    /// the Venator app.
+    ///
+    /// Setting the host again will overwrite the previous value. The default is
+    /// `"localhost:8362"` which is the default for the Venator app.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use venator::Venator;
+    /// let venator_layer = Venator::builder()
+    ///     .with_host("localhost:8362")
+    ///     .build()
+    ///     .install();
+    /// ```
+    pub fn with_host<H: Into<String>>(mut self, host: H) -> VenatorBuilder {
+        self.host = Some(host.into());
         self
     }
 
-    pub fn with_attribute<A: Into<String>, V: Into<String>>(
+    /// This will add an attribute to the `Venator` layer. These will be
+    /// provided to the Venator app and all events and spans will have these
+    /// root attributes.
+    ///
+    /// Providing an attribute with the same name as another will overwrite the
+    /// previous value. Note that some values (like `None`) don't record a
+    /// "value" and will not set or overwrite that attribute.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use venator::Venator;
+    /// let venator_layer = Venator::builder()
+    ///     .with_attribute("service", "my_app")
+    ///     .with_attribute("service.version", 5)
+    ///     .with_attribute("environment", "dev")
+    ///     .with_attribute("environment.debug", true)
+    ///     .build()
+    ///     .install();
+    /// ```
+    pub fn with_attribute<A: Into<String>, V: Value>(
         mut self,
         attribute: A,
         value: V,
     ) -> VenatorBuilder {
-        self.fields.insert(attribute.into(), value.into());
+        if let Some(value) = OwnedValue::from_tracing(value) {
+            self.fields.insert(attribute.into(), value);
+        }
         self
     }
 
+    /// This will build the `Venator` layer. It will need to be added to another
+    /// subscriber via `.with()` or installed globally with [`.install()`](Venator::install)
+    /// to be useful.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use venator::Venator;
+    /// # use tracing_subscriber::layer::SubscriberExt;
+    /// # use tracing_subscriber::util::SubscriberInitExt;
+    /// let venator_layer = Venator::builder()
+    ///     .with_host("localhost:8362")
+    ///     .with_attribute("service", "my_app")
+    ///     .with_attribute("environment", "dev")
+    ///     .build();
+    ///
+    /// tracing_subscriber::registry()
+    ///     .with(venator_layer)
+    ///     .with(tracing_subscriber::fmt::Layer::default())
+    ///     .with(tracing_subscriber::EnvFilter::from_default_env())
+    ///     .init();
+    /// ```
     pub fn build(self) -> Venator {
         let connection = Connection::new(self.host, self.fields);
 
@@ -46,16 +110,40 @@ impl VenatorBuilder {
     }
 }
 
+/// This is the layer that will connect and send event and span data to the
+/// Venator app.
+///
+/// You can configure it with [`.builder()`](Venator::builder) or just use the
+/// `default()`.
 pub struct Venator {
     connection: Mutex<Connection>,
 }
 
 impl Venator {
+    /// This creates a builder for a `Venator` layer for configuring the host
+    /// and/or attributes.
     pub fn builder() -> VenatorBuilder {
         VenatorBuilder {
             host: None,
             fields: BTreeMap::new(),
         }
+    }
+
+    /// This will set a default `Venator` layer as the global subscriber.
+    ///
+    /// # Panics
+    ///
+    /// This call will panic if there is already a global subscriber configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use venator::Venator;
+    /// Venator::default().install();
+    /// ```
+    pub fn install(self) {
+        use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+        tracing_subscriber::registry().with(self).init();
     }
 
     fn send(&self, message: &Message) {
@@ -73,6 +161,12 @@ impl Venator {
         self.connection.lock().unwrap().send(&buffer);
 
         SCRATCH.with(|b| b.set(buffer));
+    }
+}
+
+impl Default for Venator {
+    fn default() -> Self {
+        Venator::builder().build()
     }
 }
 
@@ -170,13 +264,13 @@ where
 
 struct Connection {
     host: Option<String>,
-    fields: BTreeMap<String, String>,
+    fields: BTreeMap<String, OwnedValue>,
     stream: Option<TcpStream>,
     last_connect_attempt: Instant,
 }
 
 impl Connection {
-    fn new(host: Option<String>, fields: BTreeMap<String, String>) -> Connection {
+    fn new(host: Option<String>, fields: BTreeMap<String, OwnedValue>) -> Connection {
         Connection {
             host,
             fields,

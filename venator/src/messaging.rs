@@ -9,6 +9,7 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
+use crate::fields::OwnedValue;
 use crate::ids::VenatorId;
 
 fn now() -> NonZeroU64 {
@@ -45,7 +46,7 @@ pub(crate) fn encode<T: Serialize>(buffer: &mut Vec<u8>, payload: &T) -> Result<
 
 #[derive(Serialize)]
 pub struct Handshake {
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, OwnedValue>,
 }
 
 #[derive(Serialize)]

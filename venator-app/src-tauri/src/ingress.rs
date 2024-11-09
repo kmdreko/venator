@@ -166,11 +166,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
             let instance_id = RandomState::new().hash_one(0u64);
             let instance = NewInstance {
                 id: instance_id,
-                fields: handshake
-                    .fields
-                    .into_iter()
-                    .map(|(k, v)| (k, venator_engine::Value::Str(v)))
-                    .collect(),
+                fields: conv_value_map(handshake.fields),
             };
 
             let instance_key = match engine.insert_instance(instance).await {
@@ -320,7 +316,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
 
 #[derive(Deserialize)]
 pub struct Handshake {
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
