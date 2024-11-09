@@ -158,7 +158,13 @@ impl Display for FilterPredicateSingle {
             None => {}
         }
 
-        write!(f, "{}: {}", self.property, self.value)?;
+        if name_needs_escapes(&self.property) {
+            write!(f, "{:?}", self.property)?;
+        } else {
+            write!(f, "{}", self.property)?;
+        }
+
+        write!(f, ": {}", self.value)?;
 
         Ok(())
     }
@@ -172,6 +178,10 @@ fn needs_escapes(s: &str) -> bool {
 
 fn escape_wildcard(s: &str) -> String {
     s.replace('\"', "\\\"")
+}
+
+fn name_needs_escapes(s: &str) -> bool {
+    s.contains(|c: char| !c.is_alphabetic() && c != '.' && c != '_') || s.is_empty()
 }
 
 mod parsers {
@@ -198,24 +208,32 @@ mod parsers {
         take_while1(|c: char| c.is_whitespace())(input)
     }
 
+    fn escaped_name(input: &str) -> IResult<&str, &str> {
+        escaped(none_of("\\\""), '\\', one_of("\"\\*"))(input)
+    }
+
+    fn quoted_name(input: &str) -> IResult<&str, Option<&str>> {
+        delimited(char('\"'), opt(escaped_name), char('\"'))(input)
+    }
+
     fn unquoted_name(input: &str) -> IResult<&str, &str> {
         take_while(|c: char| c.is_alphabetic() || c == '.' || c == '_')(input)
     }
 
+    fn name(input: &str) -> IResult<&str, &str> {
+        alt((map(quoted_name, |res| res.unwrap_or("")), unquoted_name))(input)
+    }
+
     fn inherent_name(input: &str) -> IResult<&str, &str> {
         let (input, _) = char('#')(input)?;
-        let (input, attr_name) = cut(unquoted_name)(input)?;
+        let (input, attr_name) = cut(name)(input)?;
         Ok((input, attr_name))
     }
 
     fn attribute_name(input: &str) -> IResult<&str, &str> {
         let (input, _) = char('@')(input)?;
-        let (input, attr_name) = cut(unquoted_name)(input)?;
+        let (input, attr_name) = cut(name)(input)?;
         Ok((input, attr_name))
-    }
-
-    fn undecorated_name(input: &str) -> IResult<&str, &str> {
-        take_while(|c: char| c.is_alphabetic() || c == '.')(input)
     }
 
     fn property(input: &str) -> IResult<&str, (Option<FilterPropertyKind>, &str)> {
@@ -224,7 +242,7 @@ mod parsers {
         alt((
             map(inherent_name, |name| (Some(Inherent), name)),
             map(attribute_name, |name| (Some(Attribute), name)),
-            map(undecorated_name, |name| (None, name)),
+            map(name, |name| (None, name)),
         ))(input)
     }
 
