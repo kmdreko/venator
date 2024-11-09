@@ -14,8 +14,9 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use venator_engine::{
     BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, DeleteFilter, DeleteMetrics, Engine,
-    EventView, FileStorage, FilterPredicate, FilterPropertyKind, InstanceView, Order, Query,
-    SpanView, StatsView, SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
+    EventView, FallibleFilterPredicate, FileStorage, FilterPredicate, FilterPredicateSingle,
+    FilterPropertyKind, InputError, InstanceView, Order, Query, SpanView, StatsView,
+    SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
 };
 
 mod ingress;
@@ -74,21 +75,12 @@ async fn parse_instance_filter(
             .into_iter()
             .map(|p| {
                 let text = p.to_string();
-                let result = match BasicInstanceFilter::validate(p) {
-                    Ok(predicate) => {
-                        FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
-                    }
-                    Err(err) => FilterPredicateResultView::Invalid {
-                        error: err.to_string(),
-                    },
-                };
-
-                InputView { text, result }
+                InputView::from(BasicInstanceFilter::validate(p).map_err(|e| (e, text)))
             })
             .collect()),
         Err(err) => Ok(vec![InputView {
-            text: filter.to_owned(),
             result: FilterPredicateResultView::Invalid {
+                text: filter.to_owned(),
                 error: err.to_string(),
             },
         }]),
@@ -149,21 +141,12 @@ async fn parse_event_filter(
             .into_iter()
             .map(|p| {
                 let text = p.to_string();
-                let result = match BasicEventFilter::validate(p) {
-                    Ok(predicate) => {
-                        FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
-                    }
-                    Err(err) => FilterPredicateResultView::Invalid {
-                        error: err.to_string(),
-                    },
-                };
-
-                InputView { text, result }
+                InputView::from(BasicEventFilter::validate(p).map_err(|e| (e, text)))
             })
             .collect()),
         Err(err) => Ok(vec![InputView {
-            text: filter.to_owned(),
             result: FilterPredicateResultView::Invalid {
+                text: filter.to_owned(),
                 error: err.to_string(),
             },
         }]),
@@ -221,21 +204,12 @@ async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<V
             .into_iter()
             .map(|p| {
                 let text = p.to_string();
-                let result = match BasicSpanFilter::validate(p) {
-                    Ok(predicate) => {
-                        FilterPredicateResultView::Valid(FilterPredicateView::from(predicate))
-                    }
-                    Err(err) => FilterPredicateResultView::Invalid {
-                        error: err.to_string(),
-                    },
-                };
-
-                InputView { text, result }
+                InputView::from(BasicSpanFilter::validate(p).map_err(|e| (e, text)))
             })
             .collect()),
         Err(err) => Ok(vec![InputView {
-            text: filter.to_owned(),
             result: FilterPredicateResultView::Invalid {
+                text: filter.to_owned(),
                 error: err.to_string(),
             },
         }]),
@@ -642,7 +616,6 @@ fn main() {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct InputView {
-    text: String,
     #[serde(flatten)]
     result: FilterPredicateResultView,
 }
@@ -651,11 +624,51 @@ struct InputView {
 #[serde(tag = "input", rename_all = "camelCase")]
 enum FilterPredicateResultView {
     Valid(FilterPredicateView),
-    Invalid { error: String },
+    Invalid { text: String, error: String },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct FilterPredicateView {
+#[serde(
+    tag = "predicate_kind",
+    rename_all = "camelCase",
+    content = "predicate"
+)]
+enum FilterPredicateView {
+    Single(FilterPredicateSingleView),
+    And(Vec<InputView>),
+    Or(Vec<InputView>),
+}
+
+impl From<Result<FallibleFilterPredicate, (InputError, String)>> for InputView {
+    fn from(result: Result<FallibleFilterPredicate, (InputError, String)>) -> Self {
+        match result {
+            Ok(FallibleFilterPredicate::Single(single)) => InputView {
+                result: FilterPredicateResultView::Valid(FilterPredicateView::Single(
+                    FilterPredicateSingleView::from(single),
+                )),
+            },
+            Ok(FallibleFilterPredicate::And(predicates)) => InputView {
+                result: FilterPredicateResultView::Valid(FilterPredicateView::And(
+                    predicates.into_iter().map(InputView::from).collect(),
+                )),
+            },
+            Ok(FallibleFilterPredicate::Or(predicates)) => InputView {
+                result: FilterPredicateResultView::Valid(FilterPredicateView::Or(
+                    predicates.into_iter().map(InputView::from).collect(),
+                )),
+            },
+            Err((err, text)) => InputView {
+                result: FilterPredicateResultView::Invalid {
+                    text,
+                    error: err.to_string(),
+                },
+            },
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct FilterPredicateSingleView {
     text: String,
     property_kind: Option<FilterPropertyKind>,
     property: String,
@@ -663,9 +676,9 @@ struct FilterPredicateView {
     value: ValuePredicate,
 }
 
-impl From<FilterPredicate> for FilterPredicateView {
-    fn from(inner: FilterPredicate) -> FilterPredicateView {
-        FilterPredicateView {
+impl From<FilterPredicateSingle> for FilterPredicateSingleView {
+    fn from(inner: FilterPredicateSingle) -> FilterPredicateSingleView {
+        FilterPredicateSingleView {
             text: inner.to_string(),
             property_kind: inner.property_kind,
             property: inner.property,

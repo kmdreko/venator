@@ -48,6 +48,20 @@
     max-width: fit-content;
 }
 
+.grouper {
+    white-space: pre-wrap;
+    font-weight: bold;
+    margin: 2px 0px;
+    /* padding: 2px 4px; */
+    padding: 2px 5px;
+}
+
+.filter-input:focus .grouper {
+    display: inline;
+    margin: 0;
+    padding: 0;
+}
+
 .level-predicate-0 {
     color: var(--level-0-color);
     background-color: var(--level-0-bg-color);

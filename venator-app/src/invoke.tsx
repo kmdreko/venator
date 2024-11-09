@@ -23,11 +23,17 @@ export type ValuePredicate =
 
 export type Input = (ValidFilterPredicate | InvalidFilterPredicate) & { editable?: false };
 
-export type ValidFilterPredicate = { text: string, input: 'valid' } & FilterPredicate;
+export type ValidFilterPredicate = { input: 'valid' } & FilterPredicate;
 
-export type InvalidFilterPredicate = { text: string, input: 'invalid', error: string };
+export type InvalidFilterPredicate = { input: 'invalid', text: string, error: string };
 
-export type FilterPredicate = {
+export type FilterPredicate =
+    { predicate_kind: 'single', predicate: FilterPredicateSingle } |
+    { predicate_kind: 'and', predicate: Input[] } |
+    { predicate_kind: 'or', predicate: Input[] };
+
+export type FilterPredicateSingle = {
+    text: string,
     property_kind?: string,
     property: string,
 } & ValuePredicate;

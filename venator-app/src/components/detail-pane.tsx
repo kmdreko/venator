@@ -147,10 +147,13 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
     createEffect(async () => {
         let countAtTimestamp = await getSpanCount({
             filter: props.filter.filter(f => f.input == 'valid').map(f => f as FilterPredicate).concat({
-                property_kind: 'Inherent',
-                property: 'created',
-                value_kind: 'comparison',
-                value: ['Eq', `${props.span.created_at}`]
+                predicate_kind: 'single',
+                predicate: {
+                    property_kind: 'Inherent',
+                    property: 'created',
+                    value_kind: 'comparison',
+                    value: ['Eq', `${props.span.created_at}`],
+                },
             } as FilterPredicate),
             start: props.span.created_at,
             end: props.span.created_at,
@@ -263,10 +266,13 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
     createEffect(async () => {
         let countAtTimestamp = await getInstanceCount({
             filter: props.filter.filter(f => f.input == 'valid').map(f => f as FilterPredicate).concat({
-                property_kind: 'Inherent',
-                property: 'connected',
-                value_kind: 'comparison',
-                value: ['Eq', `${props.instance.connected_at}`]
+                predicate_kind: 'single',
+                predicate: {
+                    property_kind: 'Inherent',
+                    property: 'connected',
+                    value_kind: 'comparison',
+                    value: ['Eq', `${props.instance.connected_at}`],
+                },
             } as FilterPredicate),
             start: props.instance.connected_at,
             end: props.instance.connected_at,
@@ -661,20 +667,26 @@ function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string)
 
 function createDefaultTraceScreen(spanId: FullSpanId): [ScreenData, ColumnData] {
     let filter: Input[] = [{
-        text: "#level: >=TRACE",
         input: 'valid',
-        property_kind: 'Inherent',
-        property: "level",
-        value_kind: 'comparison',
-        value: ['Gte', "TRACE"],
+        predicate_kind: 'single',
+        predicate: {
+            text: "#level: >=TRACE",
+            property_kind: 'Inherent',
+            property: "level",
+            value_kind: 'comparison',
+            value: ['Gte', "TRACE"],
+        },
         editable: false,
     }, {
-        text: `#stack: ${spanId}`,
         input: 'valid',
-        property_kind: 'Inherent',
-        property: "stack",
-        value_kind: 'comparison',
-        value: ['Eq', spanId],
+        predicate_kind: 'single',
+        predicate: {
+            text: `#stack: ${spanId}`,
+            property_kind: 'Inherent',
+            property: "stack",
+            value_kind: 'comparison',
+            value: ['Eq', spanId],
+        },
         editable: false,
     }];
 

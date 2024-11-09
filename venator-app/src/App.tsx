@@ -2,7 +2,7 @@ import { listen } from '@tauri-apps/api/event';
 import { ask, message, save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { EventsScreen } from "./screens/events-screen";
-import { AppStatus, deleteEntities, Event, getEvents, getInstances, getSpans, getStats, getStatus, Input, Instance, Span, Timestamp } from "./invoke";
+import { AppStatus, deleteEntities, Event, getEvents, getInstances, getSpans, getStats, getStatus, Input, Instance, Span, Timestamp, ValidFilterPredicate } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
@@ -79,12 +79,15 @@ export async function defaultEventsScreen(): Promise<[EventsScreenData, ColumnDa
     }
 
     let filter: Input[] = [{
-        text: "#level: >=TRACE",
         input: 'valid',
-        property_kind: 'Inherent',
-        property: "level",
-        value_kind: 'comparison',
-        value: ['Gte', "TRACE"],
+        predicate_kind: 'single',
+        predicate: {
+            text: "#level: >=TRACE",
+            property_kind: 'Inherent',
+            property: "level",
+            value_kind: 'comparison',
+            value: ['Gte', "TRACE"],
+        },
         editable: false,
     }];
     let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
@@ -123,20 +126,26 @@ export async function defaultSpansScreen(): Promise<[SpansScreenData, ColumnData
     }
 
     let filter: Input[] = [{
-        text: "#level: >=TRACE",
         input: 'valid',
-        property_kind: 'Inherent',
-        property: "level",
-        value_kind: 'comparison',
-        value: ['Gte', "TRACE"],
+        predicate_kind: 'single',
+        predicate: {
+            text: "#level: >=TRACE",
+            property_kind: 'Inherent',
+            property: "level",
+            value_kind: 'comparison',
+            value: ['Gte', "TRACE"],
+        },
         editable: false,
     }, {
-        text: "#parent: none",
         input: 'valid',
-        property_kind: 'Inherent',
-        property: "parent",
-        value_kind: 'comparison',
-        value: ['Eq', "none"],
+        predicate_kind: 'single',
+        predicate: {
+            text: "#parent: none",
+            property_kind: 'Inherent',
+            property: "parent",
+            value_kind: 'comparison',
+            value: ['Eq', "none"],
+        },
     }];
     let columns = [LEVEL, CREATED, INHERENT('name')];
     let columnWidths = columns.map(def => def.defaultWidth);
@@ -565,15 +574,47 @@ function App() {
 
         let valid_filter = filter.filter(f => f.input == 'valid');
 
-        function filterText(filter: Input[]): string {
+        function filterText(filter: ValidFilterPredicate[]): string {
             let s = "";
             for (let predicate of filter) {
-                s += ` ${predicate.text}`;
+                s += ` ${stringifyNestedFilter(predicate)}`;
             }
             return s;
         }
 
-        if (filterText(valid_filter) == filterText(current_screens[current_selected_screen].filter)) {
+        function stringifyNestedFilter(predicate: ValidFilterPredicate): string {
+            let s = "";
+            switch (predicate.predicate_kind) {
+                case "single":
+                    s += ` ${predicate.predicate.text}`;
+                    break;
+                case "and":
+                    s += ` (`;
+                    let and_predicates = predicate.predicate.filter(f => f.input == 'valid');
+                    for (let i = 0; i < and_predicates.length; i++) {
+                        if (i != 0) {
+                            s += " AND ";
+                        }
+                        s += stringifyNestedFilter(and_predicates[i]);
+                    }
+                    s += ")";
+                    break;
+                case "or":
+                    s += ` (`;
+                    let or_predicates = predicate.predicate.filter(f => f.input == 'valid');
+                    for (let i = 0; i < or_predicates.length; i++) {
+                        if (i != 0) {
+                            s += " OR ";
+                        }
+                        s += stringifyNestedFilter(or_predicates[i]);
+                    }
+                    s += ")";
+                    break;
+            }
+            return s;
+        }
+
+        if (filterText(valid_filter) == filterText(current_screens[current_selected_screen].filter as ValidFilterPredicate[])) {
             // valid filter didn't change, only update raw_filter
 
             updated_raw_filters[current_selected_screen] = filter;
@@ -732,12 +773,15 @@ function App() {
 
         if (updated_screens.length == 0) {
             let filter: Input[] = [{
-                text: "#level: >=TRACE",
                 input: 'valid',
-                property_kind: 'Inherent',
-                property: "level",
-                value_kind: 'comparison',
-                value: ['Gte', "TRACE"],
+                predicate_kind: 'single',
+                predicate: {
+                    text: "#level: >=TRACE",
+                    property_kind: 'Inherent',
+                    property: "level",
+                    value_kind: 'comparison',
+                    value: ['Gte', "TRACE"],
+                },
                 editable: false,
             }];
             let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];

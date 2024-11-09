@@ -5,7 +5,7 @@ use std::ops::{Add, Range};
 
 use attribute::{ValueFilter, ValueStringComparison};
 use ghost_cell::GhostToken;
-use input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
+use input::{FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate};
 use regex::Regex;
 use serde::Deserialize;
 use wildcard::WildcardBuilder;
@@ -17,6 +17,14 @@ use crate::{Ancestors, Event, InstanceId, InstanceKey, RawEngine, SpanId};
 
 pub mod attribute;
 pub mod input;
+
+#[derive(Clone)]
+pub enum FallibleFilterPredicate {
+    // Not(Box<FilterPredicate>),
+    Single(FilterPredicateSingle),
+    And(Vec<Result<FallibleFilterPredicate, (InputError, String)>>),
+    Or(Vec<Result<FallibleFilterPredicate, (InputError, String)>>),
+}
 
 #[derive(Deserialize)]
 pub struct Query {
@@ -619,9 +627,29 @@ impl BasicEventFilter {
         }
     }
 
-    pub fn validate(predicate: FilterPredicate) -> Result<FilterPredicate, InputError> {
+    pub fn validate(predicate: FilterPredicate) -> Result<FallibleFilterPredicate, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
+
+        let predicate = match predicate {
+            FilterPredicate::Single(single) => single,
+            FilterPredicate::And(predicates) => {
+                return Ok(FallibleFilterPredicate::And(
+                    predicates
+                        .into_iter()
+                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
+                        .collect(),
+                ));
+            }
+            FilterPredicate::Or(predicates) => {
+                return Ok(FallibleFilterPredicate::Or(
+                    predicates
+                        .into_iter()
+                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
+                        .collect(),
+                ));
+            }
+        };
 
         let property_kind = predicate
             .property_kind
@@ -777,10 +805,10 @@ impl BasicEventFilter {
             }
         };
 
-        Ok(FilterPredicate {
+        Ok(FallibleFilterPredicate::Single(FilterPredicateSingle {
             property_kind: Some(property_kind),
             ..predicate
-        })
+        }))
     }
 
     pub fn from_predicate(
@@ -790,6 +818,24 @@ impl BasicEventFilter {
     ) -> Result<BasicEventFilter, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
+
+        let predicate = match predicate {
+            FilterPredicate::Single(single) => single,
+            FilterPredicate::And(predicates) => {
+                return predicates
+                    .into_iter()
+                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .collect::<Result<_, _>>()
+                    .map(BasicEventFilter::And)
+            }
+            FilterPredicate::Or(predicates) => {
+                return predicates
+                    .into_iter()
+                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .collect::<Result<_, _>>()
+                    .map(BasicEventFilter::Or)
+            }
+        };
 
         let property_kind = predicate
             .property_kind
@@ -1957,9 +2003,29 @@ impl BasicSpanFilter {
         }
     }
 
-    pub fn validate(predicate: FilterPredicate) -> Result<FilterPredicate, InputError> {
+    pub fn validate(predicate: FilterPredicate) -> Result<FallibleFilterPredicate, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
+
+        let predicate = match predicate {
+            FilterPredicate::Single(single) => single,
+            FilterPredicate::And(predicates) => {
+                return Ok(FallibleFilterPredicate::And(
+                    predicates
+                        .into_iter()
+                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
+                        .collect(),
+                ));
+            }
+            FilterPredicate::Or(predicates) => {
+                return Ok(FallibleFilterPredicate::Or(
+                    predicates
+                        .into_iter()
+                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
+                        .collect(),
+                ));
+            }
+        };
 
         let property_kind = predicate
             .property_kind
@@ -2166,10 +2232,10 @@ impl BasicSpanFilter {
             }
         }
 
-        Ok(FilterPredicate {
+        Ok(FallibleFilterPredicate::Single(FilterPredicateSingle {
             property_kind: Some(property_kind),
             ..predicate
-        })
+        }))
     }
 
     pub fn from_predicate(
@@ -2179,6 +2245,24 @@ impl BasicSpanFilter {
     ) -> Result<BasicSpanFilter, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
+
+        let predicate = match predicate {
+            FilterPredicate::Single(single) => single,
+            FilterPredicate::And(predicates) => {
+                return predicates
+                    .into_iter()
+                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .collect::<Result<_, _>>()
+                    .map(BasicSpanFilter::And)
+            }
+            FilterPredicate::Or(predicates) => {
+                return predicates
+                    .into_iter()
+                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .collect::<Result<_, _>>()
+                    .map(BasicSpanFilter::Or)
+            }
+        };
 
         let property_kind = predicate
             .property_kind
@@ -2754,8 +2838,28 @@ impl BasicInstanceFilter {
         }
     }
 
-    pub fn validate(predicate: FilterPredicate) -> Result<FilterPredicate, InputError> {
+    pub fn validate(predicate: FilterPredicate) -> Result<FallibleFilterPredicate, InputError> {
         use FilterPropertyKind::*;
+
+        let predicate = match predicate {
+            FilterPredicate::Single(single) => single,
+            FilterPredicate::And(predicates) => {
+                return Ok(FallibleFilterPredicate::And(
+                    predicates
+                        .into_iter()
+                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
+                        .collect(),
+                ))
+            }
+            FilterPredicate::Or(predicates) => {
+                return Ok(FallibleFilterPredicate::Or(
+                    predicates
+                        .into_iter()
+                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
+                        .collect(),
+                ))
+            }
+        };
 
         let property_kind = predicate
             .property_kind
@@ -2820,14 +2924,32 @@ impl BasicInstanceFilter {
             }
         }
 
-        Ok(FilterPredicate {
+        Ok(FallibleFilterPredicate::Single(FilterPredicateSingle {
             property_kind: Some(property_kind),
             ..predicate
-        })
+        }))
     }
 
     pub fn from_predicate(predicate: FilterPredicate) -> Result<BasicInstanceFilter, InputError> {
         use FilterPropertyKind::*;
+
+        let predicate = match predicate {
+            FilterPredicate::Single(single) => single,
+            FilterPredicate::And(predicates) => {
+                return predicates
+                    .into_iter()
+                    .map(Self::from_predicate)
+                    .collect::<Result<_, _>>()
+                    .map(BasicInstanceFilter::And)
+            }
+            FilterPredicate::Or(predicates) => {
+                return predicates
+                    .into_iter()
+                    .map(Self::from_predicate)
+                    .collect::<Result<_, _>>()
+                    .map(BasicInstanceFilter::Or)
+            }
+        };
 
         let property_kind = predicate
             .property_kind

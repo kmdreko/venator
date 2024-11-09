@@ -25,8 +25,13 @@ use filter::{
 };
 use index::{AttributeIndex, EventIndexes, IndexExt, SpanIndexes};
 
-pub use filter::input::{FilterPredicate, FilterPropertyKind, ValuePredicate};
-pub use filter::{BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, Order, Query};
+pub use filter::input::{
+    FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate,
+};
+pub use filter::{
+    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, FallibleFilterPredicate, InputError,
+    Order, Query,
+};
 pub use models::{
     AncestorView, AttributeSourceView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
     InstanceId, InstanceKey, InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent,

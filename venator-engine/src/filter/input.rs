@@ -19,7 +19,7 @@ pub enum FilterPropertyKind {
     Attribute,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "value_kind", content = "value", rename_all = "camelCase")]
 pub enum ValuePredicate {
     Not(Box<ValuePredicate>),
@@ -99,12 +99,17 @@ impl Display for ValuePredicate {
     }
 }
 
-#[derive(Clone, Deserialize)]
-pub struct FilterPredicate {
-    pub property_kind: Option<FilterPropertyKind>,
-    pub property: String,
-    #[serde(flatten)]
-    pub value: ValuePredicate,
+#[derive(Debug, Clone, Deserialize)]
+#[serde(
+    tag = "predicate_kind",
+    rename_all = "camelCase",
+    content = "predicate"
+)]
+pub enum FilterPredicate {
+    // Not(Box<FilterPredicate>),
+    Single(FilterPredicateSingle),
+    And(Vec<FilterPredicate>),
+    Or(Vec<FilterPredicate>),
 }
 
 impl FilterPredicate {
@@ -116,6 +121,36 @@ impl FilterPredicate {
 }
 
 impl Display for FilterPredicate {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            FilterPredicate::Single(single) => write!(f, "{single}"),
+            FilterPredicate::And(inners) => {
+                write!(f, "({}", inners[0])?;
+                for inner in &inners[1..] {
+                    write!(f, " AND {}", inner)?;
+                }
+                write!(f, ")")
+            }
+            FilterPredicate::Or(inners) => {
+                write!(f, "({}", inners[0])?;
+                for inner in &inners[1..] {
+                    write!(f, " OR {}", inner)?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FilterPredicateSingle {
+    pub property_kind: Option<FilterPropertyKind>,
+    pub property: String,
+    #[serde(flatten)]
+    pub value: ValuePredicate,
+}
+
+impl Display for FilterPredicateSingle {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         match self.property_kind {
             Some(FilterPropertyKind::Inherent) => write!(f, "#")?,
@@ -132,6 +167,7 @@ impl Display for FilterPredicate {
 fn needs_escapes(s: &str) -> bool {
     s.contains(['"', '\\', '/', '#', '@', ':', '<', '>', '=', '!'])
         || s.contains(|c: char| c.is_whitespace())
+        || s.is_empty()
 }
 
 fn escape_wildcard(s: &str) -> String {
@@ -366,20 +402,98 @@ mod parsers {
         })(input)
     }
 
-    fn predicate(input: &str) -> IResult<&str, FilterPredicate> {
+    fn predicate_list(input: &str) -> IResult<&str, FilterPredicate> {
+        let (input, _) = whitespace(input)?;
+        let (input, first) = predicate(input)?;
+        let (input, list) = many0(tuple((
+            whitespace,
+            alt((
+                map(tag("AND"), |_| GroupSeparator::And),
+                map(tag("OR"), |_| GroupSeparator::Or),
+            )),
+            whitespace,
+            predicate,
+        )))(input)?;
+        let (input, _) = whitespace(input)?;
+
+        if list.is_empty() {
+            return Ok((input, first));
+        }
+
+        // TODO: I'm sure this can be done better, but the clean solution isn't
+        // coming to me at the moment
+
+        let (mut separators, mut values) = list
+            .into_iter()
+            .map(|(_, sep, _, value)| (sep, value))
+            .collect::<(Vec<_>, Vec<_>)>();
+
+        values.insert(0, first);
+
+        let mut i = 0;
+        loop {
+            if let GroupSeparator::And = separators[i] {
+                let lhs = values.remove(i);
+                let rhs = values.remove(i);
+
+                let pred = match (lhs, rhs) {
+                    (FilterPredicate::And(mut lhs_ands), FilterPredicate::And(rhs_ands)) => {
+                        lhs_ands.extend(rhs_ands);
+                        FilterPredicate::And(lhs_ands)
+                    }
+                    (FilterPredicate::And(mut lhs_ands), rhs) => {
+                        lhs_ands.push(rhs);
+                        FilterPredicate::And(lhs_ands)
+                    }
+                    (lhs, FilterPredicate::And(mut rhs_ands)) => {
+                        rhs_ands.insert(0, lhs);
+                        FilterPredicate::And(rhs_ands)
+                    }
+                    (lhs, rhs) => FilterPredicate::And(vec![lhs, rhs]),
+                };
+
+                values.insert(i, pred);
+                separators.remove(i);
+
+                if i == separators.len() {
+                    break;
+                }
+            } else if i == separators.len() - 1 {
+                break;
+            } else {
+                i += 1;
+            }
+        }
+
+        if values.len() == 1 {
+            return Ok((input, values.pop().unwrap()));
+        }
+
+        Ok((input, FilterPredicate::Or(values)))
+    }
+
+    fn predicate_grouped(input: &str) -> IResult<&str, FilterPredicate> {
+        delimited(char('('), predicate_list, char(')'))(input)
+    }
+
+    fn predicate_single(input: &str) -> IResult<&str, FilterPredicate> {
         let (input, (kind, property)) = property(input)?;
         let (input, _) = whitespace(input)?;
         let (input, _) = char(':')(input)?;
         let (input, _) = whitespace(input)?;
         let (input, value) = value(input)?;
 
-        let predicate = FilterPredicate {
+        let predicate = FilterPredicate::Single(FilterPredicateSingle {
             property_kind: kind,
             property: property.to_owned(),
             value,
-        };
+        });
 
         Ok((input, predicate))
+    }
+
+    fn predicate(input: &str) -> IResult<&str, FilterPredicate> {
+        alt((predicate_grouped, predicate_single))(input)
     }
 
     pub fn predicates(input: &str) -> IResult<&str, Vec<FilterPredicate>> {

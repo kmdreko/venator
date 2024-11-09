@@ -35,7 +35,44 @@ export function TabBar(props: TabBarProps) {
     function stringifyFilter(filter: Input[]): string {
         let s = "";
         for (let predicate of filter) {
-            s += ` ${predicate.text}`;
+            s += ` ${stringifyNestedFilter(predicate)}`
+        }
+        return s;
+    }
+
+    function stringifyNestedFilter(predicate: Input): string {
+        let s = "";
+        switch (predicate.input) {
+            case 'invalid':
+                s += ` ${predicate.text}`;
+                break;
+            case "valid":
+                switch (predicate.predicate_kind) {
+                    case "single":
+                        s += ` ${predicate.predicate.text}`;
+                        break;
+                    case "and":
+                        s += ` (`;
+                        for (let i = 0; i < predicate.predicate.length; i++) {
+                            if (i != 0) {
+                                s += " AND ";
+                            }
+                            s += stringifyNestedFilter(predicate.predicate[i]);
+                        }
+                        s += ")";
+                        break;
+                    case "or":
+                        s += ` (`;
+                        for (let i = 0; i < predicate.predicate.length; i++) {
+                            if (i != 0) {
+                                s += " OR ";
+                            }
+                            s += stringifyNestedFilter(predicate.predicate[i]);
+                        }
+                        s += ")";
+                        break;
+                }
+                break;
         }
         return s;
     }
@@ -109,14 +146,17 @@ export function TabBar(props: TabBarProps) {
             let filterText = stringifyFilter(screen.filter);
             let filter = await parseEventFilter(filterText);
 
-            if (filter.length == 0 || !filter[0].text.startsWith('#level:')) {
+            if (filter.length == 0 || !(filter[0].input == 'valid' && filter[0].predicate_kind == 'single' && filter[0].predicate.text.startsWith('#level:'))) {
                 filter.unshift({
-                    text: "#level: >=TRACE",
                     input: 'valid',
-                    property_kind: 'Inherent',
-                    property: "level",
-                    value_kind: 'comparison',
-                    value: ['Gte', "TRACE"],
+                    predicate_kind: 'single',
+                    predicate: {
+                        text: "#level: >=TRACE",
+                        property_kind: 'Inherent',
+                        property: "level",
+                        value_kind: 'comparison',
+                        value: ['Gte', "TRACE"],
+                    },
                     editable: false,
                 });
             }
@@ -139,14 +179,17 @@ export function TabBar(props: TabBarProps) {
             let filterText = stringifyFilter(screen.filter);
             let filter = await parseSpanFilter(filterText);
 
-            if (filter.length == 0 || !filter[0].text.startsWith('#level:')) {
+            if (filter.length == 0 || !(filter[0].input == 'valid' && filter[0].predicate_kind == 'single' && filter[0].predicate.text.startsWith('#level:'))) {
                 filter.unshift({
-                    text: "#level: >=TRACE",
                     input: 'valid',
-                    property_kind: 'Inherent',
-                    property: "level",
-                    value_kind: 'comparison',
-                    value: ['Gte', "TRACE"],
+                    predicate_kind: 'single',
+                    predicate: {
+                        text: "#level: >=TRACE",
+                        property_kind: 'Inherent',
+                        property: "level",
+                        value_kind: 'comparison',
+                        value: ['Gte', "TRACE"],
+                    },
                     editable: false,
                 });
             }

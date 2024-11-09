@@ -294,11 +294,11 @@ export class EventDataLayer {
         }
 
         let counts = await Promise.all([
-            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "TRACE"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "DEBUG"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "INFO"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "WARN"] }], ...filter }),
-            getEventCount({ filter: [...this.#filter, { property: "level", value_kind: 'comparison', value: ['Eq', "ERROR"] }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "TRACE"] } }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "DEBUG"] } }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "INFO"] } }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "WARN"] } }], ...filter }),
+            getEventCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "ERROR"] } }], ...filter }),
         ]);
 
         // cache if enabled
@@ -787,9 +787,13 @@ export class SpanDataLayer {
             let range = this.#range;
             let filter: SpanFilter & PartialFilter = {
                 filter: [...this.#filter, {
-                    property: 'created',
-                    value_kind: 'comparison',
-                    value: ['Gte', `${range[0] - duration}`],
+                    predicate_kind: 'single',
+                    predicate: {
+                        text: '',
+                        property: 'created',
+                        value_kind: 'comparison',
+                        value: ['Gte', `${range[0] - duration}`],
+                    },
                 }],
                 order: 'desc',
                 // limit: 100, // TODO: use client-side limits
@@ -804,9 +808,13 @@ export class SpanDataLayer {
             let newPreSpans = await getSpans({
                 ...filter,
                 filter: [...this.#filter, {
-                    property: 'created',
-                    value_kind: 'comparison',
-                    value: ['Lt', `${range[0] - duration}`],
+                    predicate_kind: 'single',
+                    predicate: {
+                        text: '',
+                        property: 'created',
+                        value_kind: 'comparison',
+                        value: ['Lt', `${range[0] - duration}`],
+                    },
                 }],
                 start: retrievedRange[0],
             });
@@ -841,9 +849,13 @@ export class SpanDataLayer {
             let range = this.#range;
             let filter: SpanFilter & PartialFilter = {
                 filter: [...this.#filter, {
-                    property: 'created',
-                    value_kind: 'comparison',
-                    value: ['Gt', `${range[1]}`],
+                    predicate_kind: 'single',
+                    predicate: {
+                        text: '',
+                        property: 'created',
+                        value_kind: 'comparison',
+                        value: ['Gt', `${range[1]}`],
+                    },
                 }],
                 order: 'asc',
                 // limit: 100, // TODO: use client-side limits

@@ -1,5 +1,5 @@
-import { createEffect, createSignal, For, Match, Switch } from "solid-js";
-import { Input, InvalidFilterPredicate, ValidFilterPredicate } from "../invoke";
+import { createEffect, createSignal, For, Match, Show, Switch } from "solid-js";
+import { FilterPredicateSingle, Input, InvalidFilterPredicate, ValidFilterPredicate } from "../invoke";
 
 import './filter-input.css';
 import { Menu } from "@tauri-apps/api/menu";
@@ -51,7 +51,11 @@ export function FilterInput(props: FilterInputProps) {
     function update(i: number, newPredicates: Input[]) {
         let current_predicates = props.predicates;
         let updated_predicates = [...current_predicates];
-        updated_predicates.splice(i, 1, ...newPredicates);
+        if ((updated_predicates[i] as any).predicate.length != undefined) {
+            (updated_predicates[i] as ValidFilterPredicate).predicate = newPredicates;
+        } else {
+            updated_predicates.splice(i, 1, ...newPredicates);
+        }
         props.updatePredicates(updated_predicates);
     }
 
@@ -80,35 +84,35 @@ export function FilterInput(props: FilterInputProps) {
 
     return (<div class="filter-input-container">
         <For each={localPredicates().slice(0, getUneditableLength(localPredicates()))}>
-            {(predicate, i) => <Switch>
-                <Match when={predicate.input == 'valid'}>
-                    <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i())} update={p => update(i(), p)} parse={props.parse} />
-                    <span class="spacer">{'  '}</span>
-                </Match>
-                <Match when={predicate.input == 'invalid'}>
-                    <InvalidFilterInputPredicate predicate={predicate as InvalidFilterPredicate} remove={() => remove(i())} update={p => update(i(), p)} parse={props.parse} />
-                </Match>
-            </Switch>}
+            {(predicate, i) => <>
+                <FilterPredicate predicate={predicate} remove={() => remove(i())} update={p => update(i(), p)} />
+                <span class="spacer">{'  '}</span>
+            </>}
         </For>
         <span ref={input_e} class="filter-input" contenteditable="plaintext-only" onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
             {' '}
             {localPredicates().slice(getUneditableLength(localPredicates())).map((predicate, i) => {
-                return (<Switch>
-                    <Match when={predicate.input == 'valid'}>
-                        <FilterInputPredicate predicate={predicate as ValidFilterPredicate} remove={() => remove(i + getUneditableLength(localPredicates()))} update={p => update(i + getUneditableLength(localPredicates()), p)} parse={props.parse} />
-                        <span class="spacer">{'  '}</span>
-                    </Match>
-                    <Match when={predicate.input == 'invalid'}>
-                        <InvalidFilterInputPredicate predicate={predicate as InvalidFilterPredicate} remove={() => remove(i + getUneditableLength(localPredicates()))} update={p => update(i + getUneditableLength(localPredicates()), p)} parse={props.parse} />
-                        <span class="spacer">{'  '}</span>
-                    </Match>
-                </Switch>);
+                return (<>
+                    <FilterPredicate predicate={predicate} remove={() => remove(i + getUneditableLength(localPredicates()))} update={p => update(i + getUneditableLength(localPredicates()), p)} />
+                    <span class="spacer">{'  '}</span>
+                </>);
             })}
         </span>
     </div>);
 }
 
-export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
+export function FilterPredicate(props: { predicate: Input, remove: () => void, update: (p: Input[]) => void }) {
+    return (<Switch>
+        <Match when={props.predicate.input == 'valid'}>
+            <FilterInputPredicate predicate={props.predicate as ValidFilterPredicate} remove={props.remove} update={props.update} />
+        </Match>
+        <Match when={props.predicate.input == 'invalid'}>
+            <InvalidFilterInputPredicate predicate={props.predicate as InvalidFilterPredicate} remove={props.remove} />
+        </Match>
+    </Switch>);
+}
+
+export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPredicate, remove: () => void }) {
     function onclick(e: MouseEvent) {
         if (e.button == 1) {
             e.preventDefault();
@@ -134,75 +138,127 @@ export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPre
     </span>);
 }
 
-export function FilterInputPredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
+export function FilterInputPredicate(props: { predicate: ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void }) {
+    function remove(i: number) {
+        let predicates = props.predicate.predicate as Input[];
+        predicates.splice(i, 1);
+        props.update(predicates);
+    }
+
+    function update(i: number, p: Input[]) {
+        let predicates = props.predicate.predicate as Input[];
+        (predicates[i] as ValidFilterPredicate).predicate = p;
+        props.update(predicates);
+    }
+
     return (<Switch>
-        <Match when={props.predicate.property == "level" && props.predicate.property_kind == 'Inherent'}>
-            <FilterInputLevelPredicate predicate={props.predicate as any} remove={props.remove} update={props.update} />
+        <Match when={props.predicate.predicate_kind == 'single'}>
+            <FilterInputPredicateSingle predicate={props.predicate as any} remove={props.remove} update={props.update} />
         </Match>
-        <Match when={props.predicate.property_kind == 'Inherent'}>
-            <FilterInputMetaPredicate predicate={props.predicate} remove={props.remove} update={props.update} parse={props.parse} />
+        <Match when={props.predicate.predicate_kind == 'and'}>
+            <span class="grouper">{'('}</span>
+            <For each={props.predicate.predicate as Input[]}>
+                {(p, i) => <>
+                    <span class="spacer">{'  '}</span>
+                    <Show when={i() != 0}>
+                        <span class="grouper">AND</span>
+                        <span class="spacer">{'  '}</span>
+                    </Show>
+                    <FilterPredicate predicate={p} remove={() => remove(i())} update={p => update(i(), p)} />
+                </>}
+            </For>
+            <span class="spacer">{'  '}</span>
+            <span class="grouper">{')'}</span>
         </Match>
-        <Match when={props.predicate.property_kind == 'Attribute'}>
-            <FilterInputAttributePredicate predicate={props.predicate} remove={props.remove} update={props.update} parse={props.parse} />
+        <Match when={props.predicate.predicate_kind == 'or'}>
+            {<>
+                <span class="grouper">{'('}</span>
+                <For each={props.predicate.predicate as Input[]}>
+                    {(p, i) => <>
+                        <span class="spacer">{'  '}</span>
+                        <Show when={i() != 0}>
+                            <span class="grouper">OR</span>
+                            <span class="spacer">{'  '}</span>
+                        </Show>
+                        <FilterPredicate predicate={p} remove={() => remove(i())} update={p => update(i(), p)} />
+                    </>}
+                </For>
+                <span class="spacer">{'  '}</span>
+                <span class="grouper">{')'}</span>
+            </>}
         </Match>
     </Switch>);
 }
 
-export function FilterInputLevelPredicate(props: { predicate: ValidFilterPredicate & { value_kind: 'comparison' }, remove: () => void, update: (p: Input[]) => void }) {
+export function FilterInputPredicateSingle(props: { predicate: ValidFilterPredicate & { predicate: FilterPredicateSingle }, remove: () => void, update: (p: Input[]) => void }) {
+    return (<Switch>
+        <Match when={props.predicate.predicate.property == "level" && props.predicate.predicate.property_kind == 'Inherent'}>
+            <FilterInputLevelPredicate predicate={props.predicate as any} remove={props.remove} update={props.update} />
+        </Match>
+        <Match when={props.predicate.predicate.property_kind == 'Inherent'}>
+            <FilterInputMetaPredicate predicate={props.predicate} remove={props.remove} />
+        </Match>
+        <Match when={props.predicate.predicate.property_kind == 'Attribute'}>
+            <FilterInputAttributePredicate predicate={props.predicate} remove={props.remove} />
+        </Match>
+    </Switch>);
+}
+
+export function FilterInputLevelPredicate(props: { predicate: { predicate: FilterPredicateSingle & { value_kind: 'comparison' } } & ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void }) {
     function wheel(e: WheelEvent) {
         if (e.deltaY < 0.0) {
-            if (props.predicate.value[1] == "TRACE") {
-                props.update([{ ...props.predicate, value: ['Gte', "DEBUG"], text: "#level: >=DEBUG" }])
-            } else if (props.predicate.value[1] == "DEBUG") {
-                props.update([{ ...props.predicate, value: ['Gte', "INFO"], text: "#level: >=INFO" }])
-            } else if (props.predicate.value[1] == "INFO") {
-                props.update([{ ...props.predicate, value: ['Gte', "WARN"], text: "#level: >=WARN" }])
-            } else if (props.predicate.value[1] == "WARN") {
-                props.update([{ ...props.predicate, value: ['Gte', "ERROR"], text: "#level: >=ERROR" }])
+            if (props.predicate.predicate.value[1] == "TRACE") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "DEBUG"], text: "#level: >=DEBUG" } }])
+            } else if (props.predicate.predicate.value[1] == "DEBUG") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "INFO"], text: "#level: >=INFO" } }])
+            } else if (props.predicate.predicate.value[1] == "INFO") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "WARN"], text: "#level: >=WARN" } }])
+            } else if (props.predicate.predicate.value[1] == "WARN") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "ERROR"], text: "#level: >=ERROR" } }])
             }
         } else if (e.deltaY > 0.0) {
-            if (props.predicate.value[1] == "DEBUG") {
-                props.update([{ ...props.predicate, value: ['Gte', "TRACE"], text: "#level: >=TRACE" }])
-            } else if (props.predicate.value[1] == "INFO") {
-                props.update([{ ...props.predicate, value: ['Gte', "DEBUG"], text: "#level: >=DEBUG" }])
-            } else if (props.predicate.value[1] == "WARN") {
-                props.update([{ ...props.predicate, value: ['Gte', "INFO"], text: "#level: >=INFO" }])
-            } else if (props.predicate.value[1] == "ERROR") {
-                props.update([{ ...props.predicate, value: ['Gte', "WARN"], text: "#level: >=WARN" }])
+            if (props.predicate.predicate.value[1] == "DEBUG") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "TRACE"], text: "#level: >=TRACE" } }])
+            } else if (props.predicate.predicate.value[1] == "INFO") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "DEBUG"], text: "#level: >=DEBUG" } }])
+            } else if (props.predicate.predicate.value[1] == "WARN") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "INFO"], text: "#level: >=INFO" } }])
+            } else if (props.predicate.predicate.value[1] == "ERROR") {
+                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "WARN"], text: "#level: >=WARN" } }])
             }
         }
     }
 
     return (<Switch>
-        <Match when={props.predicate.value[1] == "TRACE"}>
+        <Match when={props.predicate.predicate.value[1] == "TRACE"}>
             <span class="predicate level-predicate-0" onwheel={wheel}>
-                {props.predicate.text}
+                {props.predicate.predicate.text}
             </span>
         </Match>
-        <Match when={props.predicate.value[1] == "DEBUG"}>
+        <Match when={props.predicate.predicate.value[1] == "DEBUG"}>
             <span class="predicate level-predicate-1" onwheel={wheel}>
-                {props.predicate.text}
+                {props.predicate.predicate.text}
             </span>
         </Match>
-        <Match when={props.predicate.value[1] == "INFO"}>
+        <Match when={props.predicate.predicate.value[1] == "INFO"}>
             <span class="predicate level-predicate-2" onwheel={wheel}>
-                {props.predicate.text}
+                {props.predicate.predicate.text}
             </span>
         </Match>
-        <Match when={props.predicate.value[1] == "WARN"}>
+        <Match when={props.predicate.predicate.value[1] == "WARN"}>
             <span class="predicate level-predicate-3" onwheel={wheel}>
-                {props.predicate.text}
+                {props.predicate.predicate.text}
             </span>
         </Match>
-        <Match when={props.predicate.value[1] == "ERROR"}>
+        <Match when={props.predicate.predicate.value[1] == "ERROR"}>
             <span class="predicate level-predicate-4" onwheel={wheel}>
-                {props.predicate.text}
+                {props.predicate.predicate.text}
             </span>
         </Match>
     </Switch>);
 }
 
-export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicate & Input, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
+export function FilterInputMetaPredicate(props: { predicate: { predicate: FilterPredicateSingle } & Input, remove: () => void }) {
     function onclick(e: MouseEvent) {
         if (e.button == 1) {
             e.preventDefault();
@@ -216,7 +272,7 @@ export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicat
 
         let menu = await Menu.new({
             items: [
-                { text: "copy", action: () => writeText(props.predicate.text.trim()) },
+                { text: "copy", action: () => writeText(props.predicate.predicate.text.trim()) },
                 { text: "remove", enabled: props.predicate.editable, action: () => props.remove() },
             ]
         });
@@ -224,11 +280,11 @@ export function FilterInputMetaPredicate(props: { predicate: ValidFilterPredicat
     }
 
     return (<span class="predicate meta-predicate" onauxclick={onclick} oncontextmenu={showContextMenu}>
-        {props.predicate.text}
+        {props.predicate.predicate.text}
     </span>);
 }
 
-export function FilterInputAttributePredicate(props: { predicate: ValidFilterPredicate & Input, remove: () => void, update: (p: Input[]) => void, parse: (p: string) => Promise<Input[]> }) {
+export function FilterInputAttributePredicate(props: { predicate: { predicate: FilterPredicateSingle } & Input, remove: () => void }) {
     function onclick(e: MouseEvent) {
         if (e.button == 1) {
             e.preventDefault();
@@ -242,7 +298,7 @@ export function FilterInputAttributePredicate(props: { predicate: ValidFilterPre
 
         let menu = await Menu.new({
             items: [
-                { text: "copy", action: () => writeText(props.predicate.text.trim()) },
+                { text: "copy", action: () => writeText(props.predicate.predicate.text.trim()) },
                 { text: "remove", enabled: props.predicate.editable, action: () => props.remove() },
             ]
         });
@@ -250,6 +306,6 @@ export function FilterInputAttributePredicate(props: { predicate: ValidFilterPre
     }
 
     return (<span class="predicate attribute-predicate" onauxclick={onclick} oncontextmenu={showContextMenu}>
-        {props.predicate.text}
+        {props.predicate.predicate.text}
     </span>);
 }
