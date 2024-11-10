@@ -36,18 +36,18 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE spans (
-                key       INT8 NOT NULL,
-                connection  INT8,
-                id        INT8,
-                closed_at INT8,
-                parent_id INT8,
-                follows   TEXT,
-                target    TEXT,
-                name      TEXT,
-                level     INT,
-                file_name TEXT,
-                file_line INTEGER,
-                fields    TEXT,
+                key        INT8 NOT NULL,
+                connection INT8,
+                id         INT8,
+                closed_at  INT8,
+                parent_id  INT8,
+                follows    TEXT,
+                target     TEXT,
+                name       TEXT,
+                level      INT,
+                file_name  TEXT,
+                file_line  INTEGER,
+                fields     TEXT,
 
                 CONSTRAINT spans_pk PRIMARY KEY (key)
             );"#,
@@ -57,11 +57,11 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE span_events (
-                key       INT8 NOT NULL,
-                connection  INT8,
-                span_id   INT8,
-                kind      TEXT,
-                data      TEXT,
+                key        INT8 NOT NULL,
+                connection INT8,
+                span_id    INT8,
+                kind       TEXT,
+                data       TEXT,
 
                 CONSTRAINT span_events_pk PRIMARY KEY (key)
             );"#,
@@ -71,15 +71,15 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE events (
-                key       INT8 NOT NULL,
-                connection  INT8,
-                span_id   INT8,
-                target    TEXT,
-                name      TEXT,
-                level     INT,
-                file_name TEXT,
-                file_line INTEGER,
-                fields    TEXT,
+                key        INT8 NOT NULL,
+                connection INT8,
+                span_id    INT8,
+                target     TEXT,
+                name       TEXT,
+                level      INT,
+                file_name  TEXT,
+                file_line  INTEGER,
+                fields     TEXT,
 
                 CONSTRAINT events_pk PRIMARY KEY (key)
             );"#,

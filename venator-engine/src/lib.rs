@@ -465,7 +465,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             .collect::<Vec<_>>();
 
         for name in indexes {
-            engine.add_attribute_index(name);
+            engine.add_attribute_index_bookeeping(name);
         }
 
         let connections = engine
@@ -1567,6 +1567,16 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
 
         self.storage.insert_index(name);
+    }
+
+    fn add_attribute_index_bookeeping(&mut self, name: String) {
+        self.span_indexes
+            .attributes
+            .insert(name.clone(), AttributeIndex::new());
+
+        self.event_indexes
+            .attributes
+            .insert(name.clone(), AttributeIndex::new());
     }
 
     pub fn remove_attribute_index(&mut self, name: String) {

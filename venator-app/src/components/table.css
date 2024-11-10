@@ -141,6 +141,10 @@
     height: 80%;
 }
 
+[data-theme="dark"] #table .data .time-bar {
+    background-color: var(--level-1-bg-color);
+}
+
 #table .data:hover {
     translate: -1px -1px;
     border: 1px solid var(--border-dark-color);
