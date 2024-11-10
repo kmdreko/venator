@@ -1,25 +1,25 @@
 import { batch, createEffect, createSignal, For, Show, untrack } from "solid-js";
-import { Input, Instance, Timestamp } from "../invoke";
-import { PartialFilter, Timespan, PositionedInstance } from "../models";
+import { Input, Connection, Timestamp } from "../invoke";
+import { PartialFilter, Timespan, PositionedConnection } from "../models";
 
-import "./instance-graph.css";
+import "./connection-graph.css";
 
-export type InstanceGraphProps = {
+export type ConnectionGraphProps = {
     filter: Input[],
     timespan: Timespan,
     updateTimespan: (new_timespan: Timespan) => void,
-    hoveredRow: Instance | null,
+    hoveredRow: Connection | null,
 
     setCount: (count: [number, boolean]) => void,
 
-    getPositionedInstances: (filter: PartialFilter, wait?: boolean) => Promise<PositionedInstance[] | null>,
+    getPositionedConnections: (filter: PartialFilter, wait?: boolean) => Promise<PositionedConnection[] | null>,
 };
 
 let CACHE_START_LAST = 0;
 let CACHE_START_DELAY_MS = 250;
 
-export function InstanceGraph(props: InstanceGraphProps) {
-    const [spans, setInstances] = createSignal<PositionedInstance[]>([]);
+export function ConnectionGraph(props: ConnectionGraphProps) {
+    const [spans, setConnections] = createSignal<PositionedConnection[]>([]);
     const [barHeightMax, setBarHeightMax] = createSignal(1);
     const [barHeightMarkers, setBarHeightMarkers] = createSignal(10);
     const [barTimeMarkers, setBarTimeMarkers] = createSignal<[number, string][]>([]);
@@ -71,14 +71,14 @@ export function InstanceGraph(props: InstanceGraphProps) {
         let [height, height_markers] = getHeightAndMarkers(10);
 
         batch(() => {
-            setInstances([]);
+            setConnections([]);
             setBarTimeMarkers(time_markers);
             setBarHeightMax(height);
             setBarHeightMarkers(height_markers);
         });
 
         let now = Date.now();
-        let primed = await props.getPositionedInstances({ order: 'asc', start, end }, false);
+        let primed = await props.getPositionedConnections({ order: 'asc', start, end }, false);
         if (primed == null && now < CACHE_START_LAST + CACHE_START_DELAY_MS) {
             await new Promise(resolve => setTimeout(resolve, CACHE_START_DELAY_MS));
             if (props.timespan != current_timespan || current_filter != props.filter) {
@@ -90,14 +90,14 @@ export function InstanceGraph(props: InstanceGraphProps) {
 
         CACHE_START_LAST = now;
         while (true) {
-            let new_spans = (await props.getPositionedInstances({ order: 'asc', start, end, previous }))!;
+            let new_spans = (await props.getPositionedConnections({ order: 'asc', start, end, previous }))!;
             if (props.timespan != current_timespan || current_filter != props.filter) {
                 return;
             }
 
             let current_spans = untrack(spans);
             let updated_spans = current_spans.concat(new_spans);
-            setInstances(updated_spans);
+            setConnections(updated_spans);
             if (new_spans.length < 50) {
                 break;
             }
@@ -240,23 +240,23 @@ export function InstanceGraph(props: InstanceGraphProps) {
         props.updateTimespan(timespan);
     }
 
-    function spanPosition(instance: PositionedInstance): { top: string, left: string, right: string } {
+    function spanPosition(connection: PositionedConnection): { top: string, left: string, right: string } {
         let current_timespan = props.timespan;
         let [start, end] = current_timespan;
         let duration = end - start;
 
-        let left = (instance.connected_at - start) / duration;
-        let right = (instance.disconnected_at == null) ? 0.0 : (end - instance.disconnected_at) / duration;
+        let left = (connection.connected_at - start) / duration;
+        let right = (connection.disconnected_at == null) ? 0.0 : (end - connection.disconnected_at) / duration;
 
         return {
-            top: `${instance.slot * 6 + 1}px`,
+            top: `${connection.slot * 6 + 1}px`,
             left: `${left * 100}%`,
             right: `${right * 100}%`,
         };
     }
 
-    return <div class="instance-graph-container" onwheel={wheel} onmousemove={mousedrag}>
-        <div class="instance-graph-stats">
+    return <div class="connection-graph-container" onwheel={wheel} onmousemove={mousedrag}>
+        <div class="connection-graph-stats">
             <span class="stat-name">height:</span>
             <span class="stat-value">{barHeightMax()}</span>
             <Show when={mouseTime() != null}>
@@ -264,25 +264,25 @@ export function InstanceGraph(props: InstanceGraphProps) {
                 <span class="stat-value">{formatTimestamp(mouseTime()![0])}</span>
             </Show>
         </div>
-        <div class="instance-graph" onmouseenter={mousemove} onmousemove={mousemove} onmouseleave={mouseout} onmousedown={mousedown} onmouseup={mouseup}>
-            <div class="instance-graph-y-lines">
+        <div class="connection-graph" onmouseenter={mousemove} onmousemove={mousemove} onmouseleave={mouseout} onmousedown={mousedown} onmouseup={mouseup}>
+            <div class="connection-graph-y-lines">
                 <For each={Array(barHeightMarkers() + 1)}>
-                    {() => <div class="instance-graph-y-line"></div>}
+                    {() => <div class="connection-graph-y-line"></div>}
                 </For>
             </div>
             <For each={spans()}>
-                {instance => (<span class={`instance-graph-bar`} style={spanPosition(instance)}></span>)}
+                {connection => (<span class={`connection-graph-bar`} style={spanPosition(connection)}></span>)}
             </For>
             <Show when={zoomRange() != null}>
-                <div class="instance-graph-selection" style={selectionStyle(zoomRange()!)}></div>
+                <div class="connection-graph-selection" style={selectionStyle(zoomRange()!)}></div>
             </Show>
             <Show when={cursor() != null}>
-                <div class="instance-graph-cursor" style={cursorStyle(cursor()!)}></div>
+                <div class="connection-graph-cursor" style={cursorStyle(cursor()!)}></div>
             </Show>
         </div>
-        <div class="instance-graph-x-axis">
+        <div class="connection-graph-x-axis">
             <For each={barTimeMarkers()}>
-                {([time, display]) => <span class="instance-graph-x-axis-marker" style={timestampMarkerOffset(time)}>{display}</span>}
+                {([time, display]) => <span class="connection-graph-x-axis-marker" style={timestampMarkerOffset(time)}>{display}</span>}
             </For>
         </div>
     </div>;

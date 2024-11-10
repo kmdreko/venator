@@ -29,14 +29,14 @@ pub use filter::input::{
     FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate,
 };
 pub use filter::{
-    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, FallibleFilterPredicate, InputError,
+    BasicConnectionFilter, BasicEventFilter, BasicSpanFilter, FallibleFilterPredicate, InputError,
     Order, Query,
 };
 pub use models::{
-    AncestorView, AttributeSourceView, AttributeView, CreateSpanEvent, Event, EventView, Instance,
-    InstanceId, InstanceKey, InstanceView, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent,
-    NewInstance, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent, SpanEventKey,
-    SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
+    AncestorView, AttributeSourceView, AttributeView, Connection, ConnectionId, ConnectionKey,
+    ConnectionView, CreateSpanEvent, Event, EventView, NewConnection, NewCreateSpanEvent, NewEvent,
+    NewFollowsSpanEvent, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent,
+    SpanEventKey, SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
     UpdateSpanEvent, Value, ValueOperator,
 };
 pub use storage::{Boo, Storage, TransientStorage};
@@ -46,9 +46,9 @@ pub use storage::FileStorage;
 
 #[derive(Debug, Copy, Clone, Serialize)]
 pub enum EngineInsertError {
-    DuplicateInstanceId,
+    DuplicateConnectionId,
     DuplicateSpanId,
-    UnknownInstanceId,
+    UnknownConnectionId,
     UnknownSpanId,
     UnknownParentSpanId,
     UnknownLevel,
@@ -90,12 +90,12 @@ impl Engine {
                 while let Some(cmd) = recv() {
                     let cmd_start = Instant::now();
                     match cmd {
-                        EngineCommand::QueryInstance(query, sender) => {
-                            let instances = engine.query_instance(query);
-                            let _ = sender.send(instances);
+                        EngineCommand::QueryConnection(query, sender) => {
+                            let connections = engine.query_connection(query);
+                            let _ = sender.send(connections);
                         }
-                        EngineCommand::QueryInstanceCount(query, sender) => {
-                            let events = engine.query_instance_count(query);
+                        EngineCommand::QueryConnectionCount(query, sender) => {
+                            let events = engine.query_connection_count(query);
                             let _ = sender.send(events);
                         }
                         EngineCommand::QuerySpan(query, sender) => {
@@ -122,17 +122,17 @@ impl Engine {
                             let stats = engine.query_stats();
                             let _ = sender.send(stats);
                         }
-                        EngineCommand::InsertInstance(instance, sender) => {
-                            let res = engine.insert_instance(instance);
+                        EngineCommand::InsertConnection(connection, sender) => {
+                            let res = engine.insert_connection(connection);
                             if let Err(err) = &res {
-                                eprintln!("rejecting instance insert due to: {err:?}");
+                                eprintln!("rejecting connection insert due to: {err:?}");
                             }
                             let _ = sender.send(res);
                         }
-                        EngineCommand::DisconnectInstance(instance_id, sender) => {
-                            let res = engine.disconnect_instance(instance_id);
+                        EngineCommand::DisconnectConnection(connection_id, sender) => {
+                            let res = engine.disconnect_connection(connection_id);
                             if let Err(err) = &res {
-                                eprintln!("rejecting instance disconnect due to: {err:?}");
+                                eprintln!("rejecting connection disconnect due to: {err:?}");
                             }
                             let _ = sender.send(res);
                         }
@@ -199,20 +199,20 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
-    pub fn query_instance(&self, query: Query) -> impl Future<Output = Vec<InstanceView>> {
+    pub fn query_connection(&self, query: Query) -> impl Future<Output = Vec<ConnectionView>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
-            .send(EngineCommand::QueryInstance(query, sender));
+            .send(EngineCommand::QueryConnection(query, sender));
         async move { receiver.await.unwrap() }
     }
 
     // The query is executed even if the returned future is not awaited
-    pub fn query_instance_count(&self, query: Query) -> impl Future<Output = usize> {
+    pub fn query_connection_count(&self, query: Query) -> impl Future<Output = usize> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
-            .send(EngineCommand::QueryInstanceCount(query, sender));
+            .send(EngineCommand::QueryConnectionCount(query, sender));
         async move { receiver.await.unwrap() }
     }
 
@@ -268,25 +268,25 @@ impl Engine {
         async move { receiver.await.unwrap() }
     }
 
-    pub fn insert_instance(
+    pub fn insert_connection(
         &self,
-        instance: NewInstance,
-    ) -> impl Future<Output = Result<InstanceKey, EngineInsertError>> {
+        connection: NewConnection,
+    ) -> impl Future<Output = Result<ConnectionKey, EngineInsertError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .insert_sender
-            .send(EngineCommand::InsertInstance(instance, sender));
+            .send(EngineCommand::InsertConnection(connection, sender));
         async move { receiver.await.unwrap() }
     }
 
-    pub fn disconnect_instance(
+    pub fn disconnect_connection(
         &self,
-        id: InstanceId,
+        id: ConnectionId,
     ) -> impl Future<Output = Result<(), EngineInsertError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .insert_sender
-            .send(EngineCommand::DisconnectInstance(id, sender));
+            .send(EngineCommand::DisconnectConnection(id, sender));
         async move { receiver.await.unwrap() }
     }
 
@@ -367,19 +367,19 @@ impl Engine {
 }
 
 enum EngineCommand {
-    QueryInstance(Query, OneshotSender<Vec<InstanceView>>),
-    QueryInstanceCount(Query, OneshotSender<usize>),
+    QueryConnection(Query, OneshotSender<Vec<ConnectionView>>),
+    QueryConnectionCount(Query, OneshotSender<usize>),
     QuerySpan(Query, OneshotSender<Vec<SpanView>>),
     QuerySpanCount(Query, OneshotSender<usize>),
     QuerySpanEvent(Query, OneshotSender<Vec<SpanEvent>>),
     QueryEvent(Query, OneshotSender<Vec<EventView>>),
     QueryEventCount(Query, OneshotSender<usize>),
     QueryStats(OneshotSender<StatsView>),
-    InsertInstance(
-        NewInstance,
-        OneshotSender<Result<InstanceKey, EngineInsertError>>,
+    InsertConnection(
+        NewConnection,
+        OneshotSender<Result<ConnectionKey, EngineInsertError>>,
     ),
-    DisconnectInstance(InstanceId, OneshotSender<Result<(), EngineInsertError>>),
+    DisconnectConnection(ConnectionId, OneshotSender<Result<(), EngineInsertError>>),
     InsertSpanEvent(
         NewSpanEvent,
         OneshotSender<Result<SpanKey, EngineInsertError>>,
@@ -411,7 +411,7 @@ pub struct DeleteFilter {
 }
 
 pub struct DeleteMetrics {
-    pub instances: usize,
+    pub connections: usize,
     pub spans: usize,
     pub span_events: usize,
     pub events: usize,
@@ -421,10 +421,10 @@ struct RawEngine<'b, S> {
     token: GhostToken<'b>,
     storage: S,
     keys: KeyCache,
-    instance_key_map: HashMap<InstanceId, InstanceKey>,
+    connection_key_map: HashMap<ConnectionId, ConnectionKey>,
     #[allow(clippy::type_complexity)]
-    instances: BTreeMap<InstanceKey, (Instance, Rc<GhostCell<'b, BTreeMap<String, Value>>>)>,
-    span_key_map: HashMap<(InstanceKey, SpanId), SpanKey>,
+    connections: BTreeMap<ConnectionKey, (Connection, Rc<GhostCell<'b, BTreeMap<String, Value>>>)>,
+    span_key_map: HashMap<(ConnectionKey, SpanId), SpanKey>,
     span_id_map: HashMap<SpanKey, SpanId>,
     span_indexes: SpanIndexes,
     span_ancestors: HashMap<Timestamp, Ancestors<'b>>,
@@ -443,8 +443,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             token,
             storage,
             keys: KeyCache::new(),
-            instance_key_map: HashMap::new(),
-            instances: BTreeMap::new(),
+            connection_key_map: HashMap::new(),
+            connections: BTreeMap::new(),
             span_key_map: HashMap::new(),
             span_id_map: HashMap::new(),
             span_indexes: SpanIndexes::new(),
@@ -468,19 +468,19 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             engine.add_attribute_index(name);
         }
 
-        let instances = engine
+        let connections = engine
             .storage
-            .get_all_instances()
+            .get_all_connections()
             .map(Boo::into_owned)
             .collect::<Vec<_>>();
 
-        let mut instances_not_disconnected = vec![];
-        for instance in instances {
-            if instance.disconnected_at.is_none() {
-                instances_not_disconnected.push(instance.key());
+        let mut connections_not_disconnected = vec![];
+        for connection in connections {
+            if connection.disconnected_at.is_none() {
+                connections_not_disconnected.push(connection.key());
             }
 
-            engine.insert_instance_bookeeping(&instance);
+            engine.insert_connection_bookeeping(&connection);
         }
 
         let spans = engine
@@ -517,7 +517,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             engine.insert_event_bookeeping(&event);
         }
 
-        if !instances_not_disconnected.is_empty() || !spans_not_closed.is_empty() {
+        if !connections_not_disconnected.is_empty() || !spans_not_closed.is_empty() {
             let last_event = engine.event_indexes.all.last();
             let last_span_event = engine.span_event_ids.last();
             let last_at = match (last_event, last_span_event) {
@@ -529,10 +529,10 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
             let at = last_at.saturating_add(1);
 
-            for instance_key in instances_not_disconnected {
+            for connection_key in connections_not_disconnected {
                 engine
                     .storage
-                    .update_instance_disconnected(instance_key, at);
+                    .update_connection_disconnected(connection_key, at);
             }
 
             for span_key in spans_not_closed {
@@ -544,14 +544,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         engine
     }
 
-    pub fn query_instance(&self, query: Query) -> Vec<InstanceView> {
+    pub fn query_connection(&self, query: Query) -> Vec<ConnectionView> {
         let limit = query.limit;
 
-        let mut filter = BasicInstanceFilter::And(
+        let mut filter = BasicConnectionFilter::And(
             query
                 .filter
                 .into_iter()
-                .map(|p| BasicInstanceFilter::from_predicate(p).unwrap())
+                .map(|p| BasicConnectionFilter::from_predicate(p).unwrap())
                 .collect(),
         );
         filter.simplify();
@@ -577,52 +577,52 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             }
         };
 
-        let mut instances = self
-            .instances
+        let mut connections = self
+            .connections
             .range(start..=end)
-            .map(|(_key, (instance, _))| instance)
+            .map(|(_key, (connection, _))| connection)
             .collect::<Vec<_>>();
 
         if query.order == Order::Desc {
-            instances.reverse();
+            connections.reverse();
         }
 
-        instances
+        connections
             .into_iter()
-            .filter(|instance| {
-                instance.connected_at <= query.end
-                    && instance
+            .filter(|connection| {
+                connection.connected_at <= query.end
+                    && connection
                         .disconnected_at
                         .map(|d| d >= query.start)
                         .unwrap_or(true)
             })
-            .filter(|instance| filter.matches(&self.storage, instance.key()))
+            .filter(|connection| filter.matches(&self.storage, connection.key()))
             .take(limit)
-            .map(|instance| self.render_instance(instance))
+            .map(|connection| self.render_connection(connection))
             .collect()
     }
 
-    pub fn query_instance_count(&self, query: Query) -> usize {
+    pub fn query_connection_count(&self, query: Query) -> usize {
         // TODO: make this better
-        self.query_instance(query).len()
+        self.query_connection(query).len()
     }
 
-    fn render_instance(&self, instance: &Instance) -> InstanceView {
-        let instance_id = instance.id;
+    fn render_connection(&self, connection: &Connection) -> ConnectionView {
+        let connection_id = connection.id;
 
-        InstanceView {
-            id: instance_id.to_string(),
-            connected_at: instance.connected_at,
-            disconnected_at: instance.disconnected_at,
-            attributes: instance
+        ConnectionView {
+            id: connection_id.to_string(),
+            connected_at: connection.connected_at,
+            disconnected_at: connection.disconnected_at,
+            attributes: connection
                 .fields
                 .iter()
                 .map(|(name, value)| AttributeView {
                     name: name.to_owned(),
                     value: value.to_string(),
                     typ: value.to_type_view(),
-                    source: AttributeSourceView::Instance {
-                        instance_id: instance_id.to_string(),
+                    source: AttributeSourceView::Connection {
+                        connection_id: connection_id.to_string(),
                     },
                 })
                 .collect(),
@@ -648,8 +648,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     fn render_event(&self, event: &Event) -> EventView {
-        let (instance, _) = self.instances.get(&event.instance_key).unwrap();
-        let instance_id = instance.id;
+        let (connection, _) = self.connections.get(&event.connection_key).unwrap();
+        let connection_id = connection.id;
 
         let ancestors = self.event_ancestors.get(&event.timestamp).unwrap();
 
@@ -673,7 +673,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                         attribute.to_owned(),
                         (
                             AttributeSourceView::Span {
-                                span_id: format!("{instance_id}-{parent_id}"),
+                                span_id: format!("{connection_id}-{parent_id}"),
                             },
                             value.to_string(),
                             value.to_type_view(),
@@ -687,8 +687,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 attributes.insert(
                     attribute.to_owned(),
                     (
-                        AttributeSourceView::Instance {
-                            instance_id: instance_id.to_string(),
+                        AttributeSourceView::Connection {
+                            connection_id: connection_id.to_string(),
                         },
                         value.to_string(),
                         value.to_type_view(),
@@ -698,7 +698,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
 
         EventView {
-            instance_id: instance_id.to_string(),
+            connection_id: connection_id.to_string(),
             ancestors: ancestors.0[1..ancestors.0.len() - 1]
                 .iter()
                 .map(|(parent_key, _)| {
@@ -706,7 +706,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     let parent_id = parent_span.id;
 
                     AncestorView {
-                        id: format!("{instance_id}-{parent_id}"),
+                        id: format!("{connection_id}-{parent_id}"),
                         name: parent_span.name.clone(),
                     }
                 })
@@ -751,8 +751,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     fn render_span(&self, span: &Span) -> SpanView {
-        let (instance, _) = self.instances.get(&span.instance_key).unwrap();
-        let instance_id = instance.id;
+        let (connection, _) = self.connections.get(&span.connection_key).unwrap();
+        let connection_id = connection.id;
 
         let ancestors = self.span_ancestors.get(&span.created_at).unwrap();
 
@@ -776,7 +776,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                         attribute.to_owned(),
                         (
                             AttributeSourceView::Span {
-                                span_id: format!("{instance_id}-{parent_id}"),
+                                span_id: format!("{connection_id}-{parent_id}"),
                             },
                             value.to_string(),
                             value.to_type_view(),
@@ -790,8 +790,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 attributes.insert(
                     attribute.to_owned(),
                     (
-                        AttributeSourceView::Instance {
-                            instance_id: instance_id.to_string(),
+                        AttributeSourceView::Connection {
+                            connection_id: connection_id.to_string(),
                         },
                         value.to_string(),
                         value.to_type_view(),
@@ -801,7 +801,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
 
         SpanView {
-            id: format!("{instance_id}-{}", span.id),
+            id: format!("{connection_id}-{}", span.id),
             ancestors: ancestors.0[1..ancestors.0.len() - 1]
                 .iter()
                 .map(|(parent_key, _)| {
@@ -809,7 +809,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     let parent_id = parent_span.id;
 
                     AncestorView {
-                        id: format!("{instance_id}-{parent_id}"),
+                        id: format!("{connection_id}-{parent_id}"),
                         name: parent_span.name.clone(),
                     }
                 })
@@ -850,52 +850,53 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
     }
 
-    pub fn insert_instance(
+    pub fn insert_connection(
         &mut self,
-        instance: NewInstance,
-    ) -> Result<InstanceKey, EngineInsertError> {
-        if self.instance_key_map.contains_key(&instance.id) {
-            return Err(EngineInsertError::DuplicateInstanceId);
+        connection: NewConnection,
+    ) -> Result<ConnectionKey, EngineInsertError> {
+        if self.connection_key_map.contains_key(&connection.id) {
+            return Err(EngineInsertError::DuplicateConnectionId);
         }
 
         let now = now();
-        let instance_key = self.keys.register(now, now);
-        let instance = Instance {
-            id: instance.id,
-            connected_at: instance_key,
+        let connection_key = self.keys.register(now, now);
+        let connection = Connection {
+            id: connection.id,
+            connected_at: connection_key,
             disconnected_at: None,
-            fields: instance.fields,
+            fields: connection.fields,
         };
 
-        self.insert_instance_bookeeping(&instance);
-        self.storage.insert_instance(instance);
+        self.insert_connection_bookeeping(&connection);
+        self.storage.insert_connection(connection);
 
-        Ok(instance_key)
+        Ok(connection_key)
     }
 
-    fn insert_instance_bookeeping(&mut self, instance: &Instance) {
-        let current_fields = Rc::new(GhostCell::new(instance.fields.clone()));
+    fn insert_connection_bookeeping(&mut self, connection: &Connection) {
+        let current_fields = Rc::new(GhostCell::new(connection.fields.clone()));
 
-        self.instance_key_map.insert(instance.id, instance.key());
-        self.instances
-            .insert(instance.key(), (instance.clone(), current_fields));
+        self.connection_key_map
+            .insert(connection.id, connection.key());
+        self.connections
+            .insert(connection.key(), (connection.clone(), current_fields));
     }
 
-    pub fn disconnect_instance(
+    pub fn disconnect_connection(
         &mut self,
-        instance_id: InstanceId,
+        connection_id: ConnectionId,
     ) -> Result<(), EngineInsertError> {
         let now = now();
         let at = self.keys.register(now, now);
 
-        let instance_key = *self
-            .instance_key_map
-            .get(&instance_id)
-            .ok_or(EngineInsertError::UnknownInstanceId)?;
+        let connection_key = *self
+            .connection_key_map
+            .get(&connection_id)
+            .ok_or(EngineInsertError::UnknownConnectionId)?;
 
-        let instance = self.storage.get_instance(instance_key).unwrap();
+        let connection = self.storage.get_connection(connection_key).unwrap();
 
-        if instance.disconnected_at.is_some() {
+        if connection.disconnected_at.is_some() {
             return Err(EngineInsertError::AlreadyDisconnected);
         }
 
@@ -903,8 +904,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             IndexedSpanFilter::Single(&self.span_indexes.durations.open, None),
             IndexedSpanFilter::Single(
                 self.span_indexes
-                    .instances
-                    .get(&instance_key)
+                    .connections
+                    .get(&connection_key)
                     .map(Vec::as_slice)
                     .unwrap_or_default(),
                 None,
@@ -918,7 +919,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             self.storage.update_span_closed(span_key, at);
         }
 
-        self.storage.update_instance_disconnected(instance_key, at);
+        self.storage
+            .update_connection_disconnected(connection_key, at);
 
         Ok(())
     }
@@ -932,11 +934,11 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         match new_span_event.kind {
             NewSpanEventKind::Create(new_create_event) => {
-                let instance_key = new_span_event.instance_key;
+                let connection_key = new_span_event.connection_key;
 
                 if self
                     .span_key_map
-                    .contains_key(&(instance_key, new_span_event.span_id))
+                    .contains_key(&(connection_key, new_span_event.span_id))
                 {
                     return Err(EngineInsertError::DuplicateSpanId);
                 }
@@ -945,14 +947,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     .parent_id
                     .map(|span_id| {
                         self.span_key_map
-                            .get(&(instance_key, span_id))
+                            .get(&(connection_key, span_id))
                             .copied()
                             .ok_or(EngineInsertError::UnknownParentSpanId)
                     })
                     .transpose()?;
 
                 let span = Span {
-                    instance_key: new_span_event.instance_key,
+                    connection_key: new_span_event.connection_key,
                     id: new_span_event.span_id,
                     created_at: new_span_event.timestamp,
                     closed_at: None,
@@ -970,7 +972,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 };
 
                 let span_event = SpanEvent {
-                    instance_key: new_span_event.instance_key,
+                    connection_key: new_span_event.connection_key,
                     timestamp: new_span_event.timestamp,
                     span_key: span.created_at,
                     kind: SpanEventKind::Create(CreateSpanEvent {
@@ -996,7 +998,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             NewSpanEventKind::Update(new_update_event) => {
                 let span_key = self
                     .span_key_map
-                    .get(&(new_span_event.instance_key, new_span_event.span_id))
+                    .get(&(new_span_event.connection_key, new_span_event.span_id))
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
 
@@ -1064,7 +1066,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                     .extend(update_event.fields.clone());
 
                 let span_event = SpanEvent {
-                    instance_key: new_span_event.instance_key,
+                    connection_key: new_span_event.connection_key,
                     timestamp: new_span_event.timestamp,
                     span_key,
                     kind: SpanEventKind::Update(update_event),
@@ -1079,13 +1081,13 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             NewSpanEventKind::Follows(new_follows_event) => {
                 let span_key = self
                     .span_key_map
-                    .get(&(new_span_event.instance_key, new_span_event.span_id))
+                    .get(&(new_span_event.connection_key, new_span_event.span_id))
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
 
                 let follows_span_key = self
                     .span_key_map
-                    .get(&(new_span_event.instance_key, new_follows_event.follows))
+                    .get(&(new_span_event.connection_key, new_follows_event.follows))
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
 
@@ -1093,7 +1095,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 // TODO: check against duplicates
 
                 let span_event = SpanEvent {
-                    instance_key: new_span_event.instance_key,
+                    connection_key: new_span_event.connection_key,
                     timestamp: new_span_event.timestamp,
                     span_key,
                     kind: SpanEventKind::Follows(FollowsSpanEvent {
@@ -1109,12 +1111,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             NewSpanEventKind::Enter => {
                 let span_key = self
                     .span_key_map
-                    .get(&(new_span_event.instance_key, new_span_event.span_id))
+                    .get(&(new_span_event.connection_key, new_span_event.span_id))
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
 
                 let span_event = SpanEvent {
-                    instance_key: new_span_event.instance_key,
+                    connection_key: new_span_event.connection_key,
                     timestamp: new_span_event.timestamp,
                     span_key,
                     kind: SpanEventKind::Enter,
@@ -1126,12 +1128,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             NewSpanEventKind::Exit => {
                 let span_key = self
                     .span_key_map
-                    .get(&(new_span_event.instance_key, new_span_event.span_id))
+                    .get(&(new_span_event.connection_key, new_span_event.span_id))
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
 
                 let span_event = SpanEvent {
-                    instance_key: new_span_event.instance_key,
+                    connection_key: new_span_event.connection_key,
                     timestamp: new_span_event.timestamp,
                     span_key,
                     kind: SpanEventKind::Exit,
@@ -1143,12 +1145,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             NewSpanEventKind::Close => {
                 let span_key = self
                     .span_key_map
-                    .get(&(new_span_event.instance_key, new_span_event.span_id))
+                    .get(&(new_span_event.connection_key, new_span_event.span_id))
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
 
                 let span_event = SpanEvent {
-                    instance_key: new_span_event.instance_key,
+                    connection_key: new_span_event.connection_key,
                     timestamp: new_span_event.timestamp,
                     span_key,
                     kind: SpanEventKind::Close,
@@ -1174,12 +1176,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         let mut ancestors = if let Some(parent_key) = span.parent_key {
             self.span_ancestors.get(&parent_key).unwrap().clone()
         } else {
-            let (_, instance_fields) = &self.instances[&span.instance_key];
+            let (_, connection_fields) = &self.connections[&span.connection_key];
 
             let mut ancestors = Ancestors::new();
             ancestors
                 .0
-                .push((span.instance_key, instance_fields.clone()));
+                .push((span.connection_key, connection_fields.clone()));
             ancestors
         };
 
@@ -1187,7 +1189,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         ancestors.0.push((span_key, current_fields));
 
         self.span_key_map
-            .insert((span.instance_key, span.id), span_key);
+            .insert((span.connection_key, span.id), span_key);
         self.span_id_map.insert(span_key, span.id);
         self.span_indexes
             .update_with_new_span(&self.token, span, &ancestors);
@@ -1212,7 +1214,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             .span_id
             .map(|span_id| {
                 self.span_key_map
-                    .get(&(new_event.instance_key, span_id))
+                    .get(&(new_event.connection_key, span_id))
                     .copied()
                     .ok_or(EngineInsertError::UnknownParentSpanId)
             })
@@ -1222,7 +1224,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         new_event.timestamp = event_key;
 
         let event = Event {
-            instance_key: new_event.instance_key,
+            connection_key: new_event.connection_key,
             timestamp: new_event.timestamp,
             span_key,
             name: new_event.name,
@@ -1262,12 +1264,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         let mut ancestors = if let Some(parent_key) = event.span_key {
             self.span_ancestors.get(&parent_key).unwrap().clone()
         } else {
-            let (_, instance_fields) = &self.instances[&event.instance_key];
+            let (_, connection_fields) = &self.connections[&event.connection_key];
 
             let mut ancestors = Ancestors::new();
             ancestors
                 .0
-                .push((event.instance_key, instance_fields.clone()));
+                .push((event.connection_key, connection_fields.clone()));
             ancestors
         };
 
@@ -1280,7 +1282,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     pub fn delete(&mut self, filter: DeleteFilter) -> DeleteMetrics {
-        let instances = self.get_instances_in_range_filter(filter.start, filter.end, filter.inside);
+        let connections =
+            self.get_connections_in_range_filter(filter.start, filter.end, filter.inside);
         let root_spans =
             self.get_root_spans_in_range_filter(filter.start, filter.end, filter.inside);
         let root_events =
@@ -1324,20 +1327,20 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         if filter.dry_run {
             return DeleteMetrics {
-                instances: instances.len(),
+                connections: connections.len(),
                 spans: spans_from_root_spans.len(),
                 span_events: span_events.len(),
                 events: root_events.len() + events_from_root_spans.len(),
             };
         }
 
-        let mut instances_to_delete = instances;
+        let mut connections_to_delete = connections;
         let mut spans_to_delete = spans_from_root_spans;
         let mut span_events_to_delete = span_events;
         let mut events_to_delete = root_events;
         events_to_delete.extend(events_from_root_spans);
 
-        instances_to_delete.sort(); // this should already be sorted in theory
+        connections_to_delete.sort(); // this should already be sorted in theory
         spans_to_delete.sort();
         span_events_to_delete.sort();
         events_to_delete.sort();
@@ -1348,38 +1351,38 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         self.storage.drop_events(&events_to_delete);
         self.storage.drop_span_events(&span_events_to_delete);
         self.storage.drop_spans(&spans_to_delete);
-        self.storage.drop_instances(&instances_to_delete);
+        self.storage.drop_connections(&connections_to_delete);
 
         // remove smaller scoped entities from indexes last for some efficiency
 
-        self.remove_instances_bookeeping(&instances_to_delete);
+        self.remove_connections_bookeeping(&connections_to_delete);
         self.remove_spans_bookeeping(&spans_to_delete);
         self.remove_span_events_bookeeping(&span_events_to_delete);
         self.remove_events_bookeeping(&events_to_delete);
 
         DeleteMetrics {
-            instances: instances_to_delete.len(),
+            connections: connections_to_delete.len(),
             spans: spans_to_delete.len(),
             span_events: span_events_to_delete.len(),
             events: events_to_delete.len(),
         }
     }
 
-    pub fn get_instances_in_range_filter(
+    pub fn get_connections_in_range_filter(
         &self,
         start: Timestamp,
         end: Timestamp,
         inside: bool,
-    ) -> Vec<InstanceKey> {
-        self.instances
+    ) -> Vec<ConnectionKey> {
+        self.connections
             .iter()
-            .filter(|(_, (instance, _))| {
+            .filter(|(_, (connection, _))| {
                 if inside {
-                    instance.connected_at <= end
-                        && instance.disconnected_at.unwrap_or(Timestamp::MAX) >= start
+                    connection.connected_at <= end
+                        && connection.disconnected_at.unwrap_or(Timestamp::MAX) >= start
                 } else {
-                    instance.connected_at > end
-                        || instance.disconnected_at.unwrap_or(Timestamp::MAX) < start
+                    connection.connected_at > end
+                        || connection.disconnected_at.unwrap_or(Timestamp::MAX) < start
                 }
             })
             .map(|(key, _)| *key)
@@ -1442,16 +1445,16 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         iter.collect()
     }
 
-    fn remove_instances_bookeeping(&mut self, instances: &[InstanceKey]) {
-        for instance_key in instances {
-            self.instances.remove(instance_key);
+    fn remove_connections_bookeeping(&mut self, connections: &[ConnectionKey]) {
+        for connection_key in connections {
+            self.connections.remove(connection_key);
         }
 
-        self.instance_key_map
-            .retain(|_, key| !instances.contains(key));
+        self.connection_key_map
+            .retain(|_, key| !connections.contains(key));
 
-        self.span_indexes.remove_instances(instances);
-        self.event_indexes.remove_instances(instances);
+        self.span_indexes.remove_connections(connections);
+        self.event_indexes.remove_connections(connections);
     }
 
     fn remove_spans_bookeeping(&mut self, spans: &[SpanKey]) {
@@ -1490,14 +1493,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     pub fn copy_dataset(&self, mut to: Box<dyn Storage + Send>) {
-        let instances = self
+        let connections = self
             .storage
-            .get_all_instances()
+            .get_all_connections()
             .map(Boo::into_owned)
             .collect::<Vec<_>>();
 
-        for instance in instances {
-            to.insert_instance(instance);
+        for connection in connections {
+            to.insert_connection(connection);
         }
 
         let spans = self
@@ -1581,8 +1584,12 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             filter
                 .into_iter()
                 .map(|p| {
-                    BasicEventFilter::from_predicate(p, &self.instance_key_map, &self.span_key_map)
-                        .unwrap()
+                    BasicEventFilter::from_predicate(
+                        p,
+                        &self.connection_key_map,
+                        &self.span_key_map,
+                    )
+                    .unwrap()
                 })
                 .collect(),
         );
@@ -1705,8 +1712,8 @@ mod tests {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::new(),
                 })
@@ -1714,7 +1721,7 @@ mod tests {
 
             let simple = |id: u64, level: i32, attribute1: &str, attribute2: &str| -> NewEvent {
                 NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: id.try_into().unwrap(),
                     span_id: None,
                     name: "event".to_owned(),
@@ -1763,8 +1770,8 @@ mod tests {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::new(),
                 })
@@ -1773,7 +1780,7 @@ mod tests {
             let simple_open =
                 |open: u64, level: i32, attribute1: &str, attribute2: &str| -> NewSpanEvent {
                     NewSpanEvent {
-                        instance_key,
+                        connection_key,
                         timestamp: Timestamp::new(open).unwrap(),
                         span_id: open.try_into().unwrap(),
                         kind: NewSpanEventKind::Create(NewCreateSpanEvent {
@@ -1793,7 +1800,7 @@ mod tests {
 
             let simple_close = |open: u64, close: u64| -> NewSpanEvent {
                 NewSpanEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: Timestamp::new(close).unwrap(),
                     span_id: open.try_into().unwrap(),
                     kind: NewSpanEventKind::Close,
@@ -1852,12 +1859,12 @@ mod tests {
     }
 
     #[test]
-    fn event_found_with_nonindexed_instance_attribute() {
+    fn event_found_with_nonindexed_connection_attribute() {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -1866,7 +1873,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: None,
                     name: "event".to_owned(),
@@ -1903,14 +1910,14 @@ mod tests {
     }
 
     #[test]
-    fn event_found_with_indexed_instance_attribute() {
+    fn event_found_with_indexed_connection_attribute() {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
             engine.add_attribute_index("attr1".to_owned());
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -1919,7 +1926,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: None,
                     name: "event".to_owned(),
@@ -1960,8 +1967,8 @@ mod tests {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -1970,7 +1977,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: None,
                     name: "event".to_owned(),
@@ -2013,8 +2020,8 @@ mod tests {
 
             engine.add_attribute_index("attr1".to_owned());
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -2023,7 +2030,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: None,
                     name: "event".to_owned(),
@@ -2064,8 +2071,8 @@ mod tests {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -2073,7 +2080,7 @@ mod tests {
 
             engine
                 .insert_span_event(NewSpanEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
@@ -2094,7 +2101,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: SpanId::new(1),
                     name: "event".to_owned(),
@@ -2137,8 +2144,8 @@ mod tests {
 
             engine.add_attribute_index("attr1".to_owned());
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -2146,7 +2153,7 @@ mod tests {
 
             engine
                 .insert_span_event(NewSpanEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
@@ -2167,7 +2174,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: SpanId::new(1),
                     name: "event".to_owned(),
@@ -2208,8 +2215,8 @@ mod tests {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -2217,7 +2224,7 @@ mod tests {
 
             engine
                 .insert_span_event(NewSpanEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
@@ -2235,7 +2242,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: SpanId::new(1),
                     name: "event".to_owned(),
@@ -2249,7 +2256,7 @@ mod tests {
 
             engine
                 .insert_span_event(NewSpanEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: super::now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
@@ -2292,8 +2299,8 @@ mod tests {
 
             engine.add_attribute_index("attr1".to_owned());
 
-            let instance_key = engine
-                .insert_instance(NewInstance {
+            let connection_key = engine
+                .insert_connection(NewConnection {
                     id: 1,
                     fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
                 })
@@ -2301,7 +2308,7 @@ mod tests {
 
             engine
                 .insert_span_event(NewSpanEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
@@ -2319,7 +2326,7 @@ mod tests {
             let now = now();
             engine
                 .insert_event(NewEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: now.saturating_add(1),
                     span_id: SpanId::new(1),
                     name: "event".to_owned(),
@@ -2333,7 +2340,7 @@ mod tests {
 
             engine
                 .insert_span_event(NewSpanEvent {
-                    instance_key,
+                    connection_key,
                     timestamp: super::now(),
                     span_id: 1.try_into().unwrap(),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {

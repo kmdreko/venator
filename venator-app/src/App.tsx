@@ -2,15 +2,15 @@ import { listen } from '@tauri-apps/api/event';
 import { ask, message, save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { EventsScreen } from "./screens/events-screen";
-import { AppStatus, deleteEntities, Event, getEvents, getInstances, getSpans, getStats, getStatus, Input, Instance, Span, Timestamp, ValidFilterPredicate } from "./invoke";
+import { AppStatus, deleteEntities, Event, getEvents, getConnections, getSpans, getStats, getStatus, Input, Connection, Span, Timestamp, ValidFilterPredicate } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
-import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "./models";
+import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedConnection, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
-import { EventDataLayer, SpanDataLayer, TraceDataLayer, InstanceDataLayer } from "./utils/datalayer";
+import { EventDataLayer, SpanDataLayer, TraceDataLayer, ConnectionDataLayer } from "./utils/datalayer";
 import { NavigationContext } from "./context/navigation";
 import { TraceScreen } from "./screens/trace-screen";
 import { ATTRIBUTE, ColumnDef, CONNECTED, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./components/table";
-import { InstancesScreen } from "./screens/instances-screen";
+import { ConnectionsScreen } from "./screens/connections-screen";
 import { TabBar } from "./components/tab-bar";
 import { UndoHistory } from './utils/undo';
 
@@ -19,7 +19,7 @@ import "./App.css";
 const HOUR = 3600000000;
 
 export type ColumnData = {
-    columns: ColumnDef<Span | Event | Instance>[],
+    columns: ColumnDef<Span | Event | Connection>[],
     columnWidths: string[],
 }
 
@@ -48,15 +48,15 @@ type TraceScreenData = {
     collapsed: { [id: string]: true },
 };
 
-type InstancesScreenData = {
-    kind: 'instances',
+type ConnectionsScreenData = {
+    kind: 'connections',
     filter: Input[],
     timespan: Timespan,
     live: boolean,
-    store: InstanceDataLayer,
+    store: ConnectionDataLayer,
 };
 
-export type ScreenData = EventsScreenData | SpansScreenData | TraceScreenData | InstancesScreenData;
+export type ScreenData = EventsScreenData | SpansScreenData | TraceScreenData | ConnectionsScreenData;
 
 export async function defaultEventsScreen(): Promise<[EventsScreenData, ColumnData]> {
     let stats = await getStats();
@@ -162,7 +162,7 @@ export async function defaultSpansScreen(): Promise<[SpansScreenData, ColumnData
     }];
 }
 
-export async function defaultInstancesScreen(): Promise<[InstancesScreenData, ColumnData]> {
+export async function defaultConnectionsScreen(): Promise<[ConnectionsScreenData, ColumnData]> {
     let stats = await getStats();
 
     let start;
@@ -185,11 +185,11 @@ export async function defaultInstancesScreen(): Promise<[InstancesScreenData, Co
     let columns = [CONNECTED, INHERENT('id')];
     let columnWidths = columns.map(def => def.defaultWidth);
     return [{
-        kind: 'instances',
+        kind: 'connections',
         filter: [],
         timespan: [start, end],
         live: false,
-        store: new InstanceDataLayer([]),
+        store: new ConnectionDataLayer([]),
     }, {
         columns: columns as any,
         columnWidths,
@@ -246,7 +246,7 @@ function normalizeTimespan(new_timespan: Timespan): Timespan {
 function App() {
     let [screens, setScreens] = createSignal<ScreenData[]>([]);
     let [rawFilters, setRawFilters] = createSignal<Input[][]>([]);
-    let [selectedRows, setSelectedRows] = createSignal<(Event | Span | Instance | null)[]>([]);
+    let [selectedRows, setSelectedRows] = createSignal<(Event | Span | Connection | null)[]>([]);
     let [columnDatas, setColumnDatas] = createSignal<ColumnData[]>([]);
 
     let [selectedScreen, setSelectedScreen] = createSignal<number | undefined>();
@@ -330,11 +330,11 @@ function App() {
 
                     previous = spans[spans.length - 1].created_at;
                 }
-            } else if (current_screen.kind == 'instances') {
+            } else if (current_screen.kind == 'connections') {
                 let previous: number | undefined;
 
                 while (true) {
-                    let instances = await getInstances({
+                    let connections = await getConnections({
                         filter: current_screen.filter.filter(f => f.input == 'valid'),
                         start: timespan[0],
                         end: timespan[1],
@@ -342,15 +342,15 @@ function App() {
                         previous,
                     });
 
-                    for (let i of instances) {
+                    for (let i of connections) {
                         csvData += columns.map(c => c.dataText(i)).map(encodeCsvValue).join(',') + '\n';
                     }
 
-                    if (instances.length < 50) {
+                    if (connections.length < 50) {
                         break;
                     }
 
-                    previous = instances[instances.length - 1].connected_at;
+                    previous = connections[connections.length - 1].connected_at;
                 }
             }
 
@@ -382,8 +382,8 @@ function App() {
             performNewSpansTab();
         });
 
-        await listen('tab-new-instances-clicked', () => {
-            performNewInstancesTab();
+        await listen('tab-new-connections-clicked', () => {
+            performNewConnectionsTab();
         });
 
         await listen('tab-duplicate-clicked', () => {
@@ -425,7 +425,7 @@ function App() {
         await listen('delete-all-clicked', async () => {
             let metrics = await deleteEntities(null, null, true, true);
 
-            let answer = await ask(`This will delete ${metrics.instances} instances, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+            let answer = await ask(`This will delete ${metrics.connections} connections, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
                 title: `Delete from ${status()?.dataset_name}`,
                 kind: 'warning',
             });
@@ -443,7 +443,7 @@ function App() {
 
             let metrics = await deleteEntities(timespan[0], timespan[1], true, true);
 
-            let answer = await ask(`This will delete ${metrics.instances} instances, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+            let answer = await ask(`This will delete ${metrics.connections} connections, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
                 title: `Delete from ${status()?.dataset_name}`,
                 kind: 'warning',
             });
@@ -461,7 +461,7 @@ function App() {
 
             let metrics = await deleteEntities(timespan[0], timespan[1], false, true);
 
-            let answer = await ask(`This will delete ${metrics.instances} instances, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+            let answer = await ask(`This will delete ${metrics.connections} connections, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
                 title: `Delete from ${status()?.dataset_name}`,
                 kind: 'warning',
             });
@@ -561,12 +561,12 @@ function App() {
         return entries;
     }
 
-    async function getAndCacheInstances(screen: InstancesScreenData, filter: PartialFilter): Promise<Instance[] | null> {
-        return await screen.store.getInstances(filter);
+    async function getAndCacheConnections(screen: ConnectionsScreenData, filter: PartialFilter): Promise<Connection[] | null> {
+        return await screen.store.getConnections(filter);
     }
 
-    async function getAndCachePositionedInstances(screen: InstancesScreenData, filter: PartialFilter): Promise<PositionedInstance[] | null> {
-        return await screen.store.getPositionedInstances(filter);
+    async function getAndCachePositionedConnections(screen: ConnectionsScreenData, filter: PartialFilter): Promise<PositionedConnection[] | null> {
+        return await screen.store.getPositionedConnections(filter);
     }
 
     function getPaddedTimespan(timespan: Timespan): Timespan {
@@ -599,7 +599,7 @@ function App() {
         return current_raw_filters[current_selected_screen];
     }
 
-    function getCurrentSelectedRow(): Event | Span | Instance | null {
+    function getCurrentSelectedRow(): Event | Span | Connection | null {
         let current_selected_screen = selectedScreen();
         if (current_selected_screen == undefined) {
             return null;
@@ -684,8 +684,8 @@ function App() {
                 ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new EventDataLayer(filter) }
                 : current_screens[current_selected_screen].kind == 'spans'
                     ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new SpanDataLayer(filter) }
-                    : current_screens[current_selected_screen].kind == 'instances'
-                        ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new InstanceDataLayer(filter) }
+                    : current_screens[current_selected_screen].kind == 'connections'
+                        ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new ConnectionDataLayer(filter) }
                         : { ...current_screens[current_selected_screen], filter: valid_filter };
 
             if (updated_screens[current_selected_screen].live) {
@@ -715,8 +715,8 @@ function App() {
                 case 'spans':
                     updated_screens[i] = { ...current_screens[i], filter, store: new SpanDataLayer(filter) as any };
                     break;
-                case 'instances':
-                    updated_screens[i] = { ...current_screens[i], filter, store: new InstanceDataLayer(filter) as any };
+                case 'connections':
+                    updated_screens[i] = { ...current_screens[i], filter, store: new ConnectionDataLayer(filter) as any };
                     break;
                 case 'trace':
                     updated_screens[i] = { ...current_screens[i], filter };
@@ -1110,8 +1110,8 @@ function App() {
             case 'spans':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new SpanDataLayer(filter) as any };
                 break;
-            case 'instances':
-                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new InstanceDataLayer(filter) as any };
+            case 'connections':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new ConnectionDataLayer(filter) as any };
                 break;
             case 'trace':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter };
@@ -1155,8 +1155,8 @@ function App() {
             case 'spans':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new SpanDataLayer(filter) as any };
                 break;
-            case 'instances':
-                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new InstanceDataLayer(filter) as any };
+            case 'connections':
+                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new ConnectionDataLayer(filter) as any };
                 break;
             case 'trace':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter };
@@ -1250,17 +1250,17 @@ function App() {
             let padded_end = end_timestamp + duration * 0.05;
 
             setScreenTimespan([padded_start, padded_end]);
-        } else if (current_screens[current_selected_screen].kind == 'instances') {
+        } else if (current_screens[current_selected_screen].kind == 'connections') {
             let [start, end] = current_screens[current_selected_screen].timespan;
 
-            let start_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+            let start_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
                 order: 'asc',
                 start,
                 end: null,
                 limit: 1,
             });
 
-            let end_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+            let end_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
                 order: 'desc',
                 start: null,
                 end,
@@ -1268,14 +1268,14 @@ function App() {
             });
 
             // TODO: this will return a timestamp "before" the one provided if it
-            // intersects an instance
-            let start_timestamp = (start_instances == null || start_instances.length == 0) ? null : start_instances[0].connected_at;
+            // intersects an connection
+            let start_timestamp = (start_connections == null || start_connections.length == 0) ? null : start_connections[0].connected_at;
 
             // TODO: this gets the most recent "connected_at" and not the most
             // recent "disconnected_at" that a user is probably expecting, however 
             // at the moment that is more complicated to get and unclear what to
-            // return if the timestamp is intersecting an instance
-            let end_timestamp = (end_instances == null || end_instances.length == 0) ? null : end_instances[0].connected_at;
+            // return if the timestamp is intersecting an connection
+            let end_timestamp = (end_connections == null || end_connections.length == 0) ? null : end_connections[0].connected_at;
 
             if (start_timestamp == null || end_timestamp == null) {
                 return;
@@ -1354,15 +1354,15 @@ function App() {
             let padded_end = end_timestamp + duration * 0.05;
 
             setScreenTimespan([padded_start, padded_end]);
-        } else if (current_screens[current_selected_screen].kind == 'instances') {
-            let start_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+        } else if (current_screens[current_selected_screen].kind == 'connections') {
+            let start_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
                 order: 'asc',
                 start: null,
                 end: null,
                 limit: 1,
             });
 
-            let end_instances = await getAndCacheInstances(current_screens[current_selected_screen], {
+            let end_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
                 order: 'desc',
                 start: null,
                 end: null,
@@ -1370,14 +1370,14 @@ function App() {
             });
 
             // TODO: this will return a timestamp "before" the one provided if it
-            // intersects an instance
-            let start_timestamp = (start_instances == null || start_instances.length == 0) ? null : start_instances[0].connected_at;
+            // intersects an connection
+            let start_timestamp = (start_connections == null || start_connections.length == 0) ? null : start_connections[0].connected_at;
 
             // TODO: this gets the most recent "connected_at" and not the most
             // recent "disconnected_at" that a user is probably expecting, however 
             // at the moment that is more complicated to get and unclear what to
-            // return if the timestamp is intersecting an instance
-            let end_timestamp = (end_instances == null || end_instances.length == 0) ? null : end_instances[0].connected_at;
+            // return if the timestamp is intersecting an connection
+            let end_timestamp = (end_connections == null || end_connections.length == 0) ? null : end_connections[0].connected_at;
 
             if (start_timestamp == null || end_timestamp == null) {
                 return;
@@ -1399,8 +1399,8 @@ function App() {
         createTab(...await defaultSpansScreen(), true);
     }
 
-    async function performNewInstancesTab() {
-        createTab(...await defaultInstancesScreen(), true);
+    async function performNewConnectionsTab() {
+        createTab(...await defaultConnectionsScreen(), true);
     }
 
     function performDuplicateTab() {
@@ -1546,13 +1546,13 @@ function App() {
                                 setSelected={setScreenSelected}
                             />
                         </Match>
-                        <Match when={getCurrentScreen()!.kind == 'instances'}>
-                            <InstancesScreen
+                        <Match when={getCurrentScreen()!.kind == 'connections'}>
+                            <ConnectionsScreen
                                 raw_filter={getCurrentRawFilters()!}
                                 filter={getCurrentScreen()!.filter}
                                 setFilter={setScreenFilter}
                                 addToFilter={addToFilter}
-                                timespan={(getCurrentScreen() as InstancesScreenData).timespan}
+                                timespan={(getCurrentScreen() as ConnectionsScreenData).timespan}
                                 setTimespan={setScreenTimespan}
 
                                 columns={getCurrentColumnData()!.columns}
@@ -1563,8 +1563,8 @@ function App() {
                                 columnInsert={addColumnAfter}
                                 columnRemove={removeColumn}
 
-                                getInstances={f => getAndCacheInstances(getCurrentScreen() as InstancesScreenData, f)}
-                                getPositionedInstances={f => getAndCachePositionedInstances(getCurrentScreen() as InstancesScreenData, f)}
+                                getConnections={f => getAndCacheConnections(getCurrentScreen() as ConnectionsScreenData, f)}
+                                getPositionedConnections={f => getAndCachePositionedConnections(getCurrentScreen() as ConnectionsScreenData, f)}
 
                                 selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}

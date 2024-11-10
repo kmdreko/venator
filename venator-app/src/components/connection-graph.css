@@ -1,4 +1,4 @@
-.instance-graph-container {
+.connection-graph-container {
     height: 100px;
 
     display: flex;
@@ -6,22 +6,22 @@
     overflow: hidden;
 }
 
-.instance-graph-stats {
+.connection-graph-stats {
     flex: 0;
     color: var(--text-light);
 }
 
-.instance-graph-stats .stat-name {
+.connection-graph-stats .stat-name {
     margin-right: 4px;
 }
 
-.instance-graph-stats .stat-value {
+.connection-graph-stats .stat-value {
     font-weight: 500;
     color: var(--text-normal);
     margin-right: 8px;
 }
 
-.instance-graph {
+.connection-graph {
     flex: 1;
 
     position: relative;
@@ -33,21 +33,21 @@
     overflow-y: clip;
 }
 
-.instance-graph-x-axis {
+.connection-graph-x-axis {
     flex: 0;
     color: var(--text-light);
     position: relative;
     min-height: 20px;
 }
 
-.instance-graph-x-axis-marker {
+.connection-graph-x-axis-marker {
     flex: 0;
     color: var(--text-light);
     position: absolute;
     translate: -50% 0%;
 }
 
-.instance-graph-y-lines {
+.connection-graph-y-lines {
     position: absolute;
     width: 100%;
     height: 100%;
@@ -57,12 +57,12 @@
     justify-content: space-between;
 }
 
-.instance-graph-y-line {
+.connection-graph-y-line {
     width: 100%;
     border-bottom: 1px solid var(--border-light-color);
 }
 
-.instance-graph-cursor {
+.connection-graph-cursor {
     position: absolute;
     min-width: 3px;
     height: 100%;
@@ -71,7 +71,7 @@
     opacity: 50%;
 }
 
-.instance-graph-selection {
+.connection-graph-selection {
     position: absolute;
     height: 100%;
 
@@ -79,7 +79,7 @@
     opacity: 25%;
 }
 
-.instance-graph-bar {
+.connection-graph-bar {
     min-width: 1px;
     height: 4px;
     position: absolute;

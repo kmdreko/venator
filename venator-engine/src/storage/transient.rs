@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Boo, Storage};
 use crate::models::Value;
-use crate::{Event, Instance, Span, SpanEvent, SpanKey, Timestamp};
+use crate::{Connection, Event, Span, SpanEvent, SpanKey, Timestamp};
 
 /// This storage implementation just holds elements in memory.
 pub struct TransientStorage {
-    instances: BTreeMap<Timestamp, Instance>,
+    connections: BTreeMap<Timestamp, Connection>,
     spans: BTreeMap<Timestamp, Span>,
     span_events: BTreeMap<Timestamp, SpanEvent>,
     events: BTreeMap<Timestamp, Event>,
@@ -17,7 +17,7 @@ impl TransientStorage {
     #[allow(clippy::new_without_default)]
     pub fn new() -> TransientStorage {
         TransientStorage {
-            instances: BTreeMap::new(),
+            connections: BTreeMap::new(),
             spans: BTreeMap::new(),
             span_events: BTreeMap::new(),
             events: BTreeMap::new(),
@@ -27,8 +27,8 @@ impl TransientStorage {
 }
 
 impl Storage for TransientStorage {
-    fn get_instance(&self, at: Timestamp) -> Option<Boo<'_, Instance>> {
-        self.instances.get(&at).map(Boo::Borrowed)
+    fn get_connection(&self, at: Timestamp) -> Option<Boo<'_, Connection>> {
+        self.connections.get(&at).map(Boo::Borrowed)
     }
 
     fn get_span(&self, at: Timestamp) -> Option<Boo<'_, Span>> {
@@ -43,8 +43,8 @@ impl Storage for TransientStorage {
         self.events.get(&at).map(Boo::Borrowed)
     }
 
-    fn get_all_instances(&self) -> Box<dyn Iterator<Item = Boo<'_, Instance>> + '_> {
-        Box::new(self.instances.values().map(Boo::Borrowed))
+    fn get_all_connections(&self) -> Box<dyn Iterator<Item = Boo<'_, Connection>> + '_> {
+        Box::new(self.connections.values().map(Boo::Borrowed))
     }
 
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Boo<'_, Span>> + '_> {
@@ -63,9 +63,9 @@ impl Storage for TransientStorage {
         Box::new(self.indexes.iter().map(Boo::Borrowed))
     }
 
-    fn insert_instance(&mut self, instance: Instance) {
-        let at = instance.key();
-        self.instances.insert(at, instance);
+    fn insert_connection(&mut self, connection: Connection) {
+        let at = connection.key();
+        self.connections.insert(at, connection);
     }
 
     fn insert_span(&mut self, span: Span) {
@@ -87,9 +87,9 @@ impl Storage for TransientStorage {
         self.indexes.insert(name);
     }
 
-    fn update_instance_disconnected(&mut self, at: Timestamp, disconnected_at: Timestamp) {
-        if let Some(instance) = self.instances.get_mut(&at) {
-            instance.disconnected_at = Some(disconnected_at);
+    fn update_connection_disconnected(&mut self, at: Timestamp, disconnected_at: Timestamp) {
+        if let Some(connection) = self.connections.get_mut(&at) {
+            connection.disconnected_at = Some(disconnected_at);
         }
     }
 
@@ -111,9 +111,9 @@ impl Storage for TransientStorage {
         }
     }
 
-    fn drop_instances(&mut self, instances: &[Timestamp]) {
-        for at in instances {
-            self.instances.remove(at);
+    fn drop_connections(&mut self, connections: &[Timestamp]) {
+        for at in connections {
+            self.connections.remove(at);
         }
     }
 

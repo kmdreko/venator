@@ -1,5 +1,5 @@
-import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getInstances, getSpans, Input, Instance, InstanceId, Span, SpanFilter, subscribeToEvents, Timestamp, unsubscribeFromEvents } from "../invoke";
-import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedInstance, PositionedSpan, Timespan } from "../models";
+import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getConnections, getSpans, Input, Connection, ConnectionId, Span, SpanFilter, subscribeToEvents, Timestamp, unsubscribeFromEvents } from "../invoke";
+import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedConnection, PositionedSpan, Timespan } from "../models";
 import { Channel } from "@tauri-apps/api/core";
 
 type IsVolatile = boolean;
@@ -987,22 +987,22 @@ export class TraceDataLayer {
     }
 }
 
-export class InstanceDataLayer {
+export class ConnectionDataLayer {
     // the filter to use fetching spans
     //
     // this is immutable, if the filter changes the cache should be re-created
     #filter: FilterPredicate[];
 
     // the cached events and spans in first-child order
-    #instances: Instance[];
+    #connections: Connection[];
 
-    #slotmap: { [instance_id: InstanceId]: number };
+    #slotmap: { [connection_id: ConnectionId]: number };
 
     #fetchTask: Promise<void> | null;
 
     constructor(filter: Input[]) {
         this.#filter = filter.filter(f => f.input == 'valid');
-        this.#instances = [];
+        this.#connections = [];
         this.#slotmap = {};
         this.#fetchTask = null;
     }
@@ -1011,54 +1011,54 @@ export class InstanceDataLayer {
 
     unsubscribe = async () => { }
 
-    getInstances = async (filter: PartialFilter): Promise<Instance[]> => {
+    getConnections = async (filter: PartialFilter): Promise<Connection[]> => {
         await this.#fetch();
 
-        let startIndex = partitionPointInstancesLower(this.#instances, filter.start ?? 1);
-        let endIndex = partitionPointInstancesUpper(this.#instances, filter.end ?? Infinity);
+        let startIndex = partitionPointConnectionsLower(this.#connections, filter.start ?? 1);
+        let endIndex = partitionPointConnectionsUpper(this.#connections, filter.end ?? Infinity);
 
-        let preRangeInstancesInFilter = [];
+        let preRangeConnectionsInFilter = [];
         if (!filter.previous || filter.previous < (filter.start ?? 1)) {
             // beginning is sparse
             let preRangeStart = (filter.previous)
-                ? partitionPointInstancesUpper(this.#instances, filter.previous)
+                ? partitionPointConnectionsUpper(this.#connections, filter.previous)
                 : 0;
 
             let preRangeEnd = startIndex;
 
-            let preRangeInstances = this.#instances.slice(preRangeStart, preRangeEnd);
-            for (let instance of preRangeInstances) {
-                if (instance.disconnected_at == null || instance.disconnected_at >= (filter.start ?? 1)) {
-                    preRangeInstancesInFilter.push(instance);
-                    if (preRangeInstancesInFilter.length == 50) {
-                        return preRangeInstancesInFilter;
+            let preRangeConnections = this.#connections.slice(preRangeStart, preRangeEnd);
+            for (let connection of preRangeConnections) {
+                if (connection.disconnected_at == null || connection.disconnected_at >= (filter.start ?? 1)) {
+                    preRangeConnectionsInFilter.push(connection);
+                    if (preRangeConnectionsInFilter.length == 50) {
+                        return preRangeConnectionsInFilter;
                     }
                 }
             }
 
-            if ((endIndex - startIndex) + preRangeInstancesInFilter.length > 50) {
-                endIndex = startIndex + 50 - preRangeInstancesInFilter.length;
+            if ((endIndex - startIndex) + preRangeConnectionsInFilter.length > 50) {
+                endIndex = startIndex + 50 - preRangeConnectionsInFilter.length;
             }
 
-            return [...preRangeInstancesInFilter, ...this.#instances.slice(startIndex, endIndex)];
+            return [...preRangeConnectionsInFilter, ...this.#connections.slice(startIndex, endIndex)];
         } else {
             // beginning is dense
             if (filter.previous && filter.previous > (filter.start ?? 1)) {
-                startIndex = partitionPointInstancesUpper(this.#instances, filter.previous);
+                startIndex = partitionPointConnectionsUpper(this.#connections, filter.previous);
             }
 
             if ((endIndex - startIndex) > 50) {
                 endIndex = startIndex + 50;
             }
 
-            return this.#instances.slice(startIndex, endIndex);
+            return this.#connections.slice(startIndex, endIndex);
         }
     }
 
-    getPositionedInstances = async (filter: PartialFilter): Promise<PositionedInstance[]> => {
-        let instances = await this.getInstances(filter);
+    getPositionedConnections = async (filter: PartialFilter): Promise<PositionedConnection[]> => {
+        let connections = await this.getConnections(filter);
 
-        return instances.map(i => ({
+        return connections.map(i => ({
             id: i.id,
             connected_at: i.connected_at,
             disconnected_at: i.disconnected_at,
@@ -1066,13 +1066,13 @@ export class InstanceDataLayer {
         }))
     }
 
-    #calculateSlots = (instances: Instance[]): { [instance_id: InstanceId]: number } => {
-        let instancesToPosition = [...instances];
+    #calculateSlots = (connections: Connection[]): { [connection_id: ConnectionId]: number } => {
+        let connectionsToPosition = [...connections];
         let slots: Timespan[][] = [];
-        let slotmap: { [instance_id: InstanceId]: number } = {};
-        instancesToPosition.sort((a, b) => {
-            let a_order = instanceOrdering(a);
-            let b_order = instanceOrdering(b);
+        let slotmap: { [connection_id: ConnectionId]: number } = {};
+        connectionsToPosition.sort((a, b) => {
+            let a_order = connectionOrdering(a);
+            let b_order = connectionOrdering(b);
 
             if (a_order != b_order) {
                 return a_order - b_order;
@@ -1081,20 +1081,20 @@ export class InstanceDataLayer {
             }
         });
 
-        outer: for (let instance of instancesToPosition) {
-            if (slotmap[instance.id] != undefined) {
+        outer: for (let connection of connectionsToPosition) {
+            if (slotmap[connection.id] != undefined) {
                 continue;
             }
 
             for (let i = 0; i < slots.length; i++) {
-                if (putInInstanceSlot(slots[i], instance)) {
-                    slotmap[instance.id] = i;
+                if (putInConnectionSlot(slots[i], connection)) {
+                    slotmap[connection.id] = i;
                     continue outer;
                 }
             }
 
-            slotmap[instance.id] = slots.length;
-            slots.push([[instance.connected_at, instance.disconnected_at ?? Infinity]]);
+            slotmap[connection.id] = slots.length;
+            slots.push([[connection.connected_at, connection.disconnected_at ?? Infinity]]);
         }
 
         return slotmap;
@@ -1106,10 +1106,10 @@ export class InstanceDataLayer {
         }
 
         this.#fetchTask = (async () => {
-            let instances = [];
+            let connections = [];
             let previous: number | undefined;
             while (true) {
-                let newInstances = await getInstances({
+                let newConnections = await getConnections({
                     filter: this.#filter,
                     order: 'asc',
                     start: null,
@@ -1117,17 +1117,17 @@ export class InstanceDataLayer {
                     previous,
                 });
 
-                instances.push(...newInstances);
+                connections.push(...newConnections);
 
-                if (newInstances.length != 50) {
+                if (newConnections.length != 50) {
                     break;
                 }
 
-                previous = newInstances[newInstances.length - 1].connected_at;
+                previous = newConnections[newConnections.length - 1].connected_at;
             }
 
-            this.#slotmap = this.#calculateSlots(instances);
-            this.#instances = instances;
+            this.#slotmap = this.#calculateSlots(connections);
+            this.#connections = connections;
         })();
 
         return this.#fetchTask;
@@ -1311,16 +1311,16 @@ export function partitionPointEntriesUpper(entries: (Event | Span)[], timestamp:
 
 // returns the index where a span created at the timestamp should be if it
 // exists 
-export function partitionPointInstancesLower(instances: Instance[], timestamp: Timestamp): number {
+export function partitionPointConnectionsLower(connections: Connection[], timestamp: Timestamp): number {
     let start = 0;
-    let end = instances.length - 1;
+    let end = connections.length - 1;
 
     while (start <= end) {
         let mid = Math.floor((start + end) / 2);
 
-        if (instances[mid].connected_at == timestamp) {
+        if (connections[mid].connected_at == timestamp) {
             return mid;
-        } else if (instances[mid].connected_at > timestamp) {
+        } else if (connections[mid].connected_at > timestamp) {
             end = mid - 1;
         } else {
             start = mid + 1;
@@ -1330,16 +1330,16 @@ export function partitionPointInstancesLower(instances: Instance[], timestamp: T
     return start;
 }
 
-export function partitionPointInstancesUpper(instances: Instance[], timestamp: Timestamp): number {
+export function partitionPointConnectionsUpper(connections: Connection[], timestamp: Timestamp): number {
     let start = 0;
-    let end = instances.length - 1;
+    let end = connections.length - 1;
 
     while (start <= end) {
         let mid = Math.floor((start + end) / 2);
 
-        if (instances[mid].connected_at == timestamp) {
+        if (connections[mid].connected_at == timestamp) {
             return mid + 1;
-        } else if (instances[mid].connected_at > timestamp) {
+        } else if (connections[mid].connected_at > timestamp) {
             end = mid - 1;
         } else {
             start = mid + 1;
@@ -1396,39 +1396,39 @@ function putInSlot(slot: Timespan[], span: Span): boolean {
     return false;
 }
 
-function instanceMeasure(instance: Instance): number {
-    if (instance.disconnected_at == null) {
+function connectionMeasure(connection: Connection): number {
+    if (connection.disconnected_at == null) {
         return 1;
     }
 
-    let duration = instance.disconnected_at - instance.connected_at;
+    let duration = connection.disconnected_at - connection.connected_at;
     return 32 - Math.min(Math.log(duration), 31);
 }
 
-function instanceOrdering(instance: Instance): number {
-    return instanceMeasure(instance);
+function connectionOrdering(connection: Connection): number {
+    return connectionMeasure(connection);
 }
 
-function putInInstanceSlot(slot: Timespan[], instance: Instance): boolean {
+function putInConnectionSlot(slot: Timespan[], connection: Connection): boolean {
     if (slot.length == 0) {
-        slot.push([instance.connected_at, instance.disconnected_at ?? Infinity]);
+        slot.push([connection.connected_at, connection.disconnected_at ?? Infinity]);
         return true;
     }
 
-    if (slot[0][0] > (instance.disconnected_at ?? Infinity)) {
-        slot.splice(0, 0, [instance.connected_at, instance.disconnected_at ?? Infinity]);
+    if (slot[0][0] > (connection.disconnected_at ?? Infinity)) {
+        slot.splice(0, 0, [connection.connected_at, connection.disconnected_at ?? Infinity]);
         return true;
     }
 
     for (let i = 0; i < slot.length - 1; i++) {
-        if (instance.connected_at > slot[i][1] && (instance.disconnected_at ?? Infinity) < slot[i + 1][0]) {
-            slot.splice(i + 1, 0, [instance.connected_at, instance.disconnected_at ?? Infinity]);
+        if (connection.connected_at > slot[i][1] && (connection.disconnected_at ?? Infinity) < slot[i + 1][0]) {
+            slot.splice(i + 1, 0, [connection.connected_at, connection.disconnected_at ?? Infinity]);
             return true;
         }
     }
 
-    if (instance.connected_at > slot[slot.length - 1][1]) {
-        slot.push([instance.connected_at, instance.disconnected_at ?? Infinity]);
+    if (connection.connected_at > slot[slot.length - 1][1]) {
+        slot.push([connection.connected_at, connection.disconnected_at ?? Infinity]);
         return true;
     }
 

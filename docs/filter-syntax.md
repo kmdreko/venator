@@ -9,7 +9,7 @@ Properties come in two kinds:
     the instrumentation and reporting of events and spans. The available
     inherent properties are:
     - `#level`: 
-    - `#instance`: 
+    - `#connection`: 
     - `#parent`: 
     - `#stack`: 
     - `#target`: 

@@ -13,25 +13,25 @@ use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use venator_engine::{
-    BasicEventFilter, BasicInstanceFilter, BasicSpanFilter, DeleteFilter, DeleteMetrics, Engine,
-    EventView, FallibleFilterPredicate, FileStorage, FilterPredicate, FilterPredicateSingle,
-    FilterPropertyKind, InputError, InstanceView, Order, Query, SpanView, StatsView,
+    BasicConnectionFilter, BasicEventFilter, BasicSpanFilter, ConnectionView, DeleteFilter,
+    DeleteMetrics, Engine, EventView, FallibleFilterPredicate, FileStorage, FilterPredicate,
+    FilterPredicateSingle, FilterPropertyKind, InputError, Order, Query, SpanView, StatsView,
     SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
 };
 
 mod ingress;
 
 #[tauri::command]
-async fn get_instances(
+async fn get_connections(
     engine: State<'_, Engine>,
     filter: Vec<FilterPredicate>,
     order: Order,
     previous: Option<Timestamp>,
     start: Option<Timestamp>,
     end: Option<Timestamp>,
-) -> Result<Vec<InstanceView>, ()> {
+) -> Result<Vec<ConnectionView>, ()> {
     let events = engine
-        .query_instance(Query {
+        .query_connection(Query {
             filter,
             order,
             limit: 50,
@@ -45,14 +45,14 @@ async fn get_instances(
 }
 
 #[tauri::command]
-async fn get_instance_count(
+async fn get_connection_count(
     engine: State<'_, Engine>,
     filter: Vec<FilterPredicate>,
     start: Timestamp,
     end: Timestamp,
 ) -> Result<usize, ()> {
-    let instances = engine
-        .query_instance_count(Query {
+    let connections = engine
+        .query_connection_count(Query {
             filter,
             order: Order::Asc, // this doesn't matter
             limit: 20,         // this doesn't matter
@@ -62,11 +62,11 @@ async fn get_instance_count(
         })
         .await;
 
-    Ok(instances)
+    Ok(connections)
 }
 
 #[tauri::command]
-async fn parse_instance_filter(
+async fn parse_connection_filter(
     _engine: State<'_, Engine>,
     filter: &str,
 ) -> Result<Vec<InputView>, ()> {
@@ -75,7 +75,7 @@ async fn parse_instance_filter(
             .into_iter()
             .map(|p| {
                 let text = p.to_string();
-                InputView::from(BasicInstanceFilter::validate(p).map_err(|e| (e, text)))
+                InputView::from(BasicConnectionFilter::validate(p).map_err(|e| (e, text)))
             })
             .collect()),
         Err(err) => Ok(vec![InputView {
@@ -467,8 +467,8 @@ fn main() {
                         )?,
                         &MenuItem::with_id(
                             handle,
-                            "tab-new-instances",
-                            "New instances tab",
+                            "tab-new-connections",
+                            "New connections tab",
                             true,
                             None::<&str>,
                         )?,
@@ -637,8 +637,8 @@ fn main() {
                 "tab-new-spans" => {
                     app.emit("tab-new-spans-clicked", ()).unwrap();
                 }
-                "tab-new-instances" => {
-                    app.emit("tab-new-instances-clicked", ()).unwrap();
+                "tab-new-connections" => {
+                    app.emit("tab-new-connections-clicked", ()).unwrap();
                 }
                 "tab-duplicate" => {
                     app.emit("tab-duplicate-clicked", ()).unwrap();
@@ -693,9 +693,9 @@ fn main() {
         .manage(dataset)
         .manage(Mutex::new(ingress))
         .invoke_handler(tauri::generate_handler![
-            get_instances,
-            get_instance_count,
-            parse_instance_filter,
+            get_connections,
+            get_connection_count,
+            parse_connection_filter,
             get_events,
             get_event_count,
             parse_event_filter,
@@ -799,7 +799,7 @@ struct StatusView {
 
 #[derive(Serialize)]
 pub struct DeleteMetricsView {
-    instances: usize,
+    connections: usize,
     spans: usize,
     span_events: usize,
     events: usize,
@@ -808,7 +808,7 @@ pub struct DeleteMetricsView {
 impl From<DeleteMetrics> for DeleteMetricsView {
     fn from(metrics: DeleteMetrics) -> Self {
         DeleteMetricsView {
-            instances: metrics.instances,
+            connections: metrics.connections,
             spans: metrics.spans,
             span_events: metrics.span_events,
             events: metrics.events,

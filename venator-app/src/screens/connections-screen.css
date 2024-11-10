@@ -1,4 +1,4 @@
-.instances-screen {
+.connections-screen {
     height: 100%;
 
     box-sizing: border-box;
@@ -9,7 +9,7 @@
     gap: 4px;
 }
 
-.instances-screen-content {
+.connections-screen-content {
     height: 0px;
     flex: 1;
 

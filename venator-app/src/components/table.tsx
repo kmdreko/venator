@@ -1,7 +1,7 @@
 import { batch, createEffect, createSignal, For, JSX, Show, useContext } from "solid-js";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { PartialFilter, Timespan } from "../models";
-import { Event, Instance, Span, Timestamp } from "../invoke";
+import { Event, Connection, Span, Timestamp } from "../invoke";
 
 import './table.css';
 import { CollapsableContext } from "../context/collapsable";
@@ -155,7 +155,7 @@ export const CLOSED: ColumnDef<Span> = {
     dataText: (span) => span.closed_at ? formatTimestamp(span.closed_at) : '',
 };
 
-export const CONNECTED: ColumnDef<Instance> = {
+export const CONNECTED: ColumnDef<Connection> = {
     defaultWidth: "176px",
     header: (props) => {
         return (<div class="header" style={`z-index: ${props.n}`}>
@@ -169,10 +169,10 @@ export const CONNECTED: ColumnDef<Instance> = {
             {formatTimestamp(props.entry.connected_at)}
         </div>;
     },
-    dataText: (instance) => formatTimestamp(instance.connected_at),
+    dataText: (connection) => formatTimestamp(connection.connected_at),
 };
 
-export const DISCONNECTED: ColumnDef<Instance> = {
+export const DISCONNECTED: ColumnDef<Connection> = {
     defaultWidth: "176px",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -202,10 +202,10 @@ export const DISCONNECTED: ColumnDef<Instance> = {
             {props.entry.disconnected_at ? formatTimestamp(props.entry.disconnected_at) : '---'}
         </div>;
     },
-    dataText: (instance) => instance.disconnected_at ? formatTimestamp(instance.disconnected_at) : '',
+    dataText: (connection) => connection.disconnected_at ? formatTimestamp(connection.disconnected_at) : '',
 };
 
-export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Instance> => ({
+export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Connection> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -281,7 +281,7 @@ export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Instance>
     dataText: (entity) => entity.attributes.find(a => a.name == attribute)?.value ?? '',
 });
 
-export const INHERENT = (inherent: string): ColumnDef<Event | Span | Instance> => ({
+export const INHERENT = (inherent: string): ColumnDef<Event | Span | Connection> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -425,7 +425,7 @@ export const PARENT: ColumnDef<Event | Span> = {
     dataText: (entity) => renderedParent(entity) ?? '',
 };
 
-function renderedDuration(e: Span | Instance) {
+function renderedDuration(e: Span | Connection) {
     let start: number = (e as any).created_at ?? (e as any).connected_at;
     let end: number | null = (e as any).closed_at ?? (e as any).disconnected_at;
     if (end == null) {
@@ -452,7 +452,7 @@ function renderedDuration(e: Span | Instance) {
         return `${(duration / MILLISECOND).toPrecision(3)}ms`;
 }
 
-export const DURATION: ColumnDef<Span | Instance> = {
+export const DURATION: ColumnDef<Span | Connection> = {
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -494,7 +494,7 @@ export const DURATION: ColumnDef<Span | Instance> = {
     dataText: (entity) => renderedDuration(entity) ?? '',
 };
 
-export const UNKNOWN = (property: string): ColumnDef<Event | Span | Instance> => ({
+export const UNKNOWN = (property: string): ColumnDef<Event | Span | Connection> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -652,7 +652,7 @@ function formatTimestamp(timestamp: number): string {
 }
 
 export function parseEventColumn(property: string): ColumnDef<Event> {
-    // if (property == 'instance' || property == '#instance') {
+    // if (property == 'connection' || property == '#connection') {
     //     return INSTANCE;
     // }
     if (property == 'parent' || property == '#parent') {
@@ -677,7 +677,7 @@ export function parseEventColumn(property: string): ColumnDef<Event> {
 }
 
 export function parseSpanColumn(property: string): ColumnDef<Span> {
-    // if (property == 'instance' || property == '#instance') {
+    // if (property == 'connection' || property == '#connection') {
     //     return INSTANCE;
     // }
     // if (property == 'created' || property == '#created') {
@@ -713,7 +713,7 @@ export function parseSpanColumn(property: string): ColumnDef<Span> {
     return ATTRIBUTE(property);
 }
 
-export function parseInstanceColumn(property: string): ColumnDef<Instance> {
+export function parseConnectionColumn(property: string): ColumnDef<Connection> {
     if (property == 'id' || property == '#id') {
         return INHERENT('id');
     }
@@ -784,7 +784,7 @@ export type TableProps<T> = {
     addToFilter: (filter: string) => void,
 };
 
-export function Table<T extends Event | Span | Instance>(props: TableProps<T>) {
+export function Table<T extends Event | Span | Connection>(props: TableProps<T>) {
     const [entries, setEntries] = createSignal([] as T[]);
     const [status, setStatus] = createSignal('loading' as 'partial' | 'loading' | 'done');
     const [order, setOrder] = createSignal('asc' as 'asc' | 'desc');

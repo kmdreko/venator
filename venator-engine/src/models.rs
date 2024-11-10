@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 
 pub type Timestamp = NonZeroU64;
 
-/// This is the internal type used to identify instances. The value is the
-/// unique timestamp from when the instance was created.
-pub type InstanceKey = NonZeroU64;
+/// This is the internal type used to identify connections. The value is the
+/// unique timestamp from when the connection was created.
+pub type ConnectionKey = NonZeroU64;
 
-/// This is the external type used to identity an instance. This is generated
+/// This is the external type used to identity an connection. This is generated
 /// client-side and should be random to make it unique.
-pub type InstanceId = u64;
+pub type ConnectionId = u64;
 
 /// This is the internal type used to identify spans. The value is the unique
 /// timestamp from when the span was created.
@@ -28,22 +28,22 @@ pub type SpanEventKey = NonZeroU64;
 pub type EventKey = NonZeroU64;
 
 /// This is the external type used to identity a span. This is generated client-
-/// side and is unique but only within that instance.
+/// side and is unique but only within that connection.
 pub type SpanId = NonZeroU64;
 
-pub type InstanceIdView = String;
+pub type ConnectionIdView = String;
 pub type FullSpanIdView = String;
 
-pub type FullSpanId = (InstanceId, SpanId);
+pub type FullSpanId = (ConnectionId, SpanId);
 
 pub type SubscriptionId = usize;
 
 pub fn parse_full_span_id(s: &str) -> Option<FullSpanId> {
-    let (instance_id, span_id) = s.split_once('-')?;
-    let instance_id: InstanceId = instance_id.parse().ok()?;
+    let (connection_id, span_id) = s.split_once('-')?;
+    let connection_id: ConnectionId = connection_id.parse().ok()?;
     let span_id: SpanId = span_id.parse().ok()?;
 
-    Some((instance_id, span_id))
+    Some((connection_id, span_id))
 }
 
 #[derive(
@@ -73,21 +73,21 @@ impl TryFrom<i32> for Level {
     }
 }
 
-pub struct NewInstance {
-    pub id: InstanceId,
+pub struct NewConnection {
+    pub id: ConnectionId,
     pub fields: BTreeMap<String, Value>,
 }
 
 #[derive(Clone)]
-pub struct Instance {
-    pub id: InstanceId,
+pub struct Connection {
+    pub id: ConnectionId,
     pub connected_at: Timestamp,
     pub disconnected_at: Option<Timestamp>,
     pub fields: BTreeMap<String, Value>,
 }
 
-impl Instance {
-    pub fn key(&self) -> InstanceKey {
+impl Connection {
+    pub fn key(&self) -> ConnectionKey {
         self.connected_at
     }
 
@@ -102,15 +102,15 @@ impl Instance {
 }
 
 #[derive(Serialize)]
-pub struct InstanceView {
-    pub id: InstanceIdView,
+pub struct ConnectionView {
+    pub id: ConnectionIdView,
     pub connected_at: Timestamp,
     pub disconnected_at: Option<Timestamp>,
     pub attributes: Vec<AttributeView>,
 }
 
 pub struct NewSpanEvent {
-    pub instance_key: InstanceKey,
+    pub connection_key: ConnectionKey,
     pub timestamp: Timestamp,
     pub span_id: SpanId,
     pub kind: NewSpanEventKind,
@@ -127,7 +127,7 @@ pub enum NewSpanEventKind {
 
 #[derive(Clone)]
 pub struct SpanEvent {
-    pub instance_key: InstanceKey,
+    pub connection_key: ConnectionKey,
     pub timestamp: Timestamp,
     pub span_key: SpanKey,
     pub kind: SpanEventKind,
@@ -183,7 +183,7 @@ pub struct FollowsSpanEvent {
 }
 
 pub struct NewEvent {
-    pub instance_key: InstanceKey,
+    pub connection_key: ConnectionKey,
     pub timestamp: Timestamp,
     pub span_id: Option<SpanId>,
     pub name: String,
@@ -196,7 +196,7 @@ pub struct NewEvent {
 
 #[derive(Clone, Serialize)]
 pub struct Event {
-    pub instance_key: InstanceKey,
+    pub connection_key: ConnectionKey,
     pub timestamp: Timestamp,
     pub span_key: Option<SpanKey>,
     pub name: String,
@@ -215,7 +215,7 @@ impl Event {
 
 #[derive(Clone, Serialize)]
 pub struct EventView {
-    pub instance_id: InstanceIdView,
+    pub connection_id: ConnectionIdView,
     pub ancestors: Vec<AncestorView>,
     pub timestamp: Timestamp,
     pub target: String,
@@ -227,7 +227,7 @@ pub struct EventView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Span {
-    pub instance_key: InstanceKey,
+    pub connection_key: ConnectionKey,
     pub id: SpanId,
     pub created_at: Timestamp,
     pub closed_at: Option<Timestamp>,
@@ -351,7 +351,7 @@ pub enum AttributeTypeView {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "snake_case", tag = "source")]
 pub enum AttributeSourceView {
-    Instance { instance_id: InstanceIdView },
+    Connection { connection_id: ConnectionIdView },
     Span { span_id: FullSpanIdView },
     Inherent,
 }

@@ -5,7 +5,7 @@ use ghost_cell::GhostToken;
 
 use crate::filter::BoundSearch;
 use crate::models::{Event, EventKey, Span, Timestamp, Value};
-use crate::{Ancestors, InstanceKey, SpanKey};
+use crate::{Ancestors, ConnectionKey, SpanKey};
 
 mod attribute;
 mod util;
@@ -16,7 +16,7 @@ pub(crate) use util::IndexExt;
 pub struct EventIndexes {
     pub all: Vec<Timestamp>,
     pub levels: [Vec<Timestamp>; 5],
-    pub instances: BTreeMap<InstanceKey, Vec<Timestamp>>,
+    pub connections: BTreeMap<ConnectionKey, Vec<Timestamp>>,
     pub targets: BTreeMap<String, Vec<Timestamp>>,
     pub filenames: BTreeMap<String, Vec<Timestamp>>,
     pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
@@ -29,7 +29,7 @@ impl EventIndexes {
         EventIndexes {
             all: vec![],
             levels: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()],
-            instances: BTreeMap::new(),
+            connections: BTreeMap::new(),
             targets: BTreeMap::new(),
             filenames: BTreeMap::new(),
             descendents: HashMap::new(),
@@ -53,9 +53,9 @@ impl EventIndexes {
         let idx = level_index.upper_bound_via_expansion(&event_key);
         level_index.insert(idx, event_key);
 
-        let instance_index = self.instances.entry(event.instance_key).or_default();
-        let idx = instance_index.upper_bound_via_expansion(&event_key);
-        instance_index.insert(idx, event_key);
+        let connection_index = self.connections.entry(event.connection_key).or_default();
+        let idx = connection_index.upper_bound_via_expansion(&event_key);
+        connection_index.insert(idx, event_key);
 
         let target_index = self.targets.entry(event.target.clone()).or_default();
         let idx = target_index.upper_bound_via_expansion(&event_key);
@@ -116,8 +116,8 @@ impl EventIndexes {
             level_index.remove_list_sorted(events);
         }
 
-        for instance_index in self.instances.values_mut() {
-            instance_index.remove_list_sorted(events);
+        for connection_index in self.connections.values_mut() {
+            connection_index.remove_list_sorted(events);
         }
 
         for target_index in self.targets.values_mut() {
@@ -145,9 +145,9 @@ impl EventIndexes {
         }
     }
 
-    pub fn remove_instances(&mut self, instances: &[InstanceKey]) {
-        for instance_key in instances {
-            self.instances.remove(instance_key);
+    pub fn remove_connections(&mut self, connections: &[ConnectionKey]) {
+        for connection_key in connections {
+            self.connections.remove(connection_key);
         }
     }
 }
@@ -156,7 +156,7 @@ pub struct SpanIndexes {
     pub all: Vec<Timestamp>,
     pub levels: [Vec<Timestamp>; 5],
     pub durations: SpanDurationIndex,
-    pub instances: BTreeMap<InstanceKey, Vec<Timestamp>>,
+    pub connections: BTreeMap<ConnectionKey, Vec<Timestamp>>,
     pub names: BTreeMap<String, Vec<Timestamp>>,
     pub targets: BTreeMap<String, Vec<Timestamp>>,
     pub filenames: BTreeMap<String, Vec<Timestamp>>,
@@ -171,7 +171,7 @@ impl SpanIndexes {
             all: vec![],
             levels: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             durations: SpanDurationIndex::new(),
-            instances: BTreeMap::new(),
+            connections: BTreeMap::new(),
             names: BTreeMap::new(),
             targets: BTreeMap::new(),
             filenames: BTreeMap::new(),
@@ -211,9 +211,9 @@ impl SpanIndexes {
         let idx = duration_index.upper_bound_via_expansion(&span_key);
         duration_index.insert(idx, span_key);
 
-        let instance_index = self.instances.entry(span.instance_key).or_default();
-        let idx = instance_index.upper_bound_via_expansion(&span_key);
-        instance_index.insert(idx, span_key);
+        let connection_index = self.connections.entry(span.connection_key).or_default();
+        let idx = connection_index.upper_bound_via_expansion(&span_key);
+        connection_index.insert(idx, span_key);
 
         let name_index = self.names.entry(span.name.clone()).or_default();
         let idx = name_index.upper_bound_via_expansion(&span_key);
@@ -303,8 +303,8 @@ impl SpanIndexes {
 
         self.durations.remove_spans(spans);
 
-        for instance_index in self.instances.values_mut() {
-            instance_index.remove_list_sorted(spans);
+        for connection_index in self.connections.values_mut() {
+            connection_index.remove_list_sorted(spans);
         }
 
         for name_index in self.names.values_mut() {
@@ -330,9 +330,9 @@ impl SpanIndexes {
         }
     }
 
-    pub fn remove_instances(&mut self, instances: &[InstanceKey]) {
-        for instance_key in instances {
-            self.instances.remove(instance_key);
+    pub fn remove_connections(&mut self, connections: &[ConnectionKey]) {
+        for connection_key in connections {
+            self.connections.remove(connection_key);
         }
     }
 }

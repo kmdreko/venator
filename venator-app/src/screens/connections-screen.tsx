@@ -1,16 +1,16 @@
 import { createSignal, Show } from "solid-js";
 
-import { InstanceDetailPane } from "../components/detail-pane";
+import { ConnectionDetailPane } from "../components/detail-pane";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
-import { Input, Instance, parseInstanceFilter, Timestamp } from '../invoke';
-import { PartialFilter, PositionedInstance, Timespan } from "../models";
-import { ColumnDef, INHERENT, parseInstanceColumn, Table } from "../components/table";
-import { InstanceGraph } from "../components/instance-graph";
+import { Input, Connection, parseConnectionFilter, Timestamp } from '../invoke';
+import { PartialFilter, PositionedConnection, Timespan } from "../models";
+import { ColumnDef, INHERENT, parseConnectionColumn, Table } from "../components/table";
+import { ConnectionGraph } from "../components/connection-graph";
 
-import './instances-screen.css';
+import './connections-screen.css';
 
-export type InstancesScreenProps = {
+export type ConnectionsScreenProps = {
     raw_filter: Input[],
     filter: Input[],
     setFilter: (filter: Input[]) => void,
@@ -18,66 +18,66 @@ export type InstancesScreenProps = {
     timespan: Timespan,
     setTimespan: (timespan: Timespan) => void,
 
-    columns: ColumnDef<Instance>[],
+    columns: ColumnDef<Connection>[],
     columnWidths: string[],
-    columnUpdate: (i: number, def: ColumnDef<Instance>) => void,
+    columnUpdate: (i: number, def: ColumnDef<Connection>) => void,
     columnUpdateWidth: (i: number, width: string) => void,
     columnMove: (i: number, to: number) => void,
-    columnInsert: (i: number, def: ColumnDef<Instance>) => void,
+    columnInsert: (i: number, def: ColumnDef<Connection>) => void,
     columnRemove: (i: number) => void,
 
-    getInstances: (filter: PartialFilter, wait?: boolean) => Promise<Instance[] | null>,
-    getPositionedInstances: (filter: PartialFilter, wait?: boolean) => Promise<PositionedInstance[] | null>,
+    getConnections: (filter: PartialFilter, wait?: boolean) => Promise<Connection[] | null>,
+    getPositionedConnections: (filter: PartialFilter, wait?: boolean) => Promise<PositionedConnection[] | null>,
 
-    selected: Instance | null,
-    setSelected: (e: Instance | null) => void,
+    selected: Connection | null,
+    setSelected: (e: Connection | null) => void,
 };
 
-export function InstancesScreen(props: InstancesScreenProps) {
-    const [hoveredRow, setHoveredRow] = createSignal<Instance | null>(null);
+export function ConnectionsScreen(props: ConnectionsScreenProps) {
+    const [hoveredRow, setHoveredRow] = createSignal<Connection | null>(null);
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
     async function getTimestampBefore(timestamp: Timestamp) {
         // TODO: this gets the most recent "connected_at" and not the most
         // recent "disconnected_at" that a user is probably expecting, however 
         // at the moment that is more complicated to get and unclear what to
-        // return if the timestamp is intersecting an instance
+        // return if the timestamp is intersecting an connection
 
-        let instances = await props.getInstances({
+        let connections = await props.getConnections({
             order: 'desc',
             start: null,
             end: timestamp,
             limit: 1,
         });
 
-        if (instances == null || instances.length == 0) {
+        if (connections == null || connections.length == 0) {
             return null;
         }
 
-        return instances[0].connected_at;
+        return connections[0].connected_at;
     }
 
     async function getTimestampAfter(timestamp: Timestamp) {
         // TODO: this will return a timestamp "before" the one provided if it
-        // intersects an instance
+        // intersects an connection
 
-        let instances = await props.getInstances({
+        let connections = await props.getConnections({
             order: 'asc',
             start: timestamp,
             end: null,
             limit: 1,
         });
 
-        if (instances == null || instances.length == 0) {
+        if (connections == null || connections.length == 0) {
             return null;
         }
 
-        return instances[0].connected_at;
+        return connections[0].connected_at;
     }
 
-    return (<div class="instances-screen">
+    return (<div class="connections-screen">
         <ScreenHeader
-            screenKind="instances"
+            screenKind="connections"
             {...props}
             count={count()}
             countThresholds={[1000, 5000]}
@@ -88,19 +88,19 @@ export function InstancesScreen(props: InstancesScreenProps) {
             getTimestampAfter={getTimestampAfter}
         />
 
-        <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseInstanceFilter} />
+        <FilterInput predicates={props.raw_filter} updatePredicates={props.setFilter} parse={parseConnectionFilter} />
 
-        <InstanceGraph
+        <ConnectionGraph
             filter={props.filter}
             timespan={props.timespan}
             updateTimespan={props.setTimespan}
-            getPositionedInstances={props.getPositionedInstances}
+            getPositionedConnections={props.getPositionedConnections}
             setCount={setCount}
             hoveredRow={hoveredRow()}
         />
 
-        <div class="instances-screen-content">
-            <Table<Instance>
+        <div class="connections-screen-content">
+            <Table<Connection>
                 timespan={props.timespan}
                 columns={props.columns}
                 columnWidths={props.columnWidths}
@@ -115,19 +115,19 @@ export function InstancesScreen(props: InstancesScreenProps) {
                 setSelectedRow={props.setSelected}
                 hoveredRow={hoveredRow()}
                 setHoveredRow={setHoveredRow}
-                getEntries={props.getInstances}
-                addToFilter={async f => props.addToFilter(await parseInstanceFilter(f))}
-                columnParser={parseInstanceColumn}
+                getEntries={props.getConnections}
+                addToFilter={async f => props.addToFilter(await parseConnectionFilter(f))}
+                columnParser={parseConnectionColumn}
             />
 
             <Show when={props.selected}>
-                {row => <InstanceDetailPane
+                {row => <ConnectionDetailPane
                     timespan={props.timespan}
-                    instance={row()}
+                    connection={row()}
                     updateSelectedRow={props.setSelected}
                     filter={props.filter}
-                    addToFilter={async f => props.addToFilter(await parseInstanceFilter(f))}
-                    addColumn={c => props.columnInsert(-1, parseInstanceColumn(c))}
+                    addToFilter={async f => props.addToFilter(await parseConnectionFilter(f))}
+                    addColumn={c => props.columnInsert(-1, parseConnectionColumn(c))}
                 />}
             </Show>
         </div>

@@ -13,7 +13,7 @@ use wildcard::WildcardBuilder;
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
 use crate::models::{parse_full_span_id, EventKey, Level, SpanKey, Timestamp, ValueOperator};
 use crate::storage::Storage;
-use crate::{Ancestors, Event, InstanceId, InstanceKey, RawEngine, SpanId};
+use crate::{Ancestors, ConnectionId, ConnectionKey, Event, RawEngine, SpanId};
 
 pub mod attribute;
 pub mod input;
@@ -80,14 +80,14 @@ impl IndexedEventFilter<'_> {
             BasicEventFilter::Level(level) => {
                 IndexedEventFilter::Single(&event_indexes.levels[level as usize], None)
             }
-            BasicEventFilter::Instance(instance_key) => {
-                let instance_index = event_indexes
-                    .instances
-                    .get(&instance_key)
+            BasicEventFilter::Connection(connection_key) => {
+                let connection_index = event_indexes
+                    .connections
+                    .get(&connection_key)
                     .map(Vec::as_slice)
                     .unwrap_or_default();
 
-                IndexedEventFilter::Single(instance_index, None)
+                IndexedEventFilter::Single(connection_index, None)
             }
             BasicEventFilter::Target(filter) => match filter {
                 ValueStringComparison::None => IndexedEventFilter::Single(&[], None),
@@ -501,8 +501,8 @@ pub enum InputError {
     InvalidLevelOperator,
     InvalidNameValue,
     InvalidNameOperator,
-    InvalidInstanceValue,
-    InvalidInstanceOperator,
+    InvalidConnectionValue,
+    InvalidConnectionOperator,
     InvalidAttributeValue,
     InvalidInherentProperty,
     InvalidDurationValue,
@@ -529,8 +529,8 @@ impl Display for InputError {
             InputError::InvalidLevelOperator => write!(f, "invalid #level operator"),
             InputError::InvalidNameValue => write!(f, "invalid #name value"),
             InputError::InvalidNameOperator => write!(f, "invalid #name operator"),
-            InputError::InvalidInstanceValue => write!(f, "invalid #instance value"),
-            InputError::InvalidInstanceOperator => write!(f, "invalid #instance operator"),
+            InputError::InvalidConnectionValue => write!(f, "invalid #connection value"),
+            InputError::InvalidConnectionOperator => write!(f, "invalid #connection operator"),
             InputError::InvalidAttributeValue => write!(f, "invalid #attribute value"),
             InputError::InvalidInherentProperty => write!(f, "invalid '#' Property"),
             InputError::InvalidDurationValue => write!(f, "invalid #duration value"),
@@ -577,7 +577,7 @@ impl FileFilter {
 pub enum BasicEventFilter {
     Timestamp(ValueOperator, Timestamp),
     Level(Level),
-    Instance(InstanceKey),
+    Connection(ConnectionKey),
     Target(ValueStringComparison),
     File(FileFilter),
     Ancestor(SpanKey),
@@ -594,7 +594,7 @@ impl BasicEventFilter {
         match self {
             BasicEventFilter::Timestamp(_, _) => {}
             BasicEventFilter::Level(_) => {}
-            BasicEventFilter::Instance(_) => {}
+            BasicEventFilter::Connection(_) => {}
             BasicEventFilter::Target(_) => {}
             BasicEventFilter::File(_) => {}
             BasicEventFilter::Ancestor(_) => {}
@@ -654,7 +654,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "parent" | "target" | "file" | "stack" => Inherent,
+                "level" | "connection" | "parent" | "target" | "file" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -680,22 +680,22 @@ impl BasicEventFilter {
                     _ => return Err(InputError::InvalidLevelOperator),
                 };
             }
-            (Inherent, "instance") => {
+            (Inherent, "connection") => {
                 validate_value_predicate(
                     &predicate.value,
                     |op, value| {
                         if *op != ValueOperator::Eq {
-                            return Err(InputError::InvalidInstanceOperator);
+                            return Err(InputError::InvalidConnectionOperator);
                         }
 
-                        let _: InstanceId = value
+                        let _: ConnectionId = value
                             .parse()
-                            .map_err(|_| InputError::InvalidInstanceValue)?;
+                            .map_err(|_| InputError::InvalidConnectionValue)?;
 
                         Ok(())
                     },
-                    |_| Err(InputError::InvalidInstanceValue),
-                    |_| Err(InputError::InvalidInstanceValue),
+                    |_| Err(InputError::InvalidConnectionValue),
+                    |_| Err(InputError::InvalidConnectionValue),
                 )?;
             }
             (Inherent, "parent") => {
@@ -813,8 +813,8 @@ impl BasicEventFilter {
 
     pub fn from_predicate(
         predicate: FilterPredicate,
-        instance_key_map: &HashMap<InstanceId, InstanceKey>,
-        span_key_map: &HashMap<(InstanceKey, SpanId), SpanKey>,
+        connection_key_map: &HashMap<ConnectionId, ConnectionKey>,
+        span_key_map: &HashMap<(ConnectionKey, SpanId), SpanKey>,
     ) -> Result<BasicEventFilter, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
@@ -824,14 +824,14 @@ impl BasicEventFilter {
             FilterPredicate::And(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicEventFilter::And)
             }
             FilterPredicate::Or(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicEventFilter::Or)
             }
@@ -840,7 +840,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "parent" | "target" | "stack" => Inherent,
+                "level" | "connection" | "parent" | "target" | "stack" => Inherent,
                 _ => Attribute,
             });
 
@@ -876,26 +876,26 @@ impl BasicEventFilter {
                     BasicEventFilter::Level(level)
                 }
             }
-            (Inherent, "instance") => filterify_event_filter(
+            (Inherent, "connection") => filterify_event_filter(
                 predicate.value,
                 |op, value| {
                     if op != ValueOperator::Eq {
-                        return Err(InputError::InvalidInstanceOperator);
+                        return Err(InputError::InvalidConnectionOperator);
                     }
 
-                    let instance_id: InstanceId = value
+                    let connection_id: ConnectionId = value
                         .parse()
-                        .map_err(|_| InputError::InvalidInstanceValue)?;
+                        .map_err(|_| InputError::InvalidConnectionValue)?;
 
-                    let instance_key = instance_key_map
-                        .get(&instance_id)
+                    let connection_key = connection_key_map
+                        .get(&connection_id)
                         .copied()
-                        .unwrap_or(InstanceKey::MIN);
+                        .unwrap_or(ConnectionKey::MIN);
 
-                    Ok(BasicEventFilter::Instance(instance_key))
+                    Ok(BasicEventFilter::Connection(connection_key))
                 },
-                |_| Err(InputError::InvalidInstanceValue),
-                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidConnectionValue),
+                |_| Err(InputError::InvalidConnectionValue),
             )?,
             (Inherent, "parent") => filterify_event_filter(
                 predicate.value,
@@ -907,24 +907,24 @@ impl BasicEventFilter {
                     if value == "none" {
                         Ok(BasicEventFilter::Root)
                     } else {
-                        let (instance_id, parent_id) =
+                        let (connection_id, parent_id) =
                             parse_full_span_id(&value).ok_or(InputError::InvalidParentValue)?;
 
-                        let instance_key = instance_key_map
-                            .get(&instance_id)
+                        let connection_key = connection_key_map
+                            .get(&connection_id)
                             .copied()
-                            .unwrap_or(InstanceKey::MIN);
+                            .unwrap_or(ConnectionKey::MIN);
 
                         let parent_key = span_key_map
-                            .get(&(instance_key, parent_id))
+                            .get(&(connection_key, parent_id))
                             .copied()
                             .unwrap_or(SpanKey::MIN);
 
                         Ok(BasicEventFilter::Parent(parent_key))
                     }
                 },
-                |_| Err(InputError::InvalidInstanceValue),
-                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidConnectionValue),
+                |_| Err(InputError::InvalidConnectionValue),
             )?,
             (Inherent, "target") => filterify_event_filter(
                 predicate.value,
@@ -1020,15 +1020,15 @@ impl BasicEventFilter {
                         return Err(InputError::InvalidStackOperator);
                     }
 
-                    let (instance_id, span_id) =
+                    let (connection_id, span_id) =
                         parse_full_span_id(&value).ok_or(InputError::InvalidStackValue)?;
 
-                    let instance_key = instance_key_map
-                        .get(&instance_id)
+                    let connection_key = connection_key_map
+                        .get(&connection_id)
                         .copied()
-                        .unwrap_or(InstanceKey::MIN);
+                        .unwrap_or(ConnectionKey::MIN);
                     let span_key = span_key_map
-                        .get(&(instance_key, span_id))
+                        .get(&(connection_key, span_id))
                         .copied()
                         .unwrap_or(SpanKey::MIN);
 
@@ -1069,7 +1069,7 @@ impl BasicEventFilter {
         match self {
             BasicEventFilter::Timestamp(op, timestamp) => op.compare(&event.timestamp, timestamp),
             BasicEventFilter::Level(level) => event.level == *level,
-            BasicEventFilter::Instance(instance_key) => event.instance_key == *instance_key,
+            BasicEventFilter::Connection(connection_key) => event.connection_key == *connection_key,
             BasicEventFilter::Target(filter) => filter.matches(&event.target),
             BasicEventFilter::File(filter) => {
                 filter.matches(event.file_name.as_deref(), event.file_line)
@@ -1149,7 +1149,7 @@ impl<'i, 'b, S> IndexedEventFilterIterator<'i, 'b, S> {
                 .map(|p| {
                     BasicEventFilter::from_predicate(
                         p,
-                        &engine.instance_key_map,
+                        &engine.connection_key_map,
                         &engine.span_key_map,
                     )
                     .unwrap()
@@ -1357,14 +1357,14 @@ impl IndexedSpanFilter<'_> {
 
                 IndexedSpanFilter::Or(filters)
             }
-            BasicSpanFilter::Instance(instance_key) => {
-                let instance_index = span_indexes
-                    .instances
-                    .get(&instance_key)
+            BasicSpanFilter::Connection(connection_key) => {
+                let connection_index = span_indexes
+                    .connections
+                    .get(&connection_key)
                     .map(Vec::as_slice)
                     .unwrap_or_default();
 
-                IndexedSpanFilter::Single(instance_index, None)
+                IndexedSpanFilter::Single(connection_index, None)
             }
             BasicSpanFilter::Name(filter) => match filter {
                 ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
@@ -1949,7 +1949,7 @@ pub enum BasicSpanFilter {
     Duration(DurationFilter),
     Created(ValueOperator, Timestamp),
     Closed(ValueOperator, Timestamp),
-    Instance(InstanceKey),
+    Connection(ConnectionKey),
     Name(ValueStringComparison),
     Target(ValueStringComparison),
     File(FileFilter),
@@ -1969,7 +1969,7 @@ impl BasicSpanFilter {
             BasicSpanFilter::Duration(_) => {}
             BasicSpanFilter::Created(_, _) => {}
             BasicSpanFilter::Closed(_, _) => {}
-            BasicSpanFilter::Instance(_) => {}
+            BasicSpanFilter::Connection(_) => {}
             BasicSpanFilter::Name(_) => {}
             BasicSpanFilter::Target(_) => {}
             BasicSpanFilter::File(_) => {}
@@ -2030,7 +2030,7 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "duration" | "name" | "target" | "file" | "parent"
+                "level" | "connection" | "duration" | "name" | "target" | "file" | "parent"
                 | "created" | "closed" | "stack" => Inherent,
                 _ => Attribute,
             });
@@ -2131,22 +2131,22 @@ impl BasicSpanFilter {
                     Ok(())
                 },
             )?,
-            (Inherent, "instance") => {
+            (Inherent, "connection") => {
                 validate_value_predicate(
                     &predicate.value,
                     |op, value| {
                         if *op != ValueOperator::Eq {
-                            return Err(InputError::InvalidInstanceOperator);
+                            return Err(InputError::InvalidConnectionOperator);
                         }
 
-                        let _: InstanceId = value
+                        let _: ConnectionId = value
                             .parse()
-                            .map_err(|_| InputError::InvalidInstanceValue)?;
+                            .map_err(|_| InputError::InvalidConnectionValue)?;
 
                         Ok(())
                     },
-                    |_| Err(InputError::InvalidInstanceValue),
-                    |_| Err(InputError::InvalidInstanceValue),
+                    |_| Err(InputError::InvalidConnectionValue),
+                    |_| Err(InputError::InvalidConnectionValue),
                 )?;
             }
             (Inherent, "created") => {
@@ -2240,8 +2240,8 @@ impl BasicSpanFilter {
 
     pub fn from_predicate(
         predicate: FilterPredicate,
-        instance_key_map: &HashMap<InstanceId, InstanceKey>,
-        span_key_map: &HashMap<(InstanceKey, SpanId), SpanKey>,
+        connection_key_map: &HashMap<ConnectionId, ConnectionKey>,
+        span_key_map: &HashMap<(ConnectionKey, SpanId), SpanKey>,
     ) -> Result<BasicSpanFilter, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
@@ -2251,14 +2251,14 @@ impl BasicSpanFilter {
             FilterPredicate::And(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicSpanFilter::And)
             }
             FilterPredicate::Or(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, instance_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicSpanFilter::Or)
             }
@@ -2267,7 +2267,7 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "instance" | "duration" | "name" | "target" | "file" | "parent"
+                "level" | "connection" | "duration" | "name" | "target" | "file" | "parent"
                 | "created" | "closed" | "stack" => Inherent,
                 _ => Attribute,
             });
@@ -2423,26 +2423,26 @@ impl BasicSpanFilter {
                     }))
                 },
             )?,
-            (Inherent, "instance") => filterify_span_filter(
+            (Inherent, "connection") => filterify_span_filter(
                 predicate.value,
                 |op, value| {
                     if op != ValueOperator::Eq {
-                        return Err(InputError::InvalidInstanceOperator);
+                        return Err(InputError::InvalidConnectionOperator);
                     }
 
-                    let instance_id: InstanceId = value
+                    let connection_id: ConnectionId = value
                         .parse()
-                        .map_err(|_| InputError::InvalidInstanceValue)?;
+                        .map_err(|_| InputError::InvalidConnectionValue)?;
 
-                    let instance_key = instance_key_map
-                        .get(&instance_id)
+                    let connection_key = connection_key_map
+                        .get(&connection_id)
                         .copied()
-                        .unwrap_or(InstanceKey::MIN);
+                        .unwrap_or(ConnectionKey::MIN);
 
-                    Ok(BasicSpanFilter::Instance(instance_key))
+                    Ok(BasicSpanFilter::Connection(connection_key))
                 },
-                |_| Err(InputError::InvalidInstanceValue),
-                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidConnectionValue),
+                |_| Err(InputError::InvalidConnectionValue),
             )?,
             (Inherent, "created") => filterify_span_filter(
                 predicate.value,
@@ -2476,24 +2476,24 @@ impl BasicSpanFilter {
                     if value == "none" {
                         Ok(BasicSpanFilter::Root)
                     } else {
-                        let (instance_id, parent_id) =
+                        let (connection_id, parent_id) =
                             parse_full_span_id(&value).ok_or(InputError::InvalidParentValue)?;
 
-                        let instance_key = instance_key_map
-                            .get(&instance_id)
+                        let connection_key = connection_key_map
+                            .get(&connection_id)
                             .copied()
-                            .unwrap_or(InstanceKey::MIN);
+                            .unwrap_or(ConnectionKey::MIN);
 
                         let parent_key = span_key_map
-                            .get(&(instance_key, parent_id))
+                            .get(&(connection_key, parent_id))
                             .copied()
                             .unwrap_or(SpanKey::MIN);
 
                         Ok(BasicSpanFilter::Parent(parent_key))
                     }
                 },
-                |_| Err(InputError::InvalidInstanceValue),
-                |_| Err(InputError::InvalidInstanceValue),
+                |_| Err(InputError::InvalidConnectionValue),
+                |_| Err(InputError::InvalidConnectionValue),
             )?,
             (Inherent, "stack") => filterify_span_filter(
                 predicate.value,
@@ -2502,15 +2502,15 @@ impl BasicSpanFilter {
                         return Err(InputError::InvalidStackOperator);
                     }
 
-                    let (instance_id, span_id) =
+                    let (connection_id, span_id) =
                         parse_full_span_id(&value).ok_or(InputError::InvalidStackValue)?;
 
-                    let instance_key = instance_key_map
-                        .get(&instance_id)
+                    let connection_key = connection_key_map
+                        .get(&connection_id)
                         .copied()
-                        .unwrap_or(InstanceKey::MIN);
+                        .unwrap_or(ConnectionKey::MIN);
                     let span_key = span_key_map
-                        .get(&(instance_key, span_id))
+                        .get(&(connection_key, span_id))
                         .copied()
                         .unwrap_or(SpanKey::MIN);
 
@@ -2679,7 +2679,7 @@ impl<'i, 'b, S> IndexedSpanFilterIterator<'i, 'b, S> {
                 .map(|p| {
                     BasicSpanFilter::from_predicate(
                         p,
-                        &engine.instance_key_map,
+                        &engine.connection_key_map,
                         &engine.span_key_map,
                     )
                     .unwrap()
@@ -2795,25 +2795,25 @@ where
     // }
 }
 
-pub enum BasicInstanceFilter {
+pub enum BasicConnectionFilter {
     Duration(DurationFilter),
     Connected(ValueOperator, Timestamp),
     Disconnected(ValueOperator, Timestamp),
     Attribute(String, ValueFilter),
-    Not(Box<BasicInstanceFilter>),
-    And(Vec<BasicInstanceFilter>),
-    Or(Vec<BasicInstanceFilter>),
+    Not(Box<BasicConnectionFilter>),
+    And(Vec<BasicConnectionFilter>),
+    Or(Vec<BasicConnectionFilter>),
 }
 
-impl BasicInstanceFilter {
+impl BasicConnectionFilter {
     pub fn simplify(&mut self) {
         match self {
-            BasicInstanceFilter::Duration(_) => {}
-            BasicInstanceFilter::Connected(_, _) => {}
-            BasicInstanceFilter::Disconnected(_, _) => {}
-            BasicInstanceFilter::Attribute(_, _) => {}
-            BasicInstanceFilter::Not(_) => {}
-            BasicInstanceFilter::And(filters) => {
+            BasicConnectionFilter::Duration(_) => {}
+            BasicConnectionFilter::Connected(_, _) => {}
+            BasicConnectionFilter::Disconnected(_, _) => {}
+            BasicConnectionFilter::Attribute(_, _) => {}
+            BasicConnectionFilter::Not(_) => {}
+            BasicConnectionFilter::And(filters) => {
                 for filter in &mut *filters {
                     filter.simplify()
                 }
@@ -2824,7 +2824,7 @@ impl BasicInstanceFilter {
                     *self = filter;
                 }
             }
-            BasicInstanceFilter::Or(filters) => {
+            BasicConnectionFilter::Or(filters) => {
                 for filter in &mut *filters {
                     filter.simplify()
                 }
@@ -2930,7 +2930,7 @@ impl BasicInstanceFilter {
         }))
     }
 
-    pub fn from_predicate(predicate: FilterPredicate) -> Result<BasicInstanceFilter, InputError> {
+    pub fn from_predicate(predicate: FilterPredicate) -> Result<BasicConnectionFilter, InputError> {
         use FilterPropertyKind::*;
 
         let predicate = match predicate {
@@ -2940,14 +2940,14 @@ impl BasicInstanceFilter {
                     .into_iter()
                     .map(Self::from_predicate)
                     .collect::<Result<_, _>>()
-                    .map(BasicInstanceFilter::And)
+                    .map(BasicConnectionFilter::And)
             }
             FilterPredicate::Or(predicates) => {
                 return predicates
                     .into_iter()
                     .map(Self::from_predicate)
                     .collect::<Result<_, _>>()
-                    .map(BasicInstanceFilter::Or)
+                    .map(BasicConnectionFilter::Or)
             }
         };
 
@@ -2959,36 +2959,36 @@ impl BasicInstanceFilter {
             });
 
         let filter = match (property_kind, predicate.property.as_str()) {
-            (Inherent, "duration") => filterify_instance_filter(
+            (Inherent, "duration") => filterify_connection_filter(
                 predicate.value,
                 |op, value| {
-                    Ok(BasicInstanceFilter::Duration(DurationFilter::from_input(
+                    Ok(BasicConnectionFilter::Duration(DurationFilter::from_input(
                         op, &value,
                     )?))
                 },
                 |_| Err(InputError::InvalidDurationValue),
                 |_| Err(InputError::InvalidDurationValue),
             )?,
-            (Inherent, "connected") => filterify_instance_filter(
+            (Inherent, "connected") => filterify_connection_filter(
                 predicate.value,
                 |op, value| {
                     let at: Timestamp = value
                         .parse()
                         .map_err(|_| InputError::InvalidConnectedValue)?;
 
-                    Ok(BasicInstanceFilter::Connected(op, at))
+                    Ok(BasicConnectionFilter::Connected(op, at))
                 },
                 |_| Err(InputError::InvalidConnectedValue),
                 |_| Err(InputError::InvalidConnectedValue),
             )?,
-            (Inherent, "disconnected") => filterify_instance_filter(
+            (Inherent, "disconnected") => filterify_connection_filter(
                 predicate.value,
                 |op, value| {
                     let at: Timestamp = value
                         .parse()
                         .map_err(|_| InputError::InvalidDisconnectedValue)?;
 
-                    Ok(BasicInstanceFilter::Disconnected(op, at))
+                    Ok(BasicConnectionFilter::Disconnected(op, at))
                 },
                 |_| Err(InputError::InvalidDisconnectedValue),
                 |_| Err(InputError::InvalidDisconnectedValue),
@@ -2996,25 +2996,25 @@ impl BasicInstanceFilter {
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
             }
-            (Attribute, name) => filterify_instance_filter(
+            (Attribute, name) => filterify_connection_filter(
                 predicate.value,
                 |op, value| {
                     let value_filter = ValueFilter::from_input(op, &value);
-                    Ok(BasicInstanceFilter::Attribute(
+                    Ok(BasicConnectionFilter::Attribute(
                         name.to_owned(),
                         value_filter,
                     ))
                 },
                 |wildcard| {
                     let value_filter = ValueFilter::from_wildcard(wildcard)?;
-                    Ok(BasicInstanceFilter::Attribute(
+                    Ok(BasicConnectionFilter::Attribute(
                         name.to_owned(),
                         value_filter,
                     ))
                 },
                 |regex| {
                     let value_filter = ValueFilter::from_regex(regex)?;
-                    Ok(BasicInstanceFilter::Attribute(
+                    Ok(BasicConnectionFilter::Attribute(
                         name.to_owned(),
                         value_filter,
                     ))
@@ -3026,25 +3026,29 @@ impl BasicInstanceFilter {
     }
 
     pub fn matches<S: Storage>(&self, storage: &S, entry: Timestamp) -> bool {
-        let instance = storage.get_instance(entry).unwrap();
+        let connection = storage.get_connection(entry).unwrap();
         match self {
-            BasicInstanceFilter::Duration(filter) => filter.matches(instance.duration()),
-            BasicInstanceFilter::Connected(op, value) => op.compare(instance.connected_at, *value),
-            BasicInstanceFilter::Disconnected(op, value) => {
-                let Some(disconnected_at) = instance.disconnected_at else {
-                    return false; // never match connected instances
+            BasicConnectionFilter::Duration(filter) => filter.matches(connection.duration()),
+            BasicConnectionFilter::Connected(op, value) => {
+                op.compare(connection.connected_at, *value)
+            }
+            BasicConnectionFilter::Disconnected(op, value) => {
+                let Some(disconnected_at) = connection.disconnected_at else {
+                    return false; // never match connected connections
                 };
 
                 op.compare(disconnected_at, *value)
             }
-            BasicInstanceFilter::Attribute(attribute, value_filter) => instance
+            BasicConnectionFilter::Attribute(attribute, value_filter) => connection
                 .fields
                 .get(attribute)
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
-            BasicInstanceFilter::Not(inner_filter) => !inner_filter.matches(storage, entry),
-            BasicInstanceFilter::And(filters) => filters.iter().all(|f| f.matches(storage, entry)),
-            BasicInstanceFilter::Or(filters) => filters.iter().any(|f| f.matches(storage, entry)),
+            BasicConnectionFilter::Not(inner_filter) => !inner_filter.matches(storage, entry),
+            BasicConnectionFilter::And(filters) => {
+                filters.iter().all(|f| f.matches(storage, entry))
+            }
+            BasicConnectionFilter::Or(filters) => filters.iter().any(|f| f.matches(storage, entry)),
         }
     }
 }
@@ -3180,16 +3184,16 @@ fn filterify_span_filter(
     }
 }
 
-fn filterify_instance_filter(
+fn filterify_connection_filter(
     value: ValuePredicate,
-    comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicInstanceFilter, InputError>
+    comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicConnectionFilter, InputError>
         + Clone,
-    wildcard_filterifier: impl Fn(String) -> Result<BasicInstanceFilter, InputError> + Clone,
-    regex_filterifier: impl Fn(String) -> Result<BasicInstanceFilter, InputError> + Clone,
-) -> Result<BasicInstanceFilter, InputError> {
+    wildcard_filterifier: impl Fn(String) -> Result<BasicConnectionFilter, InputError> + Clone,
+    regex_filterifier: impl Fn(String) -> Result<BasicConnectionFilter, InputError> + Clone,
+) -> Result<BasicConnectionFilter, InputError> {
     match value {
-        ValuePredicate::Not(predicate) => Ok(BasicInstanceFilter::Not(Box::new(
-            filterify_instance_filter(
+        ValuePredicate::Not(predicate) => Ok(BasicConnectionFilter::Not(Box::new(
+            filterify_connection_filter(
                 *predicate,
                 comparison_filterifier,
                 wildcard_filterifier,
@@ -3199,11 +3203,11 @@ fn filterify_instance_filter(
         ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
         ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
         ValuePredicate::Regex(regex) => regex_filterifier(regex),
-        ValuePredicate::And(predicates) => Ok(BasicInstanceFilter::And(
+        ValuePredicate::And(predicates) => Ok(BasicConnectionFilter::And(
             predicates
                 .into_iter()
                 .map(|p| {
-                    filterify_instance_filter(
+                    filterify_connection_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),
@@ -3212,11 +3216,11 @@ fn filterify_instance_filter(
                 })
                 .collect::<Result<_, _>>()?,
         )),
-        ValuePredicate::Or(predicates) => Ok(BasicInstanceFilter::Or(
+        ValuePredicate::Or(predicates) => Ok(BasicConnectionFilter::Or(
             predicates
                 .into_iter()
                 .map(|p| {
-                    filterify_instance_filter(
+                    filterify_connection_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),

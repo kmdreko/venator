@@ -14,7 +14,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpListener;
 
 use venator_engine::{
-    Engine, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent, NewInstance, NewSpanEvent,
+    Engine, NewConnection, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent, NewSpanEvent,
     NewSpanEventKind, NewUpdateSpanEvent,
 };
 
@@ -46,7 +46,7 @@ impl IngressState {
 struct IngressStats {
     last_check: Mutex<Instant>,
     bytes_since_last_check: AtomicUsize,
-    connected_instances: AtomicUsize,
+    connected_connections: AtomicUsize,
 }
 
 pub struct Ingress {
@@ -60,7 +60,7 @@ impl Ingress {
         let stats = Arc::new(IngressStats {
             last_check: Mutex::new(Instant::now()),
             bytes_since_last_check: AtomicUsize::new(0),
-            connected_instances: AtomicUsize::new(0),
+            connected_connections: AtomicUsize::new(0),
         });
 
         let b = bind.clone();
@@ -92,7 +92,7 @@ impl Ingress {
     }
 
     // returns:
-    // - number of instances
+    // - number of connections
     // - bytes per second
     pub fn stats(&self) -> (usize, f64) {
         let now = Instant::now();
@@ -100,7 +100,7 @@ impl Ingress {
         let elapsed = (now - last).as_secs_f64();
 
         let bytes = self.stats.bytes_since_last_check.load(Ordering::Relaxed);
-        let connected = self.stats.connected_instances.load(Ordering::Relaxed);
+        let connected = self.stats.connected_connections.load(Ordering::Relaxed);
 
         self.stats
             .bytes_since_last_check
@@ -124,7 +124,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
         };
 
         println!("got connection");
-        stats.connected_instances.fetch_add(1, Ordering::Relaxed);
+        stats.connected_connections.fetch_add(1, Ordering::Relaxed);
 
         let mut stream = BufReader::new(stream);
         let engine = engine.clone();
@@ -163,16 +163,16 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                 .bytes_since_last_check
                 .fetch_add(length as usize + 2, Ordering::Relaxed);
 
-            let instance_id = RandomState::new().hash_one(0u64);
-            let instance = NewInstance {
-                id: instance_id,
+            let connection_id = RandomState::new().hash_one(0u64);
+            let connection = NewConnection {
+                id: connection_id,
                 fields: conv_value_map(handshake.fields),
             };
 
-            let instance_key = match engine.insert_instance(instance).await {
+            let connection_key = match engine.insert_connection(connection).await {
                 Ok(key) => key,
                 Err(err) => {
-                    println!("failed to insert instance: {err:?}");
+                    println!("failed to insert connection: {err:?}");
                     return;
                 }
             };
@@ -212,7 +212,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
-                            instance_key,
+                            connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Create(NewCreateSpanEvent {
@@ -231,7 +231,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
-                            instance_key,
+                            connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
@@ -244,7 +244,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
-                            instance_key,
+                            connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Follows(NewFollowsSpanEvent {
@@ -257,7 +257,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
-                            instance_key,
+                            connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Enter,
@@ -268,7 +268,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
-                            instance_key,
+                            connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Exit,
@@ -279,7 +279,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_span_event(NewSpanEvent {
-                            instance_key,
+                            connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
                             kind: NewSpanEventKind::Close,
@@ -290,7 +290,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
                         let _ = engine.insert_event(NewEvent {
-                            instance_key,
+                            connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id,
                             target: event.target,
@@ -307,9 +307,9 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
             // we have no need for the result, and the disconnect is executed
             // regardless if we poll
             #[allow(clippy::let_underscore_future)]
-            let _ = engine.disconnect_instance(instance_id);
+            let _ = engine.disconnect_connection(connection_id);
 
-            stats.connected_instances.fetch_sub(1, Ordering::Relaxed);
+            stats.connected_connections.fetch_sub(1, Ordering::Relaxed);
         });
     }
 }

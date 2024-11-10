@@ -1,6 +1,6 @@
 import { Span, Timestamp, Event, FullSpanId, Level } from "./invoke";
 
-export type ScreenKind = "events" | "spans" | "instances" | "trace";
+export type ScreenKind = "events" | "spans" | "connections" | "trace";
 
 export type Counts = [number, number, number, number, number];
 export type Timespan = [Timestamp, Timestamp];
@@ -34,7 +34,7 @@ export type PositionedSpan = {
     slot: number,
 };
 
-export type PositionedInstance = {
+export type PositionedConnection = {
     id: FullSpanId,
     connected_at: Timestamp,
     disconnected_at: Timestamp | null,

@@ -2,7 +2,7 @@ import { createEffect, createSignal, For, Match, Show, Switch, useContext } from
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Menu } from '@tauri-apps/api/menu';
 import { LogicalPosition } from '@tauri-apps/api/dpi';
-import { Ancestor, Attribute, createAttributeIndex, Event, FilterPredicate, FullSpanId, getEventCount, getInstanceCount, getSpanCount, Input, Instance, removeAttributeIndex, Span } from '../invoke'
+import { Ancestor, Attribute, createAttributeIndex, Event, FilterPredicate, FullSpanId, getEventCount, getConnectionCount, getSpanCount, Input, Connection, removeAttributeIndex, Span } from '../invoke'
 import { Timespan } from '../models';
 import { NavigationContext } from '../context/navigation';
 import { ColumnData, ScreenData } from '../App';
@@ -11,7 +11,7 @@ import { TraceDataLayer } from '../utils/datalayer';
 
 import "./detail-pane.css";
 import spanIcon from '../assets/span.svg';
-import instanceIcon from '../assets/instance.svg';
+import connectionIcon from '../assets/connection.svg';
 
 export type EventDetailPaneProps = {
     event: Event,
@@ -106,7 +106,7 @@ export function EventDetailPane(props: EventDetailPaneProps) {
                     <DetailedMeta name={"target"} value={props.event.target} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                     <DetailedMeta name={"file"} value={props.event.file} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                     <DetailedMetaParents ancestors={props.event.ancestors} />
-                    <DetailedMeta name={"instance"} value={props.event.instance_id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                    <DetailedMeta name={"connection"} value={props.event.connection_id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                 </div>
                 <DetailedPrimary message={props.event.attributes.find(a => a.name == 'message')?.value!}></DetailedPrimary>
                 <DetailAttributes attributes={props.event.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
@@ -225,7 +225,7 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
                     <DetailedMeta name={"target"} value={props.span.target} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                     <DetailedMeta name={"file"} value={props.span.file} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                     <DetailedMetaParents ancestors={props.span.ancestors} name={props.span.name} id={props.span.id} />
-                    <DetailedMeta name={"instance"} value={props.span.id.substring(0, props.span.id.indexOf('-'))} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                    <DetailedMeta name={"connection"} value={props.span.id.substring(0, props.span.id.indexOf('-'))} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                 </div>
                 <DetailedPrimary message={props.span.name}></DetailedPrimary>
                 <DetailAttributes attributes={props.span.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
@@ -234,29 +234,29 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
     </>);
 }
 
-export type InstanceDetailPaneProps = {
-    instance: Instance,
+export type ConnectionDetailPaneProps = {
+    connection: Connection,
     timespan: Timespan | null,
-    updateSelectedRow: (instance: Instance | null) => void,
+    updateSelectedRow: (connection: Connection | null) => void,
     filter: Input[],
     addToFilter: (filter: string) => void,
     addColumn: (column: string) => void,
 }
 
-export function InstanceDetailPane(props: InstanceDetailPaneProps) {
+export function ConnectionDetailPane(props: ConnectionDetailPaneProps) {
     let [width, setWidth] = createSignal<number>(500);
     let [inFilter, setInFilter] = createSignal<boolean>(true);
 
-    function instanceInTimespan(): boolean {
+    function connectionInTimespan(): boolean {
         if (props.timespan == null) {
             return false;
         }
 
-        if (props.instance.connected_at > props.timespan[1]) {
+        if (props.connection.connected_at > props.timespan[1]) {
             return false;
         }
 
-        if (props.instance.disconnected_at != null && props.instance.disconnected_at < props.timespan[0]) {
+        if (props.connection.disconnected_at != null && props.connection.disconnected_at < props.timespan[0]) {
             return false;
         }
 
@@ -264,18 +264,18 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
     }
 
     createEffect(async () => {
-        let countAtTimestamp = await getInstanceCount({
+        let countAtTimestamp = await getConnectionCount({
             filter: props.filter.filter(f => f.input == 'valid').map(f => f as FilterPredicate).concat({
                 predicate_kind: 'single',
                 predicate: {
                     property_kind: 'Inherent',
                     property: 'connected',
                     value_kind: 'comparison',
-                    value: ['Eq', `${props.instance.connected_at}`],
+                    value: ['Eq', `${props.connection.connected_at}`],
                 },
             } as FilterPredicate),
-            start: props.instance.connected_at,
-            end: props.instance.connected_at,
+            start: props.connection.connected_at,
+            end: props.connection.connected_at,
         });
         setInFilter(countAtTimestamp == 1);
     })
@@ -324,24 +324,24 @@ export function InstanceDetailPane(props: InstanceDetailPaneProps) {
     return (<>
         <div id="detail-pane-grabber" onmousedown={ongrab} oncontextmenu={showGrabberContextMenu}></div>
         <div id="detail-pane" style={`width: ${width()}px; min-width: ${width()}px;`}>
-            <div id="detail-header" onauxclick={onClickHeader}>instance details</div>
+            <div id="detail-header" onauxclick={onClickHeader}>connection details</div>
             <div id="detail-info">
                 <div id="detail-info-head">
-                    <DetailedTimestamp timestamp={props.instance.connected_at} />
-                    <Show when={props.instance.disconnected_at != null}>
-                        <DetailedDuration duration={props.instance.disconnected_at! - props.instance.connected_at} />
+                    <DetailedTimestamp timestamp={props.connection.connected_at} />
+                    <Show when={props.connection.disconnected_at != null}>
+                        <DetailedDuration duration={props.connection.disconnected_at! - props.connection.connected_at} />
                     </Show>
                     <Show when={!inFilter()}>
                         <span style="color: #555555; margin: 0 4px;">not in filter</span>
                     </Show>
-                    <Show when={!instanceInTimespan()}>
+                    <Show when={!connectionInTimespan()}>
                         <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
                     </Show>
                 </div>
                 <div id="detail-info-meta">
-                    <DetailedMeta name={"id"} value={props.instance.id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                    <DetailedMeta name={"id"} value={props.connection.id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                 </div>
-                <DetailAttributes attributes={props.instance.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                <DetailAttributes attributes={props.connection.attributes} addToFilter={props.addToFilter} addColumn={props.addColumn} />
             </div>
         </div>
     </>);
@@ -551,8 +551,8 @@ function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string)
         }
 
         function copySource() {
-            if (attr.source == 'instance') {
-                return [{ text: "copy instance id", action: () => writeText(attr.instance_id) }];
+            if (attr.source == 'connection') {
+                return [{ text: "copy connection id", action: () => writeText(attr.connection_id) }];
             } else if (attr.source == 'span') {
                 return [{ text: "copy span id", action: () => writeText(attr.span_id) }];
             } else {
@@ -583,16 +583,16 @@ function DetailAttribute(props: { attr: Attribute, addToFilter: (filter: string)
     function sourceIcon(attr: Attribute) {
         if (attr.source == 'span') {
             return spanIcon;
-        } else /*if (attr.source == 'instance')*/ {
-            return instanceIcon;
+        } else /*if (attr.source == 'connection')*/ {
+            return connectionIcon;
         }
     }
 
     function sourceName(attr: Attribute): string {
         if (attr.source == 'span') {
             return `from span ${attr.span_id}`;
-        } else if (attr.source == 'instance') {
-            return `from instance ${attr.instance_id}`;
+        } else if (attr.source == 'connection') {
+            return `from connection ${attr.connection_id}`;
         } else {
             return '';
         }
