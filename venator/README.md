@@ -9,7 +9,7 @@ welcome.
 
 ```toml
 [dependencies]
-venator = "0.1.0"
+venator = "0.2.0"
 ```
 
 ```rust
