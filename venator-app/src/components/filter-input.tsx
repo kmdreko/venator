@@ -89,7 +89,7 @@ export function FilterInput(props: FilterInputProps) {
                 <span class="spacer">{'  '}</span>
             </>}
         </For>
-        <span ref={input_e} class="filter-input" contenteditable="plaintext-only" onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
+        <span ref={input_e} id="filter-input" class="filter-input" contenteditable="plaintext-only" onfocusout={onblur} onkeydown={onkeydown} onmousedown={onmousedown}>
             {' '}
             {localPredicates().slice(getUneditableLength(localPredicates())).map((predicate, i) => {
                 return (<>

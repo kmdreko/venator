@@ -374,6 +374,38 @@ function App() {
             performRedo();
         });
 
+        await listen('tab-new-events-clicked', () => {
+            performNewEventsTab();
+        });
+
+        await listen('tab-new-spans-clicked', () => {
+            performNewSpansTab();
+        });
+
+        await listen('tab-new-instances-clicked', () => {
+            performNewInstancesTab();
+        });
+
+        await listen('tab-duplicate-clicked', () => {
+            performDuplicateTab();
+        });
+
+        await listen('tab-close-others-clicked', () => {
+            performCloseAllTabs();
+        });
+
+        await listen('focus-filter-clicked', () => {
+            performFocusFilter();
+        });
+
+        await listen('zoom-in-clicked', () => {
+            performZoomIn();
+        });
+
+        await listen('zoom-out-clicked', () => {
+            performZoomOut();
+        });
+
         await listen('focus-clicked', () => {
             performFocus();
         });
@@ -442,6 +474,7 @@ function App() {
         });
 
         document.onkeydown = function (e) {
+            console.log(e.ctrlKey, e.altKey, e.shiftKey, e.key);
             if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'z') {
                 e.preventDefault();
                 performUndo();
@@ -449,6 +482,26 @@ function App() {
             if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'y') {
                 e.preventDefault();
                 performRedo();
+            }
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 't') {
+                e.preventDefault();
+                performNewEventsTab();
+            }
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'd') {
+                e.preventDefault();
+                performDuplicateTab();
+            }
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'f') {
+                e.preventDefault();
+                performFocusFilter();
+            }
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == '=') {
+                e.preventDefault();
+                performZoomIn();
+            }
+            if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == '-') {
+                e.preventDefault();
+                performZoomOut();
             }
             if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'g') {
                 e.preventDefault();
@@ -1336,6 +1389,72 @@ function App() {
 
             setScreenTimespan([padded_start, padded_end]);
         }
+    }
+
+    async function performNewEventsTab() {
+        createTab(...await defaultEventsScreen(), true);
+    }
+
+    async function performNewSpansTab() {
+        createTab(...await defaultSpansScreen(), true);
+    }
+
+    async function performNewInstancesTab() {
+        createTab(...await defaultInstancesScreen(), true);
+    }
+
+    function performDuplicateTab() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+        let current_column_datas = columnDatas();
+
+        createTab(current_screens[current_selected_screen], current_column_datas[current_selected_screen], true);
+    }
+
+    function performCloseAllTabs() {
+        removeAllOtherScreens(selectedScreen()!);
+    }
+
+    function performFocusFilter() {
+        document.getElementById('filter-input')?.focus();
+    }
+
+    function performZoomIn() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+        let current_timespan = current_screens[current_selected_screen].timespan!;
+
+        let bias = 0.5;
+        let scale = 1 / 1.1;
+
+        let [start, end] = current_timespan;
+        let duration = end - start;
+        let middle = start * (1 - bias) + end * bias;
+
+        let new_duration = duration * scale;
+        let new_start = middle - new_duration * bias;
+        let new_end = middle + new_duration * (1 - bias);
+
+        setScreenTimespan([new_start, new_end]);
+    }
+
+    function performZoomOut() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+        let current_timespan = current_screens[current_selected_screen].timespan!;
+
+        let bias = 0.5;
+        let scale = 1.1;
+
+        let [start, end] = current_timespan;
+        let duration = end - start;
+        let middle = start * (1 - bias) + end * bias;
+
+        let new_duration = duration * scale;
+        let new_start = middle - new_duration * bias;
+        let new_end = middle + new_duration * (1 - bias);
+
+        setScreenTimespan([new_start, new_end]);
     }
 
     return (<>

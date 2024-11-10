@@ -410,7 +410,6 @@ fn main() {
                             None::<&str>,
                         )?,
                         &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::with_id(handle, "save-dataset", "Save", true, None::<&str>)?,
                         &MenuItem::with_id(
                             handle,
                             "save-dataset-as",
@@ -427,7 +426,7 @@ fn main() {
                         )?,
                         &MenuItem::new(handle, "Export view as ...", false, None::<&str>)?,
                         &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Exit", true, None::<&str>)?,
+                        &MenuItem::new(handle, "Exit", true, Some("alt+f4"))?,
                     ],
                 )?)
                 .item(&Submenu::with_items(
@@ -438,10 +437,13 @@ fn main() {
                         &MenuItem::with_id(handle, "undo", "Undo", true, Some("ctrl+z"))?,
                         &MenuItem::with_id(handle, "redo", "Redo", true, Some("ctrl+y"))?,
                         &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Cut filter", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Copy filter", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Paste filter", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Go to filter", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            handle,
+                            "focus-filter",
+                            "Go to filter",
+                            true,
+                            Some("ctrl+f"),
+                        )?,
                     ],
                 )?)
                 .item(&Submenu::with_items(
@@ -449,9 +451,41 @@ fn main() {
                     "View",
                     true,
                     &[
-                        &MenuItem::new(handle, "New tab", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Duplicate tab", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Close all tabs", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            handle,
+                            "tab-new-events",
+                            "New events tab",
+                            true,
+                            Some("ctrl+t"),
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "tab-new-spans",
+                            "New spans tab",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "tab-new-instances",
+                            "New instances tab",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "tab-duplicate",
+                            "Duplicate tab",
+                            true,
+                            Some("ctrl+d"),
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "tab-close-others",
+                            "Close all other tabs",
+                            true,
+                            None::<&str>,
+                        )?,
                         &PredefinedMenuItem::separator(handle)?,
                         &MenuItem::with_id(handle, "focus", "Focus", true, Some("ctrl+g"))?,
                         &MenuItem::with_id(
@@ -462,11 +496,20 @@ fn main() {
                             Some("ctrl+shift+g"),
                         )?,
                         &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Go to start", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Go to end", true, None::<&str>)?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Zoom in timeframe", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Zoom out timeframe", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            handle,
+                            "zoom-in",
+                            "Zoom in timeframe",
+                            true,
+                            Some("ctrl+="),
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "zoom-out",
+                            "Zoom out timeframe",
+                            true,
+                            Some("ctrl+-"),
+                        )?,
                         &PredefinedMenuItem::separator(handle)?,
                         &Submenu::with_items(
                             handle,
@@ -520,9 +563,27 @@ fn main() {
                     "Help",
                     true,
                     &[
-                        &MenuItem::new(handle, "About Venator", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Documentation", true, None::<&str>)?,
-                        &MenuItem::new(handle, "Report an issue", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            handle,
+                            "help-about",
+                            "About Venator",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "help-documentation",
+                            "Documentation",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(
+                            handle,
+                            "help-issue",
+                            "Report an issue",
+                            true,
+                            None::<&str>,
+                        )?,
                     ],
                 )?)
                 .build()?;
@@ -570,6 +631,30 @@ fn main() {
                 "redo" => {
                     app.emit("redo-clicked", ()).unwrap();
                 }
+                "tab-new-events" => {
+                    app.emit("tab-new-events-clicked", ()).unwrap();
+                }
+                "tab-new-spans" => {
+                    app.emit("tab-new-spans-clicked", ()).unwrap();
+                }
+                "tab-new-instances" => {
+                    app.emit("tab-new-instances-clicked", ()).unwrap();
+                }
+                "tab-duplicate" => {
+                    app.emit("tab-duplicate-clicked", ()).unwrap();
+                }
+                "tab-close-others" => {
+                    app.emit("tab-close-others-clicked", ()).unwrap();
+                }
+                "focus-filter" => {
+                    app.emit("focus-filter-clicked", ()).unwrap();
+                }
+                "zoom-in" => {
+                    app.emit("zoom-in-clicked", ()).unwrap();
+                }
+                "zoom-out" => {
+                    app.emit("zoom-out-clicked", ()).unwrap();
+                }
                 "focus" => {
                     app.emit("focus-clicked", ()).unwrap();
                 }
@@ -590,6 +675,15 @@ fn main() {
                 }
                 "delete-outside" => {
                     app.emit("delete-outside-clicked", ()).unwrap();
+                }
+                "help-about" => {
+                    let _ = open::that("https://github.com/kmdreko/venator");
+                }
+                "help-documentation" => {
+                    let _ = open::that("https://github.com/kmdreko/venator/tree/main/docs");
+                }
+                "help-issue" => {
+                    let _ = open::that("https://github.com/kmdreko/venator/issues");
                 }
                 _ => {}
             });
