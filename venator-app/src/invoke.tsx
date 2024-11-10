@@ -200,6 +200,11 @@ export async function createAttributeIndex(name: string): Promise<void> {
     return await invoke<void>("create_attribute_index", { name });
 }
 
+export async function removeAttributeIndex(name: string): Promise<void> {
+    console.debug("invoking 'remove_attribute_index'");
+    return await invoke<void>("remove_attribute_index", { name });
+}
+
 export async function getStatus(): Promise<AppStatus> {
     console.debug("invoking 'get_status'");
     return await invoke<AppStatus>("get_status");

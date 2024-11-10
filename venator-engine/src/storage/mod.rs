@@ -58,11 +58,13 @@ pub trait Storage {
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Boo<'_, Span>> + '_>;
     fn get_all_span_events(&self) -> Box<dyn Iterator<Item = Boo<'_, SpanEvent>> + '_>;
     fn get_all_events(&self) -> Box<dyn Iterator<Item = Boo<'_, Event>> + '_>;
+    fn get_all_indexes(&self) -> Box<dyn Iterator<Item = Boo<'_, String>> + '_>;
 
     fn insert_instance(&mut self, instance: Instance);
     fn insert_span(&mut self, span: Span);
     fn insert_span_event(&mut self, span_event: SpanEvent);
     fn insert_event(&mut self, event: Event);
+    fn insert_index(&mut self, name: String);
 
     fn update_instance_disconnected(&mut self, at: Timestamp, disconnected: Timestamp);
     fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp);
@@ -73,4 +75,5 @@ pub trait Storage {
     fn drop_spans(&mut self, spans: &[Timestamp]);
     fn drop_span_events(&mut self, span_events: &[Timestamp]);
     fn drop_events(&mut self, events: &[Timestamp]);
+    fn drop_index(&mut self, name: &str);
 }

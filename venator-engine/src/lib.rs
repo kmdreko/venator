@@ -157,6 +157,9 @@ impl Engine {
                         EngineCommand::AddAttributeIndex(name) => {
                             engine.add_attribute_index(name);
                         }
+                        EngineCommand::RemoveAttributeIndex(name) => {
+                            engine.remove_attribute_index(name);
+                        }
                         EngineCommand::EventSubscribe(filter, sender) => {
                             let res = engine.subscribe_to_events(filter);
                             let _ = sender.send(res);
@@ -323,6 +326,12 @@ impl Engine {
             .send(EngineCommand::AddAttributeIndex(name));
     }
 
+    pub fn remove_attribute_index(&self, name: String) {
+        let _ = self
+            .insert_sender
+            .send(EngineCommand::RemoveAttributeIndex(name));
+    }
+
     pub fn subscribe_to_events(
         &self,
         filter: Vec<FilterPredicate>,
@@ -378,6 +387,7 @@ enum EngineCommand {
     InsertEvent(NewEvent, OneshotSender<Result<(), EngineInsertError>>),
     Delete(DeleteFilter, OneshotSender<DeleteMetrics>),
     AddAttributeIndex(String),
+    RemoveAttributeIndex(String),
 
     EventSubscribe(
         Vec<FilterPredicate>,
@@ -447,6 +457,16 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             next_subscriber_id: 0,
             event_subscribers: HashMap::new(),
         };
+
+        let indexes = engine
+            .storage
+            .get_all_indexes()
+            .map(Boo::into_owned)
+            .collect::<Vec<_>>();
+
+        for name in indexes {
+            engine.add_attribute_index(name);
+        }
 
         let instances = engine
             .storage
@@ -1543,7 +1563,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 .insert(name.clone(), attr_index);
         }
 
-        // TODO: persist indexes
+        self.storage.insert_index(name);
+    }
+
+    pub fn remove_attribute_index(&mut self, name: String) {
+        self.span_indexes.attributes.remove(&name);
+        self.event_indexes.attributes.remove(&name);
+
+        self.storage.drop_index(&name);
     }
 
     pub fn subscribe_to_events(

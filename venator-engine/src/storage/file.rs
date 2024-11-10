@@ -20,7 +20,7 @@ impl FileStorage {
             .execute_batch(r#"PRAGMA synchronous = OFF; PRAGMA journal_mode = OFF;"#)
             .unwrap();
 
-        let _ = connection.execute_batch(
+        let _ = connection.execute(
             r#"
             CREATE TABLE instances (
                 key             INT8 NOT NULL,
@@ -29,8 +29,12 @@ impl FileStorage {
                 fields          TEXT,
 
                 CONSTRAINT instances_pk PRIMARY KEY (key)
-            );
+            );"#,
+            (),
+        );
 
+        let _ = connection.execute(
+            r#"
             CREATE TABLE spans (
                 key       INT8 NOT NULL,
                 instance  INT8,
@@ -46,8 +50,12 @@ impl FileStorage {
                 fields    TEXT,
 
                 CONSTRAINT spans_pk PRIMARY KEY (key)
-            );
+            );"#,
+            (),
+        );
 
+        let _ = connection.execute(
+            r#"
             CREATE TABLE span_events (
                 key       INT8 NOT NULL,
                 instance  INT8,
@@ -56,8 +64,12 @@ impl FileStorage {
                 data      TEXT,
 
                 CONSTRAINT span_events_pk PRIMARY KEY (key)
-            );
+            );"#,
+            (),
+        );
 
+        let _ = connection.execute(
+            r#"
             CREATE TABLE events (
                 key       INT8 NOT NULL,
                 instance  INT8,
@@ -70,8 +82,18 @@ impl FileStorage {
                 fields    TEXT,
 
                 CONSTRAINT events_pk PRIMARY KEY (key)
-            );
-        "#,
+            );"#,
+            (),
+        );
+
+        let _ = connection.execute(
+            r#"
+            CREATE TABLE indexes (
+                name TEXT NOT NULL,
+
+                CONSTRAINT indexes_pk PRIMARY KEY (name)
+            );"#,
+            (),
         );
 
         FileStorage { connection }
@@ -183,6 +205,21 @@ impl Storage for FileStorage {
         Box::new(events.into_iter().map(Boo::Owned))
     }
 
+    fn get_all_indexes(&self) -> Box<dyn Iterator<Item = Boo<'_, String>> + '_> {
+        let mut stmt = self
+            .connection
+            .prepare_cached("SELECT * FROM indexes ORDER BY name")
+            .unwrap();
+
+        let events = stmt
+            .query_map((), |row| row.get::<_, String>(0))
+            .unwrap()
+            .map(|result| result.unwrap())
+            .collect::<Vec<_>>();
+
+        Box::new(events.into_iter().map(Boo::Owned))
+    }
+
     fn insert_instance(&mut self, instance: Instance) {
         let mut stmt = self
             .connection
@@ -219,6 +256,16 @@ impl Storage for FileStorage {
             .unwrap();
 
         stmt.execute(event_to_params(event)).unwrap();
+    }
+
+    fn insert_index(&mut self, name: String) {
+        let mut stmt = self
+            .connection
+            .prepare_cached("INSERT INTO indexes VALUES (?1)")
+            .unwrap();
+
+        // ignore errors since we want to allow duplicate
+        let _ = stmt.execute((name,));
     }
 
     fn update_instance_disconnected(&mut self, at: Timestamp, disconnected: Timestamp) {
@@ -345,6 +392,15 @@ impl Storage for FileStorage {
 
         drop(stmt);
         tx.commit().unwrap();
+    }
+
+    fn drop_index(&mut self, name: &str) {
+        let mut stmt = self
+            .connection
+            .prepare_cached("DELETE FROM indexes WHERE indexes.name = ?1")
+            .unwrap();
+
+        stmt.execute((name,)).unwrap();
     }
 }
 
