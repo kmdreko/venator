@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/icon-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/icon-light.png">
-    <img alt="venator logo" src="docs/images/icon-light.png">
+    <source media="(prefers-color-scheme: dark)" height=170 srcset="docs/images/icon-dark.svg">
+    <source media="(prefers-color-scheme: light)" height=170 srcset="docs/images/icon-light.svg">
+    <img alt="venator logo" height=170 src="docs/images/icon-light.svg">
   </picture>
 </p>
 
