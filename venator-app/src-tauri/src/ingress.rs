@@ -123,7 +123,6 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
             Err(err) => return err,
         };
 
-        println!("got connection");
         stats.connected_connections.fetch_add(1, Ordering::Relaxed);
 
         let mut stream = BufReader::new(stream);
@@ -139,7 +138,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
 
             let mut length_bytes = [0u8; 2];
             if let Err(err) = stream.read_exact(&mut length_bytes).await {
-                println!("failed to read handshake length: {err:?}");
+                eprintln!("failed to read handshake length: {err:?}");
                 return;
             }
 
@@ -147,14 +146,14 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
 
             buffer.resize(length as usize, 0u8);
             if let Err(err) = stream.read_exact(&mut buffer).await {
-                println!("failed to read handshake: {err:?}");
+                eprintln!("failed to read handshake: {err:?}");
                 return;
             }
 
             let handshake: Handshake = match deserializer.deserialize_from(buffer.as_slice()) {
                 Ok(handshake) => handshake,
                 Err(err) => {
-                    println!("failed to parse handshake: {err:?}");
+                    eprintln!("failed to parse handshake: {err:?}");
                     return;
                 }
             };
@@ -172,7 +171,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
             let connection_key = match engine.insert_connection(connection).await {
                 Ok(key) => key,
                 Err(err) => {
-                    println!("failed to insert connection: {err:?}");
+                    eprintln!("failed to insert connection: {err:?}");
                     return;
                 }
             };
@@ -181,7 +180,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                 let mut length_bytes = [0u8; 2];
                 if let Err(err) = stream.read_exact(&mut length_bytes).await {
                     if err.kind() != ErrorKind::UnexpectedEof {
-                        println!("failed to read message length: {err:?}");
+                        eprintln!("failed to read message length: {err:?}");
                     }
                     break;
                 }
@@ -190,7 +189,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
 
                 buffer.resize(length as usize, 0u8);
                 if let Err(err) = stream.read_exact(&mut buffer).await {
-                    println!("failed to read message: {err:?}");
+                    eprintln!("failed to read message: {err:?}");
                     break;
                 }
 
@@ -201,7 +200,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                 let msg: Message = match deserializer.deserialize_from(buffer.as_slice()) {
                     Ok(message) => message,
                     Err(err) => {
-                        println!("failed to parse message: {err:?}");
+                        eprintln!("failed to parse message: {err:?}");
                         break;
                     }
                 };

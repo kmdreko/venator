@@ -63,6 +63,10 @@
     padding-bottom: 0px;
 }
 
+[data-theme="dark"] .time-controls button.live img {
+    filter: invert(90%);
+}
+
 .time-controls button.live.active {
     animation: pulse 1s infinite;
 }
