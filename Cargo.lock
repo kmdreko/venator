@@ -4999,7 +4999,7 @@ dependencies = [
 
 [[package]]
 name = "venator-app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bincode",
  "clap",
@@ -5018,7 +5018,7 @@ dependencies = [
 
 [[package]]
 name = "venator-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "futures",
  "ghost-cell",

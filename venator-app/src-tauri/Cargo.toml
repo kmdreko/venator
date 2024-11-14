@@ -1,6 +1,6 @@
 [package]
 name = "venator-app"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "A log and trace viewer for Rust tracing"
 readme = "README.md"
@@ -34,7 +34,7 @@ serde = { version = "1.0.159", default-features = false, features = ["std", "der
 serde_json = "1"
 tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros", "net"] }
 
-venator-engine = { version = "0.2.0", features = ["persist"] }
+venator-engine = { version = "0.2.1", features = ["persist"] }
 
 [features]
 default = ["custom-protocol"]
