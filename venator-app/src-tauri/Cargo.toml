@@ -13,6 +13,11 @@ include = ["/src", "/build.rs", "/tauri.conf.json", "/icons", "/gen", "/capabili
 name = "venator"
 path = "src/main.rs"
 
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+
 [build-dependencies]
 tauri-build = { version = "2.0.1", features = [] }
 
