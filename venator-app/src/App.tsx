@@ -1207,18 +1207,17 @@ function App() {
                 order: 'desc',
                 start: null,
                 end,
-                limit: 1,
+                limit: 50,
             });
 
             // TODO: this will return a timestamp "before" the one provided if it
             // intersects a span
             let start_timestamp = (start_spans == null || start_spans.length == 0) ? null : start_spans[0].created_at;
 
-            // TODO: this gets the most recent "created_at" and not the most recent
-            // "closed_at" that a user is probably expecting, however at the moment
-            // that is more complicated to get and unclear what to return if the
-            // timestamp is intersecting a span
-            let end_timestamp = (end_spans == null || end_spans.length == 0) ? null : end_spans[0].created_at;
+            // TODO: this gets the most recent "closed_at" of the 50 most recent
+            // spans by "opened_at" which isn't technically guaranteed to be
+            // exactly what we want, but its close enough
+            let end_timestamp = end_spans?.map(c => c.closed_at)?.reduce((prev, curr) => Math.max(prev || 0, curr || 0));
 
             if (start_timestamp == null || end_timestamp == null) {
                 return;
@@ -1243,20 +1242,19 @@ function App() {
                 order: 'desc',
                 start: null,
                 end,
-                limit: 1,
+                limit: 50,
             });
 
             // TODO: this will return a timestamp "before" the one provided if it
             // intersects an connection
             let start_timestamp = (start_connections == null || start_connections.length == 0) ? null : start_connections[0].connected_at;
 
-            // TODO: this gets the most recent "connected_at" and not the most
-            // recent "disconnected_at" that a user is probably expecting, however 
-            // at the moment that is more complicated to get and unclear what to
-            // return if the timestamp is intersecting an connection
-            let end_timestamp = (end_connections == null || end_connections.length == 0) ? null : end_connections[0].connected_at;
+            // TODO: this gets the most recent "disconnected_at" of the 50 most
+            // recent connections by "connected_at" which isn't technically
+            // guaranteed to be exactly what we want, but its close enough
+            let end_timestamp = end_connections?.map(c => c.disconnected_at)?.reduce((prev, curr) => Math.max(prev || 0, curr || 0));
 
-            if (start_timestamp == null || end_timestamp == null) {
+            if (start_timestamp == null || end_timestamp == null || end_timestamp == 0) {
                 return;
             }
 
@@ -1311,18 +1309,17 @@ function App() {
                 order: 'desc',
                 start: null,
                 end: null,
-                limit: 1,
+                limit: 50,
             });
 
             // TODO: this will return a timestamp "before" the one provided if it
             // intersects a span
             let start_timestamp = (start_spans == null || start_spans.length == 0) ? null : start_spans[0].created_at;
 
-            // TODO: this gets the most recent "created_at" and not the most recent
-            // "closed_at" that a user is probably expecting, however at the moment
-            // that is more complicated to get and unclear what to return if the
-            // timestamp is intersecting a span
-            let end_timestamp = (end_spans == null || end_spans.length == 0) ? null : end_spans[0].created_at;
+            // TODO: this gets the most recent "closed_at" of the 50 most recent
+            // spans by "opened_at" which isn't technically guaranteed to be
+            // exactly what we want, but its close enough
+            let end_timestamp = end_spans?.map(c => c.closed_at)?.reduce((prev, curr) => Math.max(prev || 0, curr || 0));
 
             if (start_timestamp == null || end_timestamp == null) {
                 return;
@@ -1345,18 +1342,17 @@ function App() {
                 order: 'desc',
                 start: null,
                 end: null,
-                limit: 1,
+                limit: 50,
             });
 
             // TODO: this will return a timestamp "before" the one provided if it
             // intersects an connection
             let start_timestamp = (start_connections == null || start_connections.length == 0) ? null : start_connections[0].connected_at;
 
-            // TODO: this gets the most recent "connected_at" and not the most
-            // recent "disconnected_at" that a user is probably expecting, however 
-            // at the moment that is more complicated to get and unclear what to
-            // return if the timestamp is intersecting an connection
-            let end_timestamp = (end_connections == null || end_connections.length == 0) ? null : end_connections[0].connected_at;
+            // TODO: this gets the most recent "disconnected_at" of the 50 most
+            // recent connections by "connected_at" which isn't technically
+            // guaranteed to be exactly what we want, but its close enough
+            let end_timestamp = end_connections?.map(c => c.disconnected_at)?.reduce((prev, curr) => Math.max(prev || 0, curr || 0));
 
             if (start_timestamp == null || end_timestamp == null) {
                 return;
