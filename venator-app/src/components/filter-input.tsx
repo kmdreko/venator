@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, Match, Show, Switch } from "solid-js";
-import { FilterPredicateSingle, Input, InvalidFilterPredicate, ValidFilterPredicate } from "../invoke";
+import { Comparator, FilterPredicateSingle, Input, InvalidFilterPredicate, ValidFilterPredicate } from "../invoke";
 
 import './filter-input.css';
 import { Menu } from "@tauri-apps/api/menu";
@@ -85,7 +85,7 @@ export function FilterInput(props: FilterInputProps) {
     return (<div class="filter-input-container">
         <For each={localPredicates().slice(0, getUneditableLength(localPredicates()))}>
             {(predicate, i) => <>
-                <FilterPredicate predicate={predicate} remove={() => remove(i())} update={p => update(i(), p)} />
+                <FilterPredicate predicate={predicate} remove={() => { }} update={p => update(i(), p)} />
                 <span class="spacer">{'  '}</span>
             </>}
         </For>
@@ -204,54 +204,109 @@ export function FilterInputPredicateSingle(props: { predicate: ValidFilterPredic
     </Switch>);
 }
 
-export function FilterInputLevelPredicate(props: { predicate: { predicate: FilterPredicateSingle & { value_kind: 'comparison' } } & ValidFilterPredicate, remove: () => void, update: (p: Input[]) => void }) {
+export function FilterInputLevelPredicate(props: { predicate: { predicate: FilterPredicateSingle & { value_kind: 'comparison' } } & ValidFilterPredicate & Input, remove: () => void, update: (p: Input[]) => void }) {
+    function updateValue(v: string) {
+        function text(cmp: Comparator) {
+            switch (cmp) {
+                case "Gt":
+                    return `#level: >${v}`;
+                case "Gte":
+                    return `#level: >=${v}`;
+                case "Eq":
+                    return `#level: ${v}`;
+                case "Lt":
+                    return `#level: <${v}`;
+                case "Lte":
+                    return `#level: <=${v}`;
+            }
+        }
+
+        props.update([{
+            ...props.predicate,
+            predicate_kind: 'single',
+            predicate: {
+                ...props.predicate.predicate,
+                value: [props.predicate.predicate.value[0], v],
+                text: text(props.predicate.predicate.value[0]),
+            }
+        }])
+    }
+
     function wheel(e: WheelEvent) {
         if (e.deltaY < 0.0) {
             if (props.predicate.predicate.value[1] == "TRACE") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "DEBUG"], text: "#level: >=DEBUG" } }])
+                updateValue("DEBUG");
             } else if (props.predicate.predicate.value[1] == "DEBUG") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "INFO"], text: "#level: >=INFO" } }])
+                updateValue("INFO");
             } else if (props.predicate.predicate.value[1] == "INFO") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "WARN"], text: "#level: >=WARN" } }])
+                updateValue("WARN");
             } else if (props.predicate.predicate.value[1] == "WARN") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "ERROR"], text: "#level: >=ERROR" } }])
+                updateValue("ERROR");
             }
         } else if (e.deltaY > 0.0) {
             if (props.predicate.predicate.value[1] == "DEBUG") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "TRACE"], text: "#level: >=TRACE" } }])
+                updateValue("TRACE");
             } else if (props.predicate.predicate.value[1] == "INFO") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "DEBUG"], text: "#level: >=DEBUG" } }])
+                updateValue("DEBUG");
             } else if (props.predicate.predicate.value[1] == "WARN") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "INFO"], text: "#level: >=INFO" } }])
+                updateValue("INFO");
             } else if (props.predicate.predicate.value[1] == "ERROR") {
-                props.update([{ ...props.predicate, predicate_kind: 'single', predicate: { ...props.predicate.predicate, value: ['Gte', "WARN"], text: "#level: >=WARN" } }])
+                updateValue("WARN");
             }
         }
     }
 
+    function onmiddleclick(e: MouseEvent) {
+        if (e.button == 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            props.remove();
+        }
+    }
+
+    async function showContextMenu(e: MouseEvent) {
+        e.preventDefault();
+
+        let value = props.predicate.predicate.value[1];
+
+        let menu = await Menu.new({
+            items: [
+                { text: "copy", action: () => writeText(props.predicate.predicate.text.trim()) },
+                { text: "remove", enabled: props.predicate.editable, action: () => props.remove() },
+                { item: 'Separator' },
+                { text: 'ERROR', enabled: value != 'ERROR', action: () => updateValue('ERROR') },
+                { text: 'WARN', enabled: value != 'WARN', action: () => updateValue('WARN') },
+                { text: 'INFO', enabled: value != 'INFO', action: () => updateValue('INFO') },
+                { text: 'DEBUG', enabled: value != 'DEBUG', action: () => updateValue('DEBUG') },
+                { text: 'TRACE', enabled: value != 'TRACE', action: () => updateValue('TRACE') },
+            ]
+        });
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    }
+
     return (<Switch>
         <Match when={props.predicate.predicate.value[1] == "TRACE"}>
-            <span class="predicate level-predicate-0" onwheel={wheel}>
+            <span class="predicate level-predicate-0" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "DEBUG"}>
-            <span class="predicate level-predicate-1" onwheel={wheel}>
+            <span class="predicate level-predicate-1" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "INFO"}>
-            <span class="predicate level-predicate-2" onwheel={wheel}>
+            <span class="predicate level-predicate-2" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "WARN"}>
-            <span class="predicate level-predicate-3" onwheel={wheel}>
+            <span class="predicate level-predicate-3" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "ERROR"}>
-            <span class="predicate level-predicate-4" onwheel={wheel}>
+            <span class="predicate level-predicate-4" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
