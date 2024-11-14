@@ -802,7 +802,7 @@ function App() {
         setScreens(updated_screens);
     }
 
-    function removeScreen(idx: number) {
+    async function removeScreen(idx: number) {
         let current_selected_screen = selectedScreen()!;
 
         let current_screens = screens();
@@ -824,36 +824,16 @@ function App() {
         undoHistories.splice(idx, 1);
 
         if (updated_screens.length == 0) {
-            let filter: Input[] = [{
-                input: 'valid',
-                predicate_kind: 'single',
-                predicate: {
-                    text: "#level: >=TRACE",
-                    property_kind: 'Inherent',
-                    property: "level",
-                    value_kind: 'comparison',
-                    value: ['Gte', "TRACE"],
-                },
-                editable: false,
-            }];
-            let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
-            let columnWidths = columns.map(def => def.defaultWidth);
-            let now = Date.now() * 1000;
-            updated_screens = [{
-                kind: 'events',
-                filter,
-                timespan: [now - 5 * 60 * 1000000, now],
-                live: false,
-                store: new EventDataLayer(filter),
-            }];
-            updated_raw_filters = [[...filter]];
+            let [screen, columnDatas] = await defaultEventsScreen();
+            updated_screens = [screen];
+            updated_raw_filters = [[...screen.filter]];
             updated_rows = [null];
-            updated_column_datas = [{ columns: columns as any, columnWidths }];
+            updated_column_datas = [columnDatas];
             undoHistories = [new UndoHistory({
-                timespan: updated_screens[0].timespan!,
-                raw_filter: [...filter],
-                columns: [...columns as any],
-                columnWidths: [...columnWidths],
+                timespan: screen.timespan!,
+                raw_filter: [...screen.filter],
+                columns: [...columnDatas.columns as any],
+                columnWidths: [...columnDatas.columnWidths],
             })];
         }
 
