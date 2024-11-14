@@ -215,6 +215,8 @@ export function SpanGraph(props: SpanGraphProps) {
             return;
         }
 
+        e.preventDefault();
+
         let [start, end] = props.timespan;
         let duration = end - start;
         let proportion = (e.pageX - this.offsetLeft) / this.offsetWidth;
@@ -228,7 +230,12 @@ export function SpanGraph(props: SpanGraphProps) {
             return;
         }
 
-        let [new_start, new_end] = zoomRange()!;
+        let range = zoomRange();
+        if (range == null) {
+            return;
+        }
+
+        let [new_start, new_end] = range;
         if (new_start == new_end) {
             setZoomRange(null);
             return;

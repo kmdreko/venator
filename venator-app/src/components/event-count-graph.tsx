@@ -290,6 +290,8 @@ export function EventCountGraph(props: EventCountGraphProps) {
             return;
         }
 
+        e.preventDefault();
+
         let proportion = (e.pageX - this.offsetLeft) / this.offsetWidth;
 
         let current_bars = bars();
@@ -306,7 +308,12 @@ export function EventCountGraph(props: EventCountGraphProps) {
             return;
         }
 
-        let [new_start, new_end] = zoomRange()!;
+        let range = zoomRange();
+        if (range == null) {
+            return;
+        }
+
+        let [new_start, new_end] = range;
         if (new_start == new_end) {
             setZoomRange(null);
             return;

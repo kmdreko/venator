@@ -474,7 +474,6 @@ function App() {
         });
 
         document.onkeydown = function (e) {
-            console.log(e.ctrlKey, e.altKey, e.shiftKey, e.key);
             if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key == 'z') {
                 e.preventDefault();
                 performUndo();
