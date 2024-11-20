@@ -353,12 +353,16 @@ export class EventDataLayer {
 
         this.#expandEndTask = (async () => {
             let range = this.#range;
+
+            // do not expand range beyond "now"
+            let end = Math.min(range[1] + duration, Date.now() * 1000);
+
             let filter: EventFilter & PartialFilter = {
                 filter: this.#filter,
                 order: 'asc',
                 // limit: 100, // TODO: use client-side limits
                 start: range[1] + 1,
-                end: range[1] + duration,
+                end,
             };
 
             let newEvents = await getEvents(filter);
@@ -847,6 +851,10 @@ export class SpanDataLayer {
 
         this.#expandEndTask = (async () => {
             let range = this.#range;
+
+            // do not expand range beyond "now"
+            let end = Math.min(range[1] + duration, Date.now() * 1000);
+
             let filter: SpanFilter & PartialFilter = {
                 filter: [...this.#filter, {
                     predicate_kind: 'single',
@@ -860,7 +868,7 @@ export class SpanDataLayer {
                 order: 'asc',
                 // limit: 100, // TODO: use client-side limits
                 start: range[1] + 1,
-                end: range[1] + duration,
+                end,
             };
 
             let newSpans = await getSpans(filter);
