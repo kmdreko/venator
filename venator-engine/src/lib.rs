@@ -39,7 +39,7 @@ pub use models::{
     SpanEventKey, SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
     UpdateSpanEvent, Value, ValueOperator,
 };
-pub use storage::{Storage, TransientStorage};
+pub use storage::{CachedStorage, Storage, TransientStorage};
 
 #[cfg(feature = "persist")]
 pub use storage::FileStorage;

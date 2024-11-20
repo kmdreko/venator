@@ -13,10 +13,10 @@ use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use venator_engine::{
-    BasicConnectionFilter, BasicEventFilter, BasicSpanFilter, ConnectionView, DeleteFilter,
-    DeleteMetrics, Engine, EventView, FallibleFilterPredicate, FileStorage, FilterPredicate,
-    FilterPredicateSingle, FilterPropertyKind, InputError, Order, Query, SpanView, StatsView,
-    SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
+    BasicConnectionFilter, BasicEventFilter, BasicSpanFilter, CachedStorage, ConnectionView,
+    DeleteFilter, DeleteMetrics, Engine, EventView, FallibleFilterPredicate, FileStorage,
+    FilterPredicate, FilterPredicateSingle, FilterPropertyKind, InputError, Order, Query, SpanView,
+    StatsView, SubscriptionId, Timestamp, TransientStorage, ValuePredicate,
 };
 
 mod ingress;
@@ -383,8 +383,10 @@ fn main() {
 
     dataset.prepare();
     let engine = match &dataset {
-        DatasetConfig::Default(path) => Engine::new(FileStorage::new(path)),
-        DatasetConfig::File(path) => Engine::new(FileStorage::new(path)),
+        DatasetConfig::Default(path) => {
+            Engine::new(CachedStorage::new(10000, FileStorage::new(path)))
+        }
+        DatasetConfig::File(path) => Engine::new(CachedStorage::new(10000, FileStorage::new(path))),
         DatasetConfig::Memory => Engine::new(TransientStorage::new()),
     };
 

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+mod cached;
 #[cfg(feature = "persist")]
 mod file;
 mod transient;
@@ -8,6 +9,7 @@ mod transient;
 use crate::models::{Connection, Event, Span, SpanEvent, Timestamp, Value};
 use crate::SpanKey;
 
+pub use cached::CachedStorage;
 #[cfg(feature = "persist")]
 pub use file::FileStorage;
 pub use transient::TransientStorage;
