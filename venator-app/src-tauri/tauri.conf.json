@@ -1,7 +1,7 @@
 {
   "identifier": "com.kmdreko.venator",
   "productName": "venator",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
