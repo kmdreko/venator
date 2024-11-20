@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use rusqlite::{Connection as DbConnection, Error as DbError, Params, Row};
 
 use crate::models::Value;
 use crate::{Connection, Event, Span, SpanEvent, SpanEventKind, SpanId, SpanKey, Timestamp};
 
-use super::{Boo, Storage};
+use super::Storage;
 
 pub struct FileStorage {
     connection: DbConnection,
@@ -101,7 +102,7 @@ impl FileStorage {
 }
 
 impl Storage for FileStorage {
-    fn get_connection(&self, at: Timestamp) -> Option<Boo<'_, Connection>> {
+    fn get_connection(&self, at: Timestamp) -> Option<Arc<Connection>> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM connections WHERE key = ?1")
@@ -109,10 +110,10 @@ impl Storage for FileStorage {
 
         let result = stmt.query_row((at,), connection_from_row);
 
-        Some(Boo::Owned(result.unwrap()))
+        Some(Arc::new(result.unwrap()))
     }
 
-    fn get_span(&self, at: Timestamp) -> Option<Boo<'_, Span>> {
+    fn get_span(&self, at: Timestamp) -> Option<Arc<Span>> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE key = ?1")
@@ -120,10 +121,10 @@ impl Storage for FileStorage {
 
         let result = stmt.query_row((at,), span_from_row);
 
-        Some(Boo::Owned(result.unwrap()))
+        Some(Arc::new(result.unwrap()))
     }
 
-    fn get_span_event(&self, at: Timestamp) -> Option<Boo<'_, SpanEvent>> {
+    fn get_span_event(&self, at: Timestamp) -> Option<Arc<SpanEvent>> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM span_events WHERE key = ?1")
@@ -131,10 +132,10 @@ impl Storage for FileStorage {
 
         let result = stmt.query_row((at,), span_event_from_row);
 
-        Some(Boo::Owned(result.unwrap()))
+        Some(Arc::new(result.unwrap()))
     }
 
-    fn get_event(&self, at: Timestamp) -> Option<Boo<'_, Event>> {
+    fn get_event(&self, at: Timestamp) -> Option<Arc<Event>> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM events WHERE key = ?1")
@@ -142,10 +143,10 @@ impl Storage for FileStorage {
 
         let result = stmt.query_row((at,), event_from_row);
 
-        Some(Boo::Owned(result.unwrap()))
+        Some(Arc::new(result.unwrap()))
     }
 
-    fn get_all_connections(&self) -> Box<dyn Iterator<Item = Boo<'_, Connection>> + '_> {
+    fn get_all_connections(&self) -> Box<dyn Iterator<Item = Arc<Connection>> + '_> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM connections ORDER BY key")
@@ -157,10 +158,10 @@ impl Storage for FileStorage {
             .map(|result| result.unwrap())
             .collect::<Vec<_>>();
 
-        Box::new(connections.into_iter().map(Boo::Owned))
+        Box::new(connections.into_iter().map(Arc::new))
     }
 
-    fn get_all_spans(&self) -> Box<dyn Iterator<Item = Boo<'_, Span>> + '_> {
+    fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans ORDER BY key")
@@ -172,10 +173,10 @@ impl Storage for FileStorage {
             .map(|result| result.unwrap())
             .collect::<Vec<_>>();
 
-        Box::new(spans.into_iter().map(Boo::Owned))
+        Box::new(spans.into_iter().map(Arc::new))
     }
 
-    fn get_all_span_events(&self) -> Box<dyn Iterator<Item = Boo<'_, SpanEvent>> + '_> {
+    fn get_all_span_events(&self) -> Box<dyn Iterator<Item = Arc<SpanEvent>> + '_> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM span_events ORDER BY key")
@@ -187,10 +188,10 @@ impl Storage for FileStorage {
             .map(|result| result.unwrap())
             .collect::<Vec<_>>();
 
-        Box::new(span_events.into_iter().map(Boo::Owned))
+        Box::new(span_events.into_iter().map(Arc::new))
     }
 
-    fn get_all_events(&self) -> Box<dyn Iterator<Item = Boo<'_, Event>> + '_> {
+    fn get_all_events(&self) -> Box<dyn Iterator<Item = Arc<Event>> + '_> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM events ORDER BY key")
@@ -202,10 +203,10 @@ impl Storage for FileStorage {
             .map(|result| result.unwrap())
             .collect::<Vec<_>>();
 
-        Box::new(events.into_iter().map(Boo::Owned))
+        Box::new(events.into_iter().map(Arc::new))
     }
 
-    fn get_all_indexes(&self) -> Box<dyn Iterator<Item = Boo<'_, String>> + '_> {
+    fn get_all_indexes(&self) -> Box<dyn Iterator<Item = String> + '_> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM indexes ORDER BY name")
@@ -217,7 +218,7 @@ impl Storage for FileStorage {
             .map(|result| result.unwrap())
             .collect::<Vec<_>>();
 
-        Box::new(events.into_iter().map(Boo::Owned))
+        Box::new(events.into_iter())
     }
 
     fn insert_connection(&mut self, connection: Connection) {

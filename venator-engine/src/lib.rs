@@ -39,7 +39,7 @@ pub use models::{
     SpanEventKey, SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
     UpdateSpanEvent, Value, ValueOperator,
 };
-pub use storage::{Boo, Storage, TransientStorage};
+pub use storage::{Storage, TransientStorage};
 
 #[cfg(feature = "persist")]
 pub use storage::FileStorage;
@@ -458,21 +458,13 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             event_subscribers: HashMap::new(),
         };
 
-        let indexes = engine
-            .storage
-            .get_all_indexes()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let indexes = engine.storage.get_all_indexes().collect::<Vec<_>>();
 
         for name in indexes {
             engine.add_attribute_index_bookeeping(name);
         }
 
-        let connections = engine
-            .storage
-            .get_all_connections()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let connections = engine.storage.get_all_connections().collect::<Vec<_>>();
 
         let mut connections_not_disconnected = vec![];
         for connection in connections {
@@ -483,11 +475,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             engine.insert_connection_bookeeping(&connection);
         }
 
-        let spans = engine
-            .storage
-            .get_all_spans()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let spans = engine.storage.get_all_spans().collect::<Vec<_>>();
 
         let mut spans_not_closed = vec![];
         for span in spans {
@@ -497,21 +485,13 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             engine.insert_span_bookeeping(&span);
         }
 
-        let span_events = engine
-            .storage
-            .get_all_span_events()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let span_events = engine.storage.get_all_span_events().collect::<Vec<_>>();
 
         for span_event in span_events {
             engine.insert_span_event_bookeeping(&span_event);
         }
 
-        let events = engine
-            .storage
-            .get_all_events()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let events = engine.storage.get_all_events().collect::<Vec<_>>();
 
         for event in events {
             engine.insert_event_bookeeping(&event);
@@ -1493,44 +1473,28 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     pub fn copy_dataset(&self, mut to: Box<dyn Storage + Send>) {
-        let connections = self
-            .storage
-            .get_all_connections()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let connections = self.storage.get_all_connections().collect::<Vec<_>>();
 
         for connection in connections {
-            to.insert_connection(connection);
+            to.insert_connection((*connection).clone());
         }
 
-        let spans = self
-            .storage
-            .get_all_spans()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let spans = self.storage.get_all_spans().collect::<Vec<_>>();
 
         for span in spans {
-            to.insert_span(span);
+            to.insert_span((*span).clone());
         }
 
-        let span_events = self
-            .storage
-            .get_all_span_events()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let span_events = self.storage.get_all_span_events().collect::<Vec<_>>();
 
         for span_event in span_events {
-            to.insert_span_event(span_event);
+            to.insert_span_event((*span_event).clone());
         }
 
-        let events = self
-            .storage
-            .get_all_events()
-            .map(Boo::into_owned)
-            .collect::<Vec<_>>();
+        let events = self.storage.get_all_events().collect::<Vec<_>>();
 
         for event in events {
-            to.insert_event(event);
+            to.insert_event((*event).clone());
         }
     }
 
