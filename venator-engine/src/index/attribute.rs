@@ -23,6 +23,7 @@ pub(crate) struct AttributeIndex {
 }
 
 impl AttributeIndex {
+    #[allow(unused)]
     pub(crate) fn new() -> AttributeIndex {
         AttributeIndex {
             strings: AttributeStringIndex::new(),

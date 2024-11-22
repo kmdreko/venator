@@ -269,16 +269,6 @@ async fn unsubscribe_from_events(
 }
 
 #[tauri::command]
-fn create_attribute_index(engine: State<'_, Engine>, name: String) {
-    engine.add_attribute_index(name)
-}
-
-#[tauri::command]
-fn remove_attribute_index(engine: State<'_, Engine>, name: String) {
-    engine.remove_attribute_index(name)
-}
-
-#[tauri::command]
 async fn get_status(
     engine: State<'_, Engine>,
     dataset: State<'_, DatasetConfig>,
@@ -556,8 +546,6 @@ fn main() {
                             true,
                             None::<&str>,
                         )?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Manage indexes", false, None::<&str>)?,
                     ],
                 )?)
                 .item(&Submenu::with_items(
@@ -708,8 +696,6 @@ fn main() {
             get_stats,
             subscribe_to_events,
             unsubscribe_from_events,
-            create_attribute_index,
-            remove_attribute_index,
             get_status,
         ])
         .run(tauri::generate_context!())

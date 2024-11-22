@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::Storage;
@@ -11,7 +11,6 @@ pub struct TransientStorage {
     spans: BTreeMap<Timestamp, Arc<Span>>,
     span_events: BTreeMap<Timestamp, Arc<SpanEvent>>,
     events: BTreeMap<Timestamp, Arc<Event>>,
-    indexes: BTreeSet<String>,
 }
 
 impl TransientStorage {
@@ -22,7 +21,6 @@ impl TransientStorage {
             spans: BTreeMap::new(),
             span_events: BTreeMap::new(),
             events: BTreeMap::new(),
-            indexes: BTreeSet::new(),
         }
     }
 }
@@ -60,10 +58,6 @@ impl Storage for TransientStorage {
         Box::new(self.events.values().cloned())
     }
 
-    fn get_all_indexes(&self) -> Box<dyn Iterator<Item = String> + '_> {
-        Box::new(self.indexes.iter().cloned())
-    }
-
     fn insert_connection(&mut self, connection: Connection) {
         let at = connection.key();
         self.connections.insert(at, Arc::new(connection));
@@ -82,10 +76,6 @@ impl Storage for TransientStorage {
     fn insert_event(&mut self, event: Event) {
         let at = event.timestamp;
         self.events.insert(at, Arc::new(event));
-    }
-
-    fn insert_index(&mut self, name: String) {
-        self.indexes.insert(name);
     }
 
     fn update_connection_disconnected(&mut self, at: Timestamp, disconnected_at: Timestamp) {
@@ -142,9 +132,5 @@ impl Storage for TransientStorage {
         for at in events {
             self.events.remove(at);
         }
-    }
-
-    fn drop_index(&mut self, name: &str) {
-        self.indexes.remove(name);
     }
 }

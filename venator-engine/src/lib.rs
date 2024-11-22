@@ -23,7 +23,7 @@ use filter::{
     BoundSearch, IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter,
     IndexedSpanFilterIterator,
 };
-use index::{AttributeIndex, EventIndexes, IndexExt, SpanIndexes};
+use index::{EventIndexes, IndexExt, SpanIndexes};
 
 pub use filter::input::{
     FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate,
@@ -153,12 +153,6 @@ impl Engine {
                         EngineCommand::Delete(filter, sender) => {
                             let metrics = engine.delete(filter);
                             let _ = sender.send(metrics);
-                        }
-                        EngineCommand::AddAttributeIndex(name) => {
-                            engine.add_attribute_index(name);
-                        }
-                        EngineCommand::RemoveAttributeIndex(name) => {
-                            engine.remove_attribute_index(name);
                         }
                         EngineCommand::EventSubscribe(filter, sender) => {
                             let res = engine.subscribe_to_events(filter);
@@ -320,18 +314,6 @@ impl Engine {
         async move { receiver.await.unwrap() }
     }
 
-    pub fn add_attribute_index(&self, name: String) {
-        let _ = self
-            .insert_sender
-            .send(EngineCommand::AddAttributeIndex(name));
-    }
-
-    pub fn remove_attribute_index(&self, name: String) {
-        let _ = self
-            .insert_sender
-            .send(EngineCommand::RemoveAttributeIndex(name));
-    }
-
     pub fn subscribe_to_events(
         &self,
         filter: Vec<FilterPredicate>,
@@ -386,8 +368,6 @@ enum EngineCommand {
     ),
     InsertEvent(NewEvent, OneshotSender<Result<(), EngineInsertError>>),
     Delete(DeleteFilter, OneshotSender<DeleteMetrics>),
-    AddAttributeIndex(String),
-    RemoveAttributeIndex(String),
 
     EventSubscribe(
         Vec<FilterPredicate>,
@@ -457,12 +437,6 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             next_subscriber_id: 0,
             event_subscribers: HashMap::new(),
         };
-
-        let indexes = engine.storage.get_all_indexes().collect::<Vec<_>>();
-
-        for name in indexes {
-            engine.add_attribute_index_bookeeping(name);
-        }
 
         let connections = engine.storage.get_all_connections().collect::<Vec<_>>();
 
@@ -1498,58 +1472,6 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         }
     }
 
-    pub fn add_attribute_index(&mut self, name: String) {
-        if !self.span_indexes.attributes.contains_key(&name) {
-            let mut attr_index = AttributeIndex::new();
-            for span in self.storage.get_all_spans() {
-                let span_key = span.created_at;
-
-                if let Some(value) = self.span_ancestors[&span_key].get_value(&name, &self.token) {
-                    attr_index.add_entry(span_key, value);
-                }
-            }
-
-            self.span_indexes
-                .attributes
-                .insert(name.clone(), attr_index);
-        }
-
-        if !self.event_indexes.attributes.contains_key(&name) {
-            let mut attr_index = AttributeIndex::new();
-            for event in self.storage.get_all_events() {
-                let event_key = event.timestamp;
-
-                if let Some(value) = self.event_ancestors[&event_key].get_value(&name, &self.token)
-                {
-                    attr_index.add_entry(event_key, value);
-                }
-            }
-
-            self.event_indexes
-                .attributes
-                .insert(name.clone(), attr_index);
-        }
-
-        self.storage.insert_index(name);
-    }
-
-    fn add_attribute_index_bookeeping(&mut self, name: String) {
-        self.span_indexes
-            .attributes
-            .insert(name.clone(), AttributeIndex::new());
-
-        self.event_indexes
-            .attributes
-            .insert(name.clone(), AttributeIndex::new());
-    }
-
-    pub fn remove_attribute_index(&mut self, name: String) {
-        self.span_indexes.attributes.remove(&name);
-        self.event_indexes.attributes.remove(&name);
-
-        self.storage.drop_index(&name);
-    }
-
     pub fn subscribe_to_events(
         &mut self,
         filter: Vec<FilterPredicate>,
@@ -1710,9 +1632,6 @@ mod tests {
                 }
             };
 
-            engine.add_attribute_index("attribute1".to_owned());
-            engine.add_attribute_index("attribute2".to_owned());
-
             engine.insert_event(simple(1, 4, "test", "A")).unwrap(); // excluded by timestamp
             engine.insert_event(simple(2, 1, "test", "A")).unwrap(); // excluded by level
             engine.insert_event(simple(3, 2, "test", "A")).unwrap(); // excluded by level
@@ -1780,9 +1699,6 @@ mod tests {
                     kind: NewSpanEventKind::Close,
                 }
             };
-
-            engine.add_attribute_index("attribute1".to_owned());
-            engine.add_attribute_index("attribute2".to_owned());
 
             engine
                 .insert_span_event(simple_open(1, 4, "test", "A"))
@@ -1888,8 +1804,6 @@ mod tests {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
 
-            engine.add_attribute_index("attr1".to_owned());
-
             let connection_key = engine
                 .insert_connection(NewConnection {
                     id: 1,
@@ -1991,8 +1905,6 @@ mod tests {
     fn event_found_with_indexed_inherent_attribute() {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
-
-            engine.add_attribute_index("attr1".to_owned());
 
             let connection_key = engine
                 .insert_connection(NewConnection {
@@ -2115,8 +2027,6 @@ mod tests {
     fn event_found_with_indexed_span_attribute() {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
-
-            engine.add_attribute_index("attr1".to_owned());
 
             let connection_key = engine
                 .insert_connection(NewConnection {
@@ -2270,8 +2180,6 @@ mod tests {
     fn event_found_with_indexed_updated_span_attribute() {
         GhostToken::new(|token| {
             let mut engine = RawEngine::new(TransientStorage::new(), token);
-
-            engine.add_attribute_index("attr1".to_owned());
 
             let connection_key = engine
                 .insert_connection(NewConnection {

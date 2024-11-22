@@ -94,10 +94,6 @@ where
         self.inner.get_all_events()
     }
 
-    fn get_all_indexes(&self) -> Box<dyn Iterator<Item = String> + '_> {
-        self.inner.get_all_indexes()
-    }
-
     fn insert_connection(&mut self, connection: Connection) {
         self.inner.insert_connection(connection)
     }
@@ -112,10 +108,6 @@ where
 
     fn insert_event(&mut self, event: Event) {
         self.inner.insert_event(event)
-    }
-
-    fn insert_index(&mut self, name: String) {
-        self.inner.insert_index(name)
     }
 
     fn update_connection_disconnected(&mut self, at: Timestamp, disconnected: Timestamp) {
@@ -164,9 +156,5 @@ where
         }
 
         self.inner.drop_events(events);
-    }
-
-    fn drop_index(&mut self, name: &str) {
-        self.inner.drop_index(name);
     }
 }

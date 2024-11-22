@@ -87,16 +87,6 @@ impl FileStorage {
             (),
         );
 
-        let _ = connection.execute(
-            r#"
-            CREATE TABLE indexes (
-                name TEXT NOT NULL,
-
-                CONSTRAINT indexes_pk PRIMARY KEY (name)
-            );"#,
-            (),
-        );
-
         FileStorage { connection }
     }
 }
@@ -206,21 +196,6 @@ impl Storage for FileStorage {
         Box::new(events.into_iter().map(Arc::new))
     }
 
-    fn get_all_indexes(&self) -> Box<dyn Iterator<Item = String> + '_> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM indexes ORDER BY name")
-            .unwrap();
-
-        let events = stmt
-            .query_map((), |row| row.get::<_, String>(0))
-            .unwrap()
-            .map(|result| result.unwrap())
-            .collect::<Vec<_>>();
-
-        Box::new(events.into_iter())
-    }
-
     fn insert_connection(&mut self, connection: Connection) {
         let mut stmt = self
             .connection
@@ -257,16 +232,6 @@ impl Storage for FileStorage {
             .unwrap();
 
         stmt.execute(event_to_params(event)).unwrap();
-    }
-
-    fn insert_index(&mut self, name: String) {
-        let mut stmt = self
-            .connection
-            .prepare_cached("INSERT INTO indexes VALUES (?1)")
-            .unwrap();
-
-        // ignore errors since we want to allow duplicate
-        let _ = stmt.execute((name,));
     }
 
     fn update_connection_disconnected(&mut self, at: Timestamp, disconnected: Timestamp) {
@@ -393,15 +358,6 @@ impl Storage for FileStorage {
 
         drop(stmt);
         tx.commit().unwrap();
-    }
-
-    fn drop_index(&mut self, name: &str) {
-        let mut stmt = self
-            .connection
-            .prepare_cached("DELETE FROM indexes WHERE indexes.name = ?1")
-            .unwrap();
-
-        stmt.execute((name,)).unwrap();
     }
 }
 
