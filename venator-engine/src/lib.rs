@@ -1825,8 +1825,10 @@ mod tests {
         engine.insert_event(simple(9, 4, "test", "A")).unwrap(); // excluded by timestamp
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
-                .unwrap(),
+            filter: FilterPredicate::parse(
+                "#level: >=WARN @\"attribute1\": test @\"attribute2\": A",
+            )
+            .unwrap(),
             order: Order::Asc,
             limit: 3,
             start: Timestamp::new(2).unwrap(),
@@ -1913,8 +1915,10 @@ mod tests {
             .unwrap(); // excluded by timestamp
 
         let spans = engine.query_span(Query {
-            filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
-                .unwrap(),
+            filter: FilterPredicate::parse(
+                "#level: >=WARN @\"attribute1\": test @\"attribute2\": A",
+            )
+            .unwrap(),
             order: Order::Asc,
             limit: 5,
             start: Timestamp::new(2).unwrap(),
@@ -1954,7 +1958,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -1965,7 +1969,7 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": B").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2003,7 +2007,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2014,7 +2018,7 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": B").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2052,7 +2056,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2063,7 +2067,7 @@ mod tests {
         assert_eq!(events.len(), 0);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": B").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2101,7 +2105,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2112,7 +2116,7 @@ mod tests {
         assert_eq!(events.len(), 0);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": B").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2167,7 +2171,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2178,7 +2182,7 @@ mod tests {
         assert_eq!(events.len(), 0);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": C").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2233,7 +2237,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2244,7 +2248,7 @@ mod tests {
         assert_eq!(events.len(), 0);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": C").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2310,7 +2314,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2321,7 +2325,7 @@ mod tests {
         assert_eq!(events.len(), 0);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": C").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2387,7 +2391,7 @@ mod tests {
             .unwrap();
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": A").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
@@ -2398,7 +2402,7 @@ mod tests {
         assert_eq!(events.len(), 0);
 
         let events = engine.query_event(Query {
-            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            filter: FilterPredicate::parse("@\"attr1\": C").unwrap(),
             order: Order::Asc,
             limit: 5,
             start: now,
