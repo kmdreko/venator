@@ -1442,7 +1442,9 @@ function App() {
         }}>
             <TabBar screens={screens()} column_datas={columnDatas()} active={selectedScreen()!} />
             <div id="screen">
-                <Show when={selectedScreen() != undefined}>
+                <Show when={selectedScreen() != undefined} fallback={<>
+                    <span style="display: block; text-align: center; margin: 50px 0; color: var(--text-light); font-size: 24px; width: 100%;">loading data...</span>
+                </>}>
                     {(_idx) => (<Switch>
                         <Match when={getCurrentScreen()!.kind == 'events'}>
                             <EventsScreen
