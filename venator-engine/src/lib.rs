@@ -788,7 +788,6 @@ impl<S: Storage> RawEngine<S> {
             end: self.event_indexes.all.last().copied(),
             total_events: self.event_indexes.all.len(),
             total_spans: self.span_indexes.all.len(),
-            indexed_attributes: self.event_indexes.attributes.keys().cloned().collect(),
         }
     }
 
@@ -946,44 +945,36 @@ impl<S: Storage> RawEngine<S> {
                     fields: new_update_event.fields.clone(),
                 };
 
-                let updated_an_indexed_attribute = self
+                let descendent_spans = self
                     .span_indexes
-                    .attributes
-                    .keys()
-                    .any(|attribute| update_event.fields.contains_key(attribute));
+                    .descendents
+                    .get(&span_key)
+                    .cloned()
+                    .unwrap_or_default();
 
-                if updated_an_indexed_attribute {
-                    let descendent_spans = self
-                        .span_indexes
-                        .descendents
-                        .get(&span_key)
-                        .cloned()
-                        .unwrap_or_default();
+                for child_span_key in descendent_spans {
+                    // check if nested span attribute changed
+                    self.span_indexes.update_with_new_field_on_parent(
+                        &SpanContext::new(child_span_key, &self.storage),
+                        span_key,
+                        &update_event.fields,
+                    );
+                }
 
-                    for child_span_key in descendent_spans {
-                        // check if nested span attribute changed
-                        self.span_indexes.update_with_new_field_on_parent(
-                            &SpanContext::new(child_span_key, &self.storage),
-                            span_key,
-                            &update_event.fields,
-                        );
-                    }
+                let descendent_events = self
+                    .event_indexes
+                    .descendents
+                    .get(&span_key)
+                    .cloned()
+                    .unwrap_or_default();
 
-                    let descendent_events = self
-                        .event_indexes
-                        .descendents
-                        .get(&span_key)
-                        .cloned()
-                        .unwrap_or_default();
-
-                    for event_key in descendent_events {
-                        // check if nested event attribute changed
-                        self.event_indexes.update_with_new_field_on_parent(
-                            &EventContext::new(event_key, &self.storage),
-                            span_key,
-                            &update_event.fields,
-                        );
-                    }
+                for event_key in descendent_events {
+                    // check if nested event attribute changed
+                    self.event_indexes.update_with_new_field_on_parent(
+                        &EventContext::new(event_key, &self.storage),
+                        span_key,
+                        &update_event.fields,
+                    );
                 }
 
                 let span_event = SpanEvent {

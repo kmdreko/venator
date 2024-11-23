@@ -10,7 +10,6 @@ export type Stats = {
     end?: Timestamp;
     total_spans: number;
     total_events: number;
-    indexed_attributes: string[];
 };
 
 export type Comparator = 'Gt' | 'Gte' | 'Eq' | 'Lt' | 'Lte';

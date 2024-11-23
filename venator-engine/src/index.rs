@@ -72,10 +72,13 @@ impl EventIndexes {
             self.roots.insert(idx, event_key);
         }
 
-        for (attribute, attr_index) in &mut self.attributes {
-            if let Some(value) = context.attribute(attribute) {
-                attr_index.add_entry(event_key, value);
-            }
+        for (attribute, value) in context.attributes() {
+            let index = self
+                .attributes
+                .entry(attribute.to_owned())
+                .or_insert_with(AttributeIndex::new);
+
+            index.add_entry(event_key, value);
         }
     }
 
@@ -85,17 +88,20 @@ impl EventIndexes {
         parent_key: Timestamp,
         parent_fields: &BTreeMap<String, Value>,
     ) {
-        for (attribute, attribute_index) in &mut self.attributes {
-            if let Some(new_value) = parent_fields.get(attribute) {
-                if let Some((old_value, key)) = context.attribute_with_key(attribute) {
-                    if key <= parent_key && new_value != old_value {
-                        attribute_index.remove_entry(context.key(), old_value);
-                        attribute_index.add_entry(context.key(), new_value);
-                    }
-                } else {
-                    // there was no old value, just insert
+        for (attribute, new_value) in parent_fields {
+            let attribute_index = self
+                .attributes
+                .entry(attribute.to_owned())
+                .or_insert_with(AttributeIndex::new);
+
+            if let Some((old_value, key)) = context.attribute_with_key(attribute) {
+                if key <= parent_key && new_value != old_value {
+                    attribute_index.remove_entry(context.key(), old_value);
                     attribute_index.add_entry(context.key(), new_value);
                 }
+            } else {
+                // there was no old value, just insert
+                attribute_index.add_entry(context.key(), new_value);
             }
         }
     }
@@ -228,10 +234,13 @@ impl SpanIndexes {
             self.roots.insert(idx, span_key);
         }
 
-        for (attribute, attr_index) in &mut self.attributes {
-            if let Some(value) = context.attribute(attribute) {
-                attr_index.add_entry(span_key, value);
-            }
+        for (attribute, value) in context.attributes() {
+            let index = self
+                .attributes
+                .entry(attribute.to_owned())
+                .or_insert_with(AttributeIndex::new);
+
+            index.add_entry(span_key, value);
         }
     }
 
@@ -241,17 +250,20 @@ impl SpanIndexes {
         parent_key: Timestamp,
         parent_fields: &BTreeMap<String, Value>,
     ) {
-        for (attribute, attribute_index) in &mut self.attributes {
-            if let Some(new_value) = parent_fields.get(attribute) {
-                if let Some((old_value, key)) = context.attribute_with_key(attribute) {
-                    if key <= parent_key && new_value != old_value {
-                        attribute_index.remove_entry(context.key(), old_value);
-                        attribute_index.add_entry(context.key(), new_value);
-                    }
-                } else {
-                    // there was no old value, just insert
+        for (attribute, new_value) in parent_fields {
+            let attribute_index = self
+                .attributes
+                .entry(attribute.to_owned())
+                .or_insert_with(AttributeIndex::new);
+
+            if let Some((old_value, key)) = context.attribute_with_key(attribute) {
+                if key <= parent_key && new_value != old_value {
+                    attribute_index.remove_entry(context.key(), old_value);
                     attribute_index.add_entry(context.key(), new_value);
                 }
+            } else {
+                // there was no old value, just insert
+                attribute_index.add_entry(context.key(), new_value);
             }
         }
     }

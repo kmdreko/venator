@@ -183,13 +183,9 @@ impl IndexedEventFilter<'_> {
 
                     IndexedEventFilter::Or(filters)
                 } else {
-                    IndexedEventFilter::Single(
-                        &event_indexes.all,
-                        Some(NonIndexedEventFilter::Attribute(
-                            attribute,
-                            Box::new(value_filter),
-                        )),
-                    )
+                    // we are creating indexes for all attributes, so if one
+                    // doesn't exist, then there are no entities with that attribute
+                    IndexedEventFilter::Single(&[], None)
                 }
             }
             BasicEventFilter::Not(filter) => IndexedEventFilter::Not(
@@ -1420,10 +1416,9 @@ impl IndexedSpanFilter<'_> {
 
                     IndexedSpanFilter::Or(filters)
                 } else {
-                    IndexedSpanFilter::Single(
-                        &span_indexes.all,
-                        Some(NonIndexedSpanFilter::Attribute(attribute, value_filter)),
-                    )
+                    // we are creating indexes for all attributes, so if one
+                    // doesn't exist, then there are no entities with that attribute
+                    IndexedSpanFilter::Single(&[], None)
                 }
             }
             BasicSpanFilter::Not(filter) => IndexedSpanFilter::Not(
