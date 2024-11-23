@@ -216,7 +216,7 @@ impl Event {
 #[derive(Clone, Serialize)]
 pub struct EventView {
     pub connection_id: ConnectionIdView,
-    pub ancestors: Vec<AncestorView>,
+    pub ancestors: Vec<AncestorView>, // in root-first order
     pub timestamp: Timestamp,
     pub target: String,
     pub name: String,
@@ -250,7 +250,7 @@ impl Span {
 #[derive(Serialize)]
 pub struct SpanView {
     pub id: FullSpanIdView,
-    pub ancestors: Vec<AncestorView>,
+    pub ancestors: Vec<AncestorView>, // in root-first order
     pub created_at: Timestamp,
     pub closed_at: Option<Timestamp>,
     pub target: String,

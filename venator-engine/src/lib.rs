@@ -643,17 +643,22 @@ impl<S: Storage> RawEngine<S> {
 
         EventView {
             connection_id: connection_id.to_string(),
-            ancestors: context
-                .parents()
-                .map(|parent| {
-                    let parent_id = parent.id;
+            ancestors: {
+                let mut ancestors = context
+                    .parents()
+                    .map(|parent| {
+                        let parent_id = parent.id;
 
-                    AncestorView {
-                        id: format!("{connection_id}-{parent_id}"),
-                        name: parent.name.clone(),
-                    }
-                })
-                .collect(),
+                        AncestorView {
+                            id: format!("{connection_id}-{parent_id}"),
+                            name: parent.name.clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                ancestors.reverse();
+                ancestors
+            },
             timestamp: event.timestamp,
             level: event.level as i32,
             target: event.target.clone(),
@@ -745,17 +750,22 @@ impl<S: Storage> RawEngine<S> {
 
         SpanView {
             id: format!("{connection_id}-{}", span.id),
-            ancestors: context
-                .parents()
-                .map(|parent| {
-                    let parent_id = parent.id;
+            ancestors: {
+                let mut ancestors = context
+                    .parents()
+                    .map(|parent| {
+                        let parent_id = parent.id;
 
-                    AncestorView {
-                        id: format!("{connection_id}-{parent_id}"),
-                        name: parent.name.clone(),
-                    }
-                })
-                .collect(),
+                        AncestorView {
+                            id: format!("{connection_id}-{parent_id}"),
+                            name: parent.name.clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                ancestors.reverse();
+                ancestors
+            },
             created_at: span.created_at,
             closed_at: span.closed_at,
             level: span.level as i32,
