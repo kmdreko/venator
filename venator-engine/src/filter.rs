@@ -4,7 +4,6 @@ use std::fmt::{Display, Error as FmtError, Formatter};
 use std::ops::{Add, Range};
 
 use attribute::{ValueFilter, ValueStringComparison};
-use ghost_cell::GhostToken;
 use input::{FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate};
 use regex::Regex;
 use serde::Deserialize;
@@ -13,7 +12,7 @@ use wildcard::WildcardBuilder;
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
 use crate::models::{parse_full_span_id, EventKey, Level, SpanKey, Timestamp, ValueOperator};
 use crate::storage::Storage;
-use crate::{Ancestors, ConnectionId, ConnectionKey, Event, RawEngine, SpanId};
+use crate::{ConnectionId, ConnectionKey, EventContext, RawEngine, SpanContext, SpanId};
 
 pub mod attribute;
 pub mod input;
@@ -213,11 +212,9 @@ impl IndexedEventFilter<'_> {
     }
 
     // This searches for an entry equal to or beyond the provided entry
-    pub fn search<'b, S: Storage>(
+    pub fn search<S: Storage>(
         &mut self,
-        token: &GhostToken<'b>,
         storage: &S,
-        event_ancestors: &HashMap<Timestamp, Ancestors<'b>>,
         mut entry: Timestamp,
         order: Order,
         bound: Timestamp,
@@ -235,7 +232,7 @@ impl IndexedEventFilter<'_> {
                     }
 
                     if let Some(filter) = filter {
-                        if filter.matches(token, storage, event_ancestors, found_entry) {
+                        if filter.matches(EventContext::new(found_entry, storage)) {
                             return Some(found_entry);
                         } else {
                             entry = found_entry.saturating_add(1);
@@ -255,7 +252,7 @@ impl IndexedEventFilter<'_> {
                     }
 
                     if let Some(filter) = filter {
-                        if filter.matches(token, storage, event_ancestors, found_entry) {
+                        if filter.matches(EventContext::new(found_entry, storage)) {
                             return Some(found_entry);
                         } else {
                             entry = Timestamp::new(found_entry.get() - 1).unwrap();
@@ -276,14 +273,7 @@ impl IndexedEventFilter<'_> {
                         return None;
                     }
 
-                    let nested_entry = filter.search(
-                        token,
-                        storage,
-                        event_ancestors,
-                        found_entry,
-                        order,
-                        found_entry,
-                    );
+                    let nested_entry = filter.search(storage, found_entry, order, found_entry);
 
                     if nested_entry != Some(found_entry) {
                         return Some(found_entry);
@@ -301,14 +291,7 @@ impl IndexedEventFilter<'_> {
                         return None;
                     }
 
-                    let nested_entry = filter.search(
-                        token,
-                        storage,
-                        event_ancestors,
-                        found_entry,
-                        order,
-                        found_entry,
-                    );
+                    let nested_entry = filter.search(storage, found_entry, order, found_entry);
 
                     if nested_entry != Some(found_entry) {
                         return Some(found_entry);
@@ -320,24 +303,10 @@ impl IndexedEventFilter<'_> {
             IndexedEventFilter::And(indexed_filters) => {
                 let mut current = entry;
                 'outer: loop {
-                    current = indexed_filters[0].search(
-                        token,
-                        storage,
-                        event_ancestors,
-                        current,
-                        order,
-                        bound,
-                    )?;
+                    current = indexed_filters[0].search(storage, current, order, bound)?;
 
                     for indexed_filter in &mut indexed_filters[1..] {
-                        match indexed_filter.search(
-                            token,
-                            storage,
-                            event_ancestors,
-                            current,
-                            order,
-                            current,
-                        ) {
+                        match indexed_filter.search(storage, current, order, current) {
                             Some(found_entry) if found_entry != current => {
                                 current = found_entry;
                                 continue 'outer;
@@ -359,13 +328,10 @@ impl IndexedEventFilter<'_> {
                 }
             }
             IndexedEventFilter::Or(indexed_filters) => {
-                let mut next_entry =
-                    indexed_filters[0].search(token, storage, event_ancestors, entry, order, bound);
+                let mut next_entry = indexed_filters[0].search(storage, entry, order, bound);
                 for indexed_filter in &mut indexed_filters[1..] {
                     let bound = next_entry.unwrap_or(bound);
-                    if let Some(found_entry) =
-                        indexed_filter.search(token, storage, event_ancestors, entry, order, bound)
-                    {
+                    if let Some(found_entry) = indexed_filter.search(storage, entry, order, bound) {
                         if let Some(next_entry) = &mut next_entry {
                             match order {
                                 Order::Asc if *next_entry > found_entry => {
@@ -1060,12 +1026,8 @@ impl BasicEventFilter {
         Ok(filter)
     }
 
-    pub(crate) fn matches<'b>(
-        &self,
-        token: &GhostToken<'b>,
-        event_ancestors: &HashMap<Timestamp, Ancestors<'b>>,
-        event: &Event,
-    ) -> bool {
+    pub(crate) fn matches<S: Storage>(&self, context: &EventContext<'_, S>) -> bool {
+        let event = context.event();
         match self {
             BasicEventFilter::Timestamp(op, timestamp) => op.compare(&event.timestamp, timestamp),
             BasicEventFilter::Level(level) => event.level == *level,
@@ -1074,24 +1036,16 @@ impl BasicEventFilter {
             BasicEventFilter::File(filter) => {
                 filter.matches(event.file_name.as_deref(), event.file_line)
             }
-            BasicEventFilter::Ancestor(span_key) => {
-                event_ancestors[&event.key()].has_parent(*span_key)
-            }
+            BasicEventFilter::Ancestor(span_key) => context.parents().any(|p| p.key() == *span_key),
             BasicEventFilter::Root => event.span_key.is_none(),
             BasicEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
-            BasicEventFilter::Attribute(attribute, value_filter) => event_ancestors[&event.key()]
-                .get_value(attribute, token)
+            BasicEventFilter::Attribute(attribute, value_filter) => context
+                .attribute(attribute)
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
-            BasicEventFilter::Not(inner_filter) => {
-                !inner_filter.matches(token, event_ancestors, event)
-            }
-            BasicEventFilter::And(filters) => filters
-                .iter()
-                .all(|f| f.matches(token, event_ancestors, event)),
-            BasicEventFilter::Or(filters) => filters
-                .iter()
-                .any(|f| f.matches(token, event_ancestors, event)),
+            BasicEventFilter::Not(inner_filter) => !inner_filter.matches(context),
+            BasicEventFilter::And(filters) => filters.iter().all(|f| f.matches(context)),
+            BasicEventFilter::Or(filters) => filters.iter().any(|f| f.matches(context)),
         }
     }
 }
@@ -1104,44 +1058,32 @@ pub enum NonIndexedEventFilter {
 }
 
 impl NonIndexedEventFilter {
-    fn matches<'b, S: Storage>(
-        &self,
-        token: &GhostToken<'b>,
-        storage: &S,
-        event_ancestors: &HashMap<Timestamp, Ancestors<'b>>,
-        entry: Timestamp,
-    ) -> bool {
-        let event = storage.get_event(entry).unwrap();
+    fn matches<S: Storage>(&self, context: EventContext<'_, S>) -> bool {
+        let event = context.event();
         match self {
             NonIndexedEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
             NonIndexedEventFilter::Target(filter) => filter.matches(&event.target),
             NonIndexedEventFilter::File(filter) => {
                 filter.matches(event.file_name.as_deref(), event.file_line)
             }
-            NonIndexedEventFilter::Attribute(attribute, value_filter) => event_ancestors
-                [&event.timestamp]
-                .get_value(attribute, token)
+            NonIndexedEventFilter::Attribute(attribute, value_filter) => context
+                .attribute(attribute)
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
         }
     }
 }
 
-pub struct IndexedEventFilterIterator<'i, 'b, S> {
+pub struct IndexedEventFilterIterator<'i, S> {
     filter: IndexedEventFilter<'i>,
     order: Order,
     start_key: Timestamp,
     end_key: Timestamp,
     storage: &'i S,
-    token: &'i GhostToken<'b>,
-    ancestors: &'i HashMap<Timestamp, Ancestors<'b>>,
 }
 
-impl<'i, 'b, S> IndexedEventFilterIterator<'i, 'b, S> {
-    pub fn new(
-        query: Query,
-        engine: &'i RawEngine<'b, S>,
-    ) -> IndexedEventFilterIterator<'i, 'b, S> {
+impl<'i, S> IndexedEventFilterIterator<'i, S> {
+    pub fn new(query: Query, engine: &'i RawEngine<S>) -> IndexedEventFilterIterator<'i, S> {
         let mut filter = BasicEventFilter::And(
             query
                 .filter
@@ -1184,42 +1126,33 @@ impl<'i, 'b, S> IndexedEventFilterIterator<'i, 'b, S> {
             start_key,
             end_key,
             storage: &engine.storage,
-            token: &engine.token,
-            ancestors: &engine.event_ancestors,
         }
     }
 
     pub fn new_internal(
         filter: IndexedEventFilter<'i>,
-        engine: &'i RawEngine<'b, S>,
-    ) -> IndexedEventFilterIterator<'i, 'b, S> {
+        engine: &'i RawEngine<S>,
+    ) -> IndexedEventFilterIterator<'i, S> {
         IndexedEventFilterIterator {
             filter,
             order: Order::Asc,
             end_key: Timestamp::MAX,
             start_key: Timestamp::MIN,
             storage: &engine.storage,
-            token: &engine.token,
-            ancestors: &engine.event_ancestors,
         }
     }
 }
 
-impl<S> Iterator for IndexedEventFilterIterator<'_, '_, S>
+impl<S> Iterator for IndexedEventFilterIterator<'_, S>
 where
     S: Storage,
 {
     type Item = EventKey;
 
     fn next(&mut self) -> Option<EventKey> {
-        let event_key = self.filter.search(
-            self.token,
-            self.storage,
-            self.ancestors,
-            self.start_key,
-            self.order,
-            self.end_key,
-        )?;
+        let event_key =
+            self.filter
+                .search(self.storage, self.start_key, self.order, self.end_key)?;
 
         match self.order {
             Order::Asc => self.start_key = event_key.saturating_add(1),
@@ -1527,11 +1460,9 @@ impl IndexedSpanFilter<'_> {
 
     // This searches for an entry equal to or beyond the provided entry
     #[allow(clippy::too_many_arguments)]
-    pub fn search<'b, S: Storage>(
+    pub fn search<S: Storage>(
         &mut self,
-        token: &GhostToken<'b>,
         storage: &S,
-        span_ancestors: &HashMap<Timestamp, Ancestors<'b>>,
         mut entry: Timestamp, // this is the current lower bound for span keys
         order: Order,
         bound: Timestamp, // this is the current upper bound for span keys
@@ -1561,7 +1492,7 @@ impl IndexedSpanFilter<'_> {
                     }
 
                     if let Some(filter) = filter {
-                        if filter.matches(token, storage, span_ancestors, found_entry) {
+                        if filter.matches(&SpanContext::new(found_entry, storage)) {
                             return Some(found_entry);
                         } else {
                             entry = found_entry.saturating_add(1);
@@ -1591,7 +1522,7 @@ impl IndexedSpanFilter<'_> {
                     }
 
                     if let Some(filter) = filter {
-                        if filter.matches(token, storage, span_ancestors, found_entry) {
+                        if filter.matches(&SpanContext::new(found_entry, storage)) {
                             return Some(found_entry);
                         } else {
                             entry = Timestamp::new(found_entry.get() - 1).unwrap();
@@ -1623,7 +1554,7 @@ impl IndexedSpanFilter<'_> {
                     }
 
                     if let Some(filter) = filter {
-                        if filter.matches(token, storage, span_ancestors, found_entry) {
+                        if filter.matches(&SpanContext::new(found_entry, storage)) {
                             return Some(found_entry);
                         } else {
                             entry = found_entry.saturating_add(1);
@@ -1653,7 +1584,7 @@ impl IndexedSpanFilter<'_> {
                     }
 
                     if let Some(filter) = filter {
-                        if filter.matches(token, storage, span_ancestors, found_entry) {
+                        if filter.matches(&SpanContext::new(found_entry, storage)) {
                             return Some(found_entry);
                         } else {
                             entry = Timestamp::new(found_entry.get() - 1).unwrap();
@@ -1684,15 +1615,8 @@ impl IndexedSpanFilter<'_> {
                         }
                     }
 
-                    let nested_entry = filter.search(
-                        token,
-                        storage,
-                        span_ancestors,
-                        found_entry,
-                        order,
-                        found_entry,
-                        start,
-                    );
+                    let nested_entry =
+                        filter.search(storage, found_entry, order, found_entry, start);
 
                     if nested_entry != Some(found_entry) {
                         return Some(found_entry);
@@ -1722,15 +1646,8 @@ impl IndexedSpanFilter<'_> {
                         }
                     }
 
-                    let nested_entry = filter.search(
-                        token,
-                        storage,
-                        span_ancestors,
-                        found_entry,
-                        order,
-                        found_entry,
-                        start,
-                    );
+                    let nested_entry =
+                        filter.search(storage, found_entry, order, found_entry, start);
 
                     if nested_entry != Some(found_entry) {
                         return Some(found_entry);
@@ -1742,25 +1659,9 @@ impl IndexedSpanFilter<'_> {
             IndexedSpanFilter::And(indexed_filters) => {
                 let mut current = entry;
                 'outer: loop {
-                    current = indexed_filters[0].search(
-                        token,
-                        storage,
-                        span_ancestors,
-                        current,
-                        order,
-                        bound,
-                        start,
-                    )?;
+                    current = indexed_filters[0].search(storage, current, order, bound, start)?;
                     for indexed_filter in &mut indexed_filters[1..] {
-                        match indexed_filter.search(
-                            token,
-                            storage,
-                            span_ancestors,
-                            current,
-                            order,
-                            current,
-                            start,
-                        ) {
+                        match indexed_filter.search(storage, current, order, current, start) {
                             Some(found_entry) if found_entry != current => {
                                 current = found_entry;
                                 continue 'outer;
@@ -1782,26 +1683,12 @@ impl IndexedSpanFilter<'_> {
                 }
             }
             IndexedSpanFilter::Or(indexed_filters) => {
-                let mut next_entry = indexed_filters[0].search(
-                    token,
-                    storage,
-                    span_ancestors,
-                    entry,
-                    order,
-                    bound,
-                    start,
-                );
+                let mut next_entry = indexed_filters[0].search(storage, entry, order, bound, start);
                 for indexed_filter in &mut indexed_filters[1..] {
                     let bound = next_entry.unwrap_or(bound);
-                    if let Some(found_entry) = indexed_filter.search(
-                        token,
-                        storage,
-                        span_ancestors,
-                        entry,
-                        order,
-                        bound,
-                        start,
-                    ) {
+                    if let Some(found_entry) =
+                        indexed_filter.search(storage, entry, order, bound, start)
+                    {
                         if let Some(next_entry) = &mut next_entry {
                             match order {
                                 Order::Asc if *next_entry > found_entry => {
@@ -2554,14 +2441,8 @@ pub enum NonIndexedSpanFilter {
 }
 
 impl NonIndexedSpanFilter {
-    fn matches<'b, S: Storage>(
-        &self,
-        token: &GhostToken<'b>,
-        storage: &S,
-        span_ancestors: &HashMap<Timestamp, Ancestors<'b>>,
-        entry: Timestamp,
-    ) -> bool {
-        let span = storage.get_span(entry).unwrap();
+    fn matches<S: Storage>(&self, context: &SpanContext<'_, S>) -> bool {
+        let span = context.span();
         match self {
             NonIndexedSpanFilter::Duration(filter) => filter.matches(span.duration()),
             NonIndexedSpanFilter::Closed(op, value) => {
@@ -2577,9 +2458,8 @@ impl NonIndexedSpanFilter {
                 filter.matches(span.file_name.as_deref(), span.file_line)
             }
             NonIndexedSpanFilter::Parent(parent_key) => span.parent_key == Some(*parent_key),
-            NonIndexedSpanFilter::Attribute(attribute, value_filter) => span_ancestors
-                [&span.created_at]
-                .get_value(attribute, token)
+            NonIndexedSpanFilter::Attribute(attribute, value_filter) => context
+                .attribute(attribute)
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
         }
@@ -2659,19 +2539,17 @@ impl DurationFilter {
     }
 }
 
-pub struct IndexedSpanFilterIterator<'i, 'b, S> {
+pub struct IndexedSpanFilterIterator<'i, S> {
     filter: IndexedSpanFilter<'i>,
     order: Order,
     curr_key: Timestamp,
     start_key: Timestamp,
     end_key: Timestamp,
     storage: &'i S,
-    token: &'i GhostToken<'b>,
-    ancestors: &'i HashMap<Timestamp, Ancestors<'b>>,
 }
 
-impl<'i, 'b, S> IndexedSpanFilterIterator<'i, 'b, S> {
-    pub fn new(query: Query, engine: &'i RawEngine<'b, S>) -> IndexedSpanFilterIterator<'i, 'b, S> {
+impl<'i, S> IndexedSpanFilterIterator<'i, S> {
+    pub fn new(query: Query, engine: &'i RawEngine<S>) -> IndexedSpanFilterIterator<'i, S> {
         let mut filter = BasicSpanFilter::And(
             query
                 .filter
@@ -2743,15 +2621,13 @@ impl<'i, 'b, S> IndexedSpanFilterIterator<'i, 'b, S> {
             end_key,
             start_key,
             storage: &engine.storage,
-            token: &engine.token,
-            ancestors: &engine.span_ancestors,
         }
     }
 
     pub fn new_internal(
         filter: IndexedSpanFilter<'i>,
-        engine: &'i RawEngine<'b, S>,
-    ) -> IndexedSpanFilterIterator<'i, 'b, S> {
+        engine: &'i RawEngine<S>,
+    ) -> IndexedSpanFilterIterator<'i, S> {
         IndexedSpanFilterIterator {
             filter,
             order: Order::Asc,
@@ -2759,13 +2635,11 @@ impl<'i, 'b, S> IndexedSpanFilterIterator<'i, 'b, S> {
             end_key: Timestamp::MAX,
             start_key: Timestamp::MIN,
             storage: &engine.storage,
-            token: &engine.token,
-            ancestors: &engine.span_ancestors,
         }
     }
 }
 
-impl<S> Iterator for IndexedSpanFilterIterator<'_, '_, S>
+impl<S> Iterator for IndexedSpanFilterIterator<'_, S>
 where
     S: Storage,
 {
@@ -2773,9 +2647,7 @@ where
 
     fn next(&mut self) -> Option<SpanKey> {
         let span_key = self.filter.search(
-            self.token,
             self.storage,
-            self.ancestors,
             self.curr_key,
             self.order,
             self.end_key,

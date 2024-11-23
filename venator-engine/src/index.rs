@@ -1,11 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
-use ghost_cell::GhostToken;
-
 use crate::filter::BoundSearch;
-use crate::models::{Event, EventKey, Span, Timestamp, Value};
-use crate::{Ancestors, ConnectionKey, SpanKey};
+use crate::models::{EventKey, Timestamp, Value};
+use crate::{ConnectionKey, EventContext, SpanContext, SpanKey, Storage};
 
 mod attribute;
 mod util;
@@ -38,12 +36,8 @@ impl EventIndexes {
         }
     }
 
-    pub fn update_with_new_event<'b>(
-        &mut self,
-        token: &GhostToken<'b>,
-        event: &Event,
-        event_ancestors: &Ancestors<'b>,
-    ) {
+    pub fn update_with_new_event<S: Storage>(&mut self, context: &EventContext<'_, S>) {
+        let event = context.event();
         let event_key = event.timestamp;
 
         let idx = self.all.upper_bound_via_expansion(&event_key);
@@ -67,8 +61,8 @@ impl EventIndexes {
             filename_index.insert(idx, event_key);
         }
 
-        for (parent_span_key, _) in &event_ancestors.0[0..event_ancestors.0.len() - 1] {
-            let descendent_index = self.descendents.entry(*parent_span_key).or_default();
+        for parent in context.parents() {
+            let descendent_index = self.descendents.entry(parent.key()).or_default();
             let idx = descendent_index.upper_bound_via_expansion(&event_key);
             descendent_index.insert(idx, event_key);
         }
@@ -79,31 +73,28 @@ impl EventIndexes {
         }
 
         for (attribute, attr_index) in &mut self.attributes {
-            if let Some(value) = event_ancestors.get_value(attribute, token) {
+            if let Some(value) = context.attribute(attribute) {
                 attr_index.add_entry(event_key, value);
             }
         }
     }
 
-    pub fn update_with_new_field_on_parent<'b>(
+    pub fn update_with_new_field_on_parent<S: Storage>(
         &mut self,
-        token: &GhostToken<'b>,
-        event_key: Timestamp,
-        event_ancestors: &Ancestors<'b>,
+        context: &EventContext<'_, S>,
         parent_key: Timestamp,
         parent_fields: &BTreeMap<String, Value>,
     ) {
         for (attribute, attribute_index) in &mut self.attributes {
             if let Some(new_value) = parent_fields.get(attribute) {
-                if let Some((old_value, key)) = event_ancestors.get_value_and_key(attribute, token)
-                {
+                if let Some((old_value, key)) = context.attribute_with_key(attribute) {
                     if key <= parent_key && new_value != old_value {
-                        attribute_index.remove_entry(event_key, old_value);
-                        attribute_index.add_entry(event_key, new_value);
+                        attribute_index.remove_entry(context.key(), old_value);
+                        attribute_index.add_entry(context.key(), new_value);
                     }
                 } else {
                     // there was no old value, just insert
-                    attribute_index.add_entry(event_key, new_value);
+                    attribute_index.add_entry(context.key(), new_value);
                 }
             }
         }
@@ -181,12 +172,8 @@ impl SpanIndexes {
         }
     }
 
-    pub fn update_with_new_span<'b>(
-        &mut self,
-        token: &GhostToken<'b>,
-        span: &Span,
-        span_ancestors: &Ancestors<'b>,
-    ) {
+    pub fn update_with_new_span<S: Storage>(&mut self, context: &SpanContext<'_, S>) {
+        let span = context.span();
         let span_key = span.created_at;
 
         let idx = self.all.upper_bound_via_expansion(&span_key);
@@ -230,8 +217,8 @@ impl SpanIndexes {
         }
 
         self.descendents.insert(span_key, vec![span_key]);
-        for (parent_span_key, _) in &span_ancestors.0[0..span_ancestors.0.len() - 1] {
-            let descendent_index = self.descendents.entry(*parent_span_key).or_default();
+        for parent in context.parents() {
+            let descendent_index = self.descendents.entry(parent.key()).or_default();
             let idx = descendent_index.upper_bound_via_expansion(&span_key);
             descendent_index.insert(idx, span_key);
         }
@@ -242,30 +229,28 @@ impl SpanIndexes {
         }
 
         for (attribute, attr_index) in &mut self.attributes {
-            if let Some(value) = span_ancestors.get_value(attribute, token) {
+            if let Some(value) = context.attribute(attribute) {
                 attr_index.add_entry(span_key, value);
             }
         }
     }
 
-    pub fn update_with_new_field_on_parent<'b>(
+    pub fn update_with_new_field_on_parent<S: Storage>(
         &mut self,
-        token: &GhostToken<'b>,
-        span_key: Timestamp,
-        span_ancestors: &Ancestors<'b>,
+        context: &SpanContext<'_, S>,
         parent_key: Timestamp,
         parent_fields: &BTreeMap<String, Value>,
     ) {
         for (attribute, attribute_index) in &mut self.attributes {
             if let Some(new_value) = parent_fields.get(attribute) {
-                if let Some((old_value, key)) = span_ancestors.get_value_and_key(attribute, token) {
+                if let Some((old_value, key)) = context.attribute_with_key(attribute) {
                     if key <= parent_key && new_value != old_value {
-                        attribute_index.remove_entry(span_key, old_value);
-                        attribute_index.add_entry(span_key, new_value);
+                        attribute_index.remove_entry(context.key(), old_value);
+                        attribute_index.add_entry(context.key(), new_value);
                     }
                 } else {
                     // there was no old value, just insert
-                    attribute_index.add_entry(span_key, new_value);
+                    attribute_index.add_entry(context.key(), new_value);
                 }
             }
         }

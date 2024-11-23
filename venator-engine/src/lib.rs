@@ -7,13 +7,12 @@ mod index;
 mod models;
 mod storage;
 
-use std::cell::Cell;
+use std::cell::{Cell, OnceCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::future::Future;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
-use ghost_cell::{GhostCell, GhostToken};
 use models::{AttributeTypeView, EventKey, FollowsSpanEvent};
 use serde::Serialize;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -67,123 +66,121 @@ impl Engine {
         let (query_sender, mut query_receiver) = mpsc::unbounded_channel();
 
         std::thread::spawn(move || {
-            GhostToken::new(|token| {
-                let mut engine = RawEngine::new(storage, token);
+            let mut engine = RawEngine::new(storage);
 
-                let mut last_check = Instant::now();
-                let mut computed_ms_since_last_check: u128 = 0;
+            let mut last_check = Instant::now();
+            let mut computed_ms_since_last_check: u128 = 0;
 
-                let mut recv = || {
-                    futures::executor::block_on(async {
-                        tokio::select! {
-                            biased;
-                            msg = query_receiver.recv() => {
-                                msg
-                            }
-                            msg = insert_receiver.recv() => {
-                                msg
-                            }
+            let mut recv = || {
+                futures::executor::block_on(async {
+                    tokio::select! {
+                        biased;
+                        msg = query_receiver.recv() => {
+                            msg
                         }
-                    })
-                };
-
-                while let Some(cmd) = recv() {
-                    let cmd_start = Instant::now();
-                    match cmd {
-                        EngineCommand::QueryConnection(query, sender) => {
-                            let connections = engine.query_connection(query);
-                            let _ = sender.send(connections);
-                        }
-                        EngineCommand::QueryConnectionCount(query, sender) => {
-                            let events = engine.query_connection_count(query);
-                            let _ = sender.send(events);
-                        }
-                        EngineCommand::QuerySpan(query, sender) => {
-                            let spans = engine.query_span(query);
-                            let _ = sender.send(spans);
-                        }
-                        EngineCommand::QuerySpanCount(query, sender) => {
-                            let events = engine.query_span_count(query);
-                            let _ = sender.send(events);
-                        }
-                        EngineCommand::QuerySpanEvent(query, sender) => {
-                            let span_events = engine.query_span_event(query);
-                            let _ = sender.send(span_events);
-                        }
-                        EngineCommand::QueryEvent(query, sender) => {
-                            let events = engine.query_event(query);
-                            let _ = sender.send(events);
-                        }
-                        EngineCommand::QueryEventCount(query, sender) => {
-                            let events = engine.query_event_count(query);
-                            let _ = sender.send(events);
-                        }
-                        EngineCommand::QueryStats(sender) => {
-                            let stats = engine.query_stats();
-                            let _ = sender.send(stats);
-                        }
-                        EngineCommand::InsertConnection(connection, sender) => {
-                            let res = engine.insert_connection(connection);
-                            if let Err(err) = &res {
-                                eprintln!("rejecting connection insert due to: {err:?}");
-                            }
-                            let _ = sender.send(res);
-                        }
-                        EngineCommand::DisconnectConnection(connection_id, sender) => {
-                            let res = engine.disconnect_connection(connection_id);
-                            if let Err(err) = &res {
-                                eprintln!("rejecting connection disconnect due to: {err:?}");
-                            }
-                            let _ = sender.send(res);
-                        }
-                        EngineCommand::InsertSpanEvent(span_event, sender) => {
-                            let res = engine.insert_span_event(span_event);
-                            if let Err(err) = &res {
-                                eprintln!("rejecting span event insert due to: {err:?}");
-                            }
-                            let _ = sender.send(res);
-                        }
-                        EngineCommand::InsertEvent(event, sender) => {
-                            let res = engine.insert_event(event);
-                            if let Err(err) = &res {
-                                eprintln!("rejecting event insert due to: {err:?}");
-                            }
-                            let _ = sender.send(res);
-                        }
-                        EngineCommand::Delete(filter, sender) => {
-                            let metrics = engine.delete(filter);
-                            let _ = sender.send(metrics);
-                        }
-                        EngineCommand::EventSubscribe(filter, sender) => {
-                            let res = engine.subscribe_to_events(filter);
-                            let _ = sender.send(res);
-                        }
-                        EngineCommand::EventUnsubscribe(id, sender) => {
-                            engine.unsubscribe_from_events(id);
-                            let _ = sender.send(());
-                        }
-                        EngineCommand::CopyDataset(to, sender) => {
-                            engine.copy_dataset(to);
-                            let _ = sender.send(());
-                        }
-                        EngineCommand::GetStatus(sender) => {
-                            let elapsed_ms = last_check.elapsed().as_millis();
-                            let computed_ms = computed_ms_since_last_check;
-
-                            last_check = Instant::now();
-                            computed_ms_since_last_check = 0;
-
-                            let load = computed_ms as f64 / elapsed_ms as f64;
-
-                            let _ = sender.send(EngineStatusView {
-                                load: load.min(1.0) * 100.0,
-                            });
+                        msg = insert_receiver.recv() => {
+                            msg
                         }
                     }
-                    let cmd_elapsed = cmd_start.elapsed().as_millis();
-                    computed_ms_since_last_check += cmd_elapsed;
+                })
+            };
+
+            while let Some(cmd) = recv() {
+                let cmd_start = Instant::now();
+                match cmd {
+                    EngineCommand::QueryConnection(query, sender) => {
+                        let connections = engine.query_connection(query);
+                        let _ = sender.send(connections);
+                    }
+                    EngineCommand::QueryConnectionCount(query, sender) => {
+                        let events = engine.query_connection_count(query);
+                        let _ = sender.send(events);
+                    }
+                    EngineCommand::QuerySpan(query, sender) => {
+                        let spans = engine.query_span(query);
+                        let _ = sender.send(spans);
+                    }
+                    EngineCommand::QuerySpanCount(query, sender) => {
+                        let events = engine.query_span_count(query);
+                        let _ = sender.send(events);
+                    }
+                    EngineCommand::QuerySpanEvent(query, sender) => {
+                        let span_events = engine.query_span_event(query);
+                        let _ = sender.send(span_events);
+                    }
+                    EngineCommand::QueryEvent(query, sender) => {
+                        let events = engine.query_event(query);
+                        let _ = sender.send(events);
+                    }
+                    EngineCommand::QueryEventCount(query, sender) => {
+                        let events = engine.query_event_count(query);
+                        let _ = sender.send(events);
+                    }
+                    EngineCommand::QueryStats(sender) => {
+                        let stats = engine.query_stats();
+                        let _ = sender.send(stats);
+                    }
+                    EngineCommand::InsertConnection(connection, sender) => {
+                        let res = engine.insert_connection(connection);
+                        if let Err(err) = &res {
+                            eprintln!("rejecting connection insert due to: {err:?}");
+                        }
+                        let _ = sender.send(res);
+                    }
+                    EngineCommand::DisconnectConnection(connection_id, sender) => {
+                        let res = engine.disconnect_connection(connection_id);
+                        if let Err(err) = &res {
+                            eprintln!("rejecting connection disconnect due to: {err:?}");
+                        }
+                        let _ = sender.send(res);
+                    }
+                    EngineCommand::InsertSpanEvent(span_event, sender) => {
+                        let res = engine.insert_span_event(span_event);
+                        if let Err(err) = &res {
+                            eprintln!("rejecting span event insert due to: {err:?}");
+                        }
+                        let _ = sender.send(res);
+                    }
+                    EngineCommand::InsertEvent(event, sender) => {
+                        let res = engine.insert_event(event);
+                        if let Err(err) = &res {
+                            eprintln!("rejecting event insert due to: {err:?}");
+                        }
+                        let _ = sender.send(res);
+                    }
+                    EngineCommand::Delete(filter, sender) => {
+                        let metrics = engine.delete(filter);
+                        let _ = sender.send(metrics);
+                    }
+                    EngineCommand::EventSubscribe(filter, sender) => {
+                        let res = engine.subscribe_to_events(filter);
+                        let _ = sender.send(res);
+                    }
+                    EngineCommand::EventUnsubscribe(id, sender) => {
+                        engine.unsubscribe_from_events(id);
+                        let _ = sender.send(());
+                    }
+                    EngineCommand::CopyDataset(to, sender) => {
+                        engine.copy_dataset(to);
+                        let _ = sender.send(());
+                    }
+                    EngineCommand::GetStatus(sender) => {
+                        let elapsed_ms = last_check.elapsed().as_millis();
+                        let computed_ms = computed_ms_since_last_check;
+
+                        last_check = Instant::now();
+                        computed_ms_since_last_check = 0;
+
+                        let load = computed_ms as f64 / elapsed_ms as f64;
+
+                        let _ = sender.send(EngineStatusView {
+                            load: load.min(1.0) * 100.0,
+                        });
+                    }
                 }
-            })
+                let cmd_elapsed = cmd_start.elapsed().as_millis();
+                computed_ms_since_last_check += cmd_elapsed;
+            }
         });
 
         Engine {
@@ -397,30 +394,25 @@ pub struct DeleteMetrics {
     pub events: usize,
 }
 
-struct RawEngine<'b, S> {
-    token: GhostToken<'b>,
+struct RawEngine<S> {
     storage: S,
     keys: KeyCache,
     connection_key_map: HashMap<ConnectionId, ConnectionKey>,
-    #[allow(clippy::type_complexity)]
-    connections: BTreeMap<ConnectionKey, (Connection, Rc<GhostCell<'b, BTreeMap<String, Value>>>)>,
+    connections: BTreeMap<ConnectionKey, Connection>,
     span_key_map: HashMap<(ConnectionKey, SpanId), SpanKey>,
     span_id_map: HashMap<SpanKey, SpanId>,
     span_indexes: SpanIndexes,
-    span_ancestors: HashMap<Timestamp, Ancestors<'b>>,
     span_event_ids: Vec<Timestamp>,
     span_events_by_span_ids: HashMap<SpanKey, Vec<Timestamp>>,
     event_indexes: EventIndexes,
-    event_ancestors: HashMap<Timestamp, Ancestors<'b>>,
 
     next_subscriber_id: usize,
     event_subscribers: HashMap<usize, (BasicEventFilter, UnboundedSender<EventView>)>,
 }
 
-impl<'b, S: Storage> RawEngine<'b, S> {
-    fn new(storage: S, token: GhostToken<'b>) -> RawEngine<'b, S> {
+impl<S: Storage> RawEngine<S> {
+    fn new(storage: S) -> RawEngine<S> {
         let mut engine = RawEngine {
-            token,
             storage,
             keys: KeyCache::new(),
             connection_key_map: HashMap::new(),
@@ -428,11 +420,9 @@ impl<'b, S: Storage> RawEngine<'b, S> {
             span_key_map: HashMap::new(),
             span_id_map: HashMap::new(),
             span_indexes: SpanIndexes::new(),
-            span_ancestors: HashMap::new(),
             span_event_ids: vec![],
             span_events_by_span_ids: HashMap::new(),
             event_indexes: EventIndexes::new(),
-            event_ancestors: HashMap::new(),
 
             next_subscriber_id: 0,
             event_subscribers: HashMap::new(),
@@ -534,7 +524,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         let mut connections = self
             .connections
             .range(start..=end)
-            .map(|(_key, (connection, _))| connection)
+            .map(|(_key, connection)| connection)
             .collect::<Vec<_>>();
 
         if query.order == Order::Desc {
@@ -602,14 +592,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     fn render_event(&self, event: &Event) -> EventView {
-        let (connection, _) = self.connections.get(&event.connection_key).unwrap();
+        let connection = self.connections.get(&event.connection_key).unwrap();
         let connection_id = connection.id;
 
-        let ancestors = self.event_ancestors.get(&event.timestamp).unwrap();
+        let context = EventContext::with_event(event, &self.storage);
 
         let mut attributes =
             BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
-        for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
+        for (attribute, value) in &context.event().fields {
             attributes.insert(
                 attribute.to_owned(),
                 (
@@ -619,10 +609,10 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 ),
             );
         }
-        for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
-            for (attribute, value) in fields.borrow(&self.token) {
+        for parent in context.parents() {
+            for (attribute, value) in &parent.fields {
                 if !attributes.contains_key(attribute) {
-                    let parent_id = *self.span_id_map.get(parent_key).unwrap();
+                    let parent_id = *self.span_id_map.get(&parent.key()).unwrap();
                     attributes.insert(
                         attribute.to_owned(),
                         (
@@ -636,7 +626,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 }
             }
         }
-        for (attribute, value) in ancestors.0.first().unwrap().1.borrow(&self.token) {
+        for (attribute, value) in &context.connection().fields {
             if !attributes.contains_key(attribute) {
                 attributes.insert(
                     attribute.to_owned(),
@@ -653,15 +643,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         EventView {
             connection_id: connection_id.to_string(),
-            ancestors: ancestors.0[1..ancestors.0.len() - 1]
-                .iter()
-                .map(|(parent_key, _)| {
-                    let parent_span = self.storage.get_span(*parent_key).unwrap();
-                    let parent_id = parent_span.id;
+            ancestors: context
+                .parents()
+                .map(|parent| {
+                    let parent_id = parent.id;
 
                     AncestorView {
                         id: format!("{connection_id}-{parent_id}"),
-                        name: parent_span.name.clone(),
+                        name: parent.name.clone(),
                     }
                 })
                 .collect(),
@@ -705,14 +694,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     fn render_span(&self, span: &Span) -> SpanView {
-        let (connection, _) = self.connections.get(&span.connection_key).unwrap();
+        let connection = self.connections.get(&span.connection_key).unwrap();
         let connection_id = connection.id;
 
-        let ancestors = self.span_ancestors.get(&span.created_at).unwrap();
+        let context = SpanContext::with_span(span, &self.storage);
 
         let mut attributes =
             BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
-        for (attribute, value) in ancestors.0.last().unwrap().1.borrow(&self.token) {
+        for (attribute, value) in &context.span().fields {
             attributes.insert(
                 attribute.to_owned(),
                 (
@@ -722,10 +711,10 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 ),
             );
         }
-        for (parent_key, fields) in &ancestors.0[1..ancestors.0.len() - 1] {
-            for (attribute, value) in fields.borrow(&self.token) {
+        for parent in context.parents() {
+            for (attribute, value) in &parent.fields {
                 if !attributes.contains_key(attribute) {
-                    let parent_id = *self.span_id_map.get(parent_key).unwrap();
+                    let parent_id = *self.span_id_map.get(&parent.key()).unwrap();
                     attributes.insert(
                         attribute.to_owned(),
                         (
@@ -739,7 +728,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                 }
             }
         }
-        for (attribute, value) in ancestors.0.first().unwrap().1.borrow(&self.token) {
+        for (attribute, value) in &context.connection().fields {
             if !attributes.contains_key(attribute) {
                 attributes.insert(
                     attribute.to_owned(),
@@ -756,15 +745,14 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
         SpanView {
             id: format!("{connection_id}-{}", span.id),
-            ancestors: ancestors.0[1..ancestors.0.len() - 1]
-                .iter()
-                .map(|(parent_key, _)| {
-                    let parent_span = self.storage.get_span(*parent_key).unwrap();
-                    let parent_id = parent_span.id;
+            ancestors: context
+                .parents()
+                .map(|parent| {
+                    let parent_id = parent.id;
 
                     AncestorView {
                         id: format!("{connection_id}-{parent_id}"),
-                        name: parent_span.name.clone(),
+                        name: parent.name.clone(),
                     }
                 })
                 .collect(),
@@ -828,12 +816,10 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     fn insert_connection_bookeeping(&mut self, connection: &Connection) {
-        let current_fields = Rc::new(GhostCell::new(connection.fields.clone()));
-
         self.connection_key_map
             .insert(connection.id, connection.key());
         self.connections
-            .insert(connection.key(), (connection.clone(), current_fields));
+            .insert(connection.key(), connection.clone());
     }
 
     pub fn disconnect_connection(
@@ -974,13 +960,10 @@ impl<'b, S: Storage> RawEngine<'b, S> {
                         .cloned()
                         .unwrap_or_default();
 
-                    for span_key in descendent_spans {
+                    for child_span_key in descendent_spans {
                         // check if nested span attribute changed
-                        let ancestors = &self.span_ancestors[&span_key];
                         self.span_indexes.update_with_new_field_on_parent(
-                            &self.token,
-                            span_key,
-                            ancestors,
+                            &SpanContext::new(child_span_key, &self.storage),
                             span_key,
                             &update_event.fields,
                         );
@@ -995,29 +978,13 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
                     for event_key in descendent_events {
                         // check if nested event attribute changed
-                        let ancestors = &self.event_ancestors[&event_key];
                         self.event_indexes.update_with_new_field_on_parent(
-                            &self.token,
-                            event_key,
-                            ancestors,
+                            &EventContext::new(event_key, &self.storage),
                             span_key,
                             &update_event.fields,
                         );
                     }
                 }
-
-                let fields = &self
-                    .span_ancestors
-                    .get(&span_key)
-                    .unwrap()
-                    .0
-                    .last()
-                    .unwrap()
-                    .1;
-
-                fields
-                    .borrow_mut(&mut self.token)
-                    .extend(update_event.fields.clone());
 
                 let span_event = SpanEvent {
                     connection_key: new_span_event.connection_key,
@@ -1127,27 +1094,11 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     fn insert_span_bookeeping(&mut self, span: &Span) {
         let span_key = span.created_at;
 
-        let mut ancestors = if let Some(parent_key) = span.parent_key {
-            self.span_ancestors.get(&parent_key).unwrap().clone()
-        } else {
-            let (_, connection_fields) = &self.connections[&span.connection_key];
-
-            let mut ancestors = Ancestors::new();
-            ancestors
-                .0
-                .push((span.connection_key, connection_fields.clone()));
-            ancestors
-        };
-
-        let current_fields = Rc::new(GhostCell::new(span.fields.clone()));
-        ancestors.0.push((span_key, current_fields));
-
         self.span_key_map
             .insert((span.connection_key, span.id), span_key);
         self.span_id_map.insert(span_key, span.id);
         self.span_indexes
-            .update_with_new_span(&self.token, span, &ancestors);
-        self.span_ancestors.insert(span_key, ancestors);
+            .update_with_new_span(&SpanContext::with_span(span, &self.storage));
     }
 
     fn insert_span_event_bookeeping(&mut self, span_event: &SpanEvent) {
@@ -1196,8 +1147,9 @@ impl<'b, S: Storage> RawEngine<'b, S> {
         self.storage.insert_event(event.clone());
 
         let mut remove = vec![];
+        let context = EventContext::with_event(&event, &self.storage);
         for (id, (filter, sender)) in &self.event_subscribers {
-            if filter.matches(&self.token, &self.event_ancestors, &event) {
+            if filter.matches(&context) {
                 let send_result = sender.send(self.render_event(&event));
                 if send_result.is_err() {
                     remove.push(*id);
@@ -1213,26 +1165,8 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     fn insert_event_bookeeping(&mut self, event: &Event) {
-        let event_key = event.timestamp;
-
-        let mut ancestors = if let Some(parent_key) = event.span_key {
-            self.span_ancestors.get(&parent_key).unwrap().clone()
-        } else {
-            let (_, connection_fields) = &self.connections[&event.connection_key];
-
-            let mut ancestors = Ancestors::new();
-            ancestors
-                .0
-                .push((event.connection_key, connection_fields.clone()));
-            ancestors
-        };
-
-        let current_fields = Rc::new(GhostCell::new(event.fields.clone()));
-        ancestors.0.push((event_key, current_fields));
-
         self.event_indexes
-            .update_with_new_event(&self.token, event, &ancestors);
-        self.event_ancestors.insert(event_key, ancestors);
+            .update_with_new_event(&EventContext::with_event(event, &self.storage));
     }
 
     pub fn delete(&mut self, filter: DeleteFilter) -> DeleteMetrics {
@@ -1330,7 +1264,7 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     ) -> Vec<ConnectionKey> {
         self.connections
             .iter()
-            .filter(|(_, (connection, _))| {
+            .filter(|(_, connection)| {
                 if inside {
                     connection.connected_at <= end
                         && connection.disconnected_at.unwrap_or(Timestamp::MAX) >= start
@@ -1413,10 +1347,6 @@ impl<'b, S: Storage> RawEngine<'b, S> {
 
     fn remove_spans_bookeeping(&mut self, spans: &[SpanKey]) {
         for span_key in spans {
-            self.span_ancestors.remove(span_key);
-        }
-
-        for span_key in spans {
             self.span_id_map.remove(span_key);
         }
 
@@ -1439,10 +1369,6 @@ impl<'b, S: Storage> RawEngine<'b, S> {
     }
 
     fn remove_events_bookeeping(&mut self, events: &[EventKey]) {
-        for event_key in events {
-            self.event_ancestors.remove(event_key);
-        }
-
         self.event_indexes.remove_events(events);
     }
 
@@ -1550,35 +1476,291 @@ fn saturating_sub(a: Timestamp, b: u64) -> Timestamp {
     Timestamp::new(a.get().saturating_sub(b)).unwrap_or(Timestamp::MIN)
 }
 
-#[derive(Clone)]
-#[allow(clippy::type_complexity)]
-struct Ancestors<'b>(Vec<(Timestamp, Rc<GhostCell<'b, BTreeMap<String, Value>>>)>);
+struct EventContext<'a, S> {
+    event_key: EventKey,
+    storage: &'a S,
+    event: RefOrDeferredArc<'a, Event>,
+    parents: OnceCell<Vec<Arc<Span>>>,
+    connection: OnceCell<Arc<Connection>>,
+}
 
-impl<'b> Ancestors<'b> {
-    fn new() -> Ancestors<'b> {
-        Ancestors(Vec::new())
+impl<'a, S> EventContext<'a, S>
+where
+    S: Storage,
+{
+    fn new(event_key: EventKey, storage: &'a S) -> EventContext<'a, S> {
+        EventContext {
+            event_key,
+            storage,
+            event: RefOrDeferredArc::Deferred(OnceCell::new()),
+            parents: OnceCell::new(),
+            connection: OnceCell::new(),
+        }
     }
 
-    fn get_value<'a>(&'a self, attribute: &str, token: &'a GhostToken<'b>) -> Option<&'a Value> {
-        self.0
+    fn with_event(event: &'a Event, storage: &'a S) -> EventContext<'a, S> {
+        EventContext {
+            event_key: event.key(),
+            storage,
+            event: RefOrDeferredArc::Ref(event),
+            parents: OnceCell::new(),
+            connection: OnceCell::new(),
+        }
+    }
+
+    fn key(&self) -> EventKey {
+        self.event_key
+    }
+
+    fn event(&self) -> &Event {
+        match &self.event {
+            RefOrDeferredArc::Ref(event) => event,
+            RefOrDeferredArc::Deferred(deferred) => {
+                deferred.get_or_init(|| self.storage.get_event(self.event_key).unwrap())
+            }
+        }
+    }
+
+    fn parents(&self) -> impl Iterator<Item = &Span> {
+        let event = self.event();
+
+        self.parents
+            .get_or_init(|| {
+                let mut parents = vec![];
+                let mut parent_key_next = event.span_key;
+
+                while let Some(parent_key) = parent_key_next {
+                    let parent = self.storage.get_span(parent_key).unwrap();
+
+                    parent_key_next = parent.parent_key;
+                    parents.push(parent);
+                }
+
+                parents
+            })
             .iter()
-            .rev()
-            .find_map(move |(_, attributes)| attributes.borrow(token).get(attribute))
+            .map(|p| &**p)
     }
 
-    fn get_value_and_key<'a>(
-        &'a self,
-        attribute: &str,
-        token: &'a GhostToken<'b>,
-    ) -> Option<(&'a Value, Timestamp)> {
-        self.0.iter().rev().find_map(move |(key, attributes)| {
-            attributes.borrow(token).get(attribute).map(|v| (v, *key))
-        })
+    fn connection(&self) -> &Connection {
+        let event = self.event();
+
+        self.connection
+            .get_or_init(|| self.storage.get_connection(event.connection_key).unwrap())
+            .as_ref()
     }
 
-    fn has_parent(&self, timestamp: Timestamp) -> bool {
-        self.0.iter().any(|(id, _)| *id == timestamp)
+    fn attribute(&self, attr: &str) -> Option<&Value> {
+        let event = self.event();
+        if let Some(v) = event.fields.get(attr) {
+            return Some(v);
+        }
+
+        let parents = self.parents();
+        for parent in parents {
+            if let Some(v) = parent.fields.get(attr) {
+                return Some(v);
+            }
+        }
+
+        let connection = self.connection();
+        if let Some(v) = connection.fields.get(attr) {
+            return Some(v);
+        }
+
+        None
     }
+
+    fn attribute_with_key(&self, attr: &str) -> Option<(&Value, Timestamp)> {
+        let event = self.event();
+        if let Some(v) = event.fields.get(attr) {
+            return Some((v, event.key()));
+        }
+
+        let parents = self.parents();
+        for parent in parents {
+            if let Some(v) = parent.fields.get(attr) {
+                return Some((v, parent.key()));
+            }
+        }
+
+        let connection = self.connection();
+        if let Some(v) = connection.fields.get(attr) {
+            return Some((v, connection.key()));
+        }
+
+        None
+    }
+
+    #[allow(unused)]
+    fn attributes(&self) -> impl Iterator<Item = (&str, &Value)> {
+        let mut attributes = BTreeMap::new();
+
+        let event = self.event();
+        for (attr, value) in &event.fields {
+            attributes.entry(&**attr).or_insert(value);
+        }
+
+        let parents = self.parents();
+        for parent in parents {
+            for (attr, value) in &parent.fields {
+                attributes.entry(&**attr).or_insert(value);
+            }
+        }
+
+        let connection = self.connection();
+        for (attr, value) in &connection.fields {
+            attributes.entry(&**attr).or_insert(value);
+        }
+
+        attributes.into_iter()
+    }
+}
+
+struct SpanContext<'a, S> {
+    span_key: SpanKey,
+    storage: &'a S,
+    span: RefOrDeferredArc<'a, Span>,
+    parents: OnceCell<Vec<Arc<Span>>>,
+    connection: OnceCell<Arc<Connection>>,
+}
+
+impl<'a, S> SpanContext<'a, S>
+where
+    S: Storage,
+{
+    fn new(span_key: SpanKey, storage: &'a S) -> SpanContext<'a, S> {
+        SpanContext {
+            span_key,
+            storage,
+            span: RefOrDeferredArc::Deferred(OnceCell::new()),
+            parents: OnceCell::new(),
+            connection: OnceCell::new(),
+        }
+    }
+
+    fn with_span(span: &'a Span, storage: &'a S) -> SpanContext<'a, S> {
+        SpanContext {
+            span_key: span.key(),
+            storage,
+            span: RefOrDeferredArc::Ref(span),
+            parents: OnceCell::new(),
+            connection: OnceCell::new(),
+        }
+    }
+
+    fn key(&self) -> SpanKey {
+        self.span_key
+    }
+
+    fn span(&self) -> &Span {
+        match &self.span {
+            RefOrDeferredArc::Ref(span) => span,
+            RefOrDeferredArc::Deferred(deferred) => {
+                deferred.get_or_init(|| self.storage.get_span(self.span_key).unwrap())
+            }
+        }
+    }
+
+    fn parents(&self) -> impl Iterator<Item = &Span> {
+        let span = self.span();
+
+        self.parents
+            .get_or_init(|| {
+                let mut parents = vec![];
+                let mut parent_key_next = span.parent_key;
+
+                while let Some(parent_key) = parent_key_next {
+                    let parent = self.storage.get_span(parent_key).unwrap();
+
+                    parent_key_next = parent.parent_key;
+                    parents.push(parent);
+                }
+
+                parents
+            })
+            .iter()
+            .map(|p| &**p)
+    }
+
+    fn connection(&self) -> &Connection {
+        let span = self.span();
+
+        self.connection
+            .get_or_init(|| self.storage.get_connection(span.connection_key).unwrap())
+            .as_ref()
+    }
+
+    fn attribute(&self, attr: &str) -> Option<&Value> {
+        let span = self.span();
+        if let Some(v) = span.fields.get(attr) {
+            return Some(v);
+        }
+
+        let parents = self.parents();
+        for parent in parents {
+            if let Some(v) = parent.fields.get(attr) {
+                return Some(v);
+            }
+        }
+
+        let connection = self.connection();
+        if let Some(v) = connection.fields.get(attr) {
+            return Some(v);
+        }
+
+        None
+    }
+
+    fn attribute_with_key(&self, attr: &str) -> Option<(&Value, Timestamp)> {
+        let span = self.span();
+        if let Some(v) = span.fields.get(attr) {
+            return Some((v, span.key()));
+        }
+
+        let parents = self.parents();
+        for parent in parents {
+            if let Some(v) = parent.fields.get(attr) {
+                return Some((v, parent.key()));
+            }
+        }
+
+        let connection = self.connection();
+        if let Some(v) = connection.fields.get(attr) {
+            return Some((v, connection.key()));
+        }
+
+        None
+    }
+
+    #[allow(unused)]
+    fn attributes(&self) -> impl Iterator<Item = (&str, &Value)> {
+        let mut attributes = BTreeMap::new();
+
+        let span = self.span();
+        for (attr, value) in &span.fields {
+            attributes.entry(&**attr).or_insert(value);
+        }
+
+        let parents = self.parents();
+        for parent in parents {
+            for (attr, value) in &parent.fields {
+                attributes.entry(&**attr).or_insert(value);
+            }
+        }
+
+        let connection = self.connection();
+        for (attr, value) in &connection.fields {
+            attributes.entry(&**attr).or_insert(value);
+        }
+
+        attributes.into_iter()
+    }
+}
+
+enum RefOrDeferredArc<'a, T> {
+    Ref(&'a T),
+    Deferred(OnceCell<Arc<T>>),
 }
 
 fn now() -> Timestamp {
@@ -1605,657 +1787,625 @@ mod tests {
 
     #[test]
     fn test_event_filters() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::new(),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            let simple = |id: u64, level: i32, attribute1: &str, attribute2: &str| -> NewEvent {
-                NewEvent {
-                    connection_key,
-                    timestamp: id.try_into().unwrap(),
-                    span_id: None,
-                    name: "event".to_owned(),
-                    target: "crate::storage::tests".to_owned(),
-                    level,
-                    file_name: None,
-                    file_line: None,
-                    fields: BTreeMap::from_iter([
-                        ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
-                        ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
-                    ]),
-                }
-            };
+        let simple = |id: u64, level: i32, attribute1: &str, attribute2: &str| -> NewEvent {
+            NewEvent {
+                connection_key,
+                timestamp: id.try_into().unwrap(),
+                span_id: None,
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::from_iter([
+                    ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
+                    ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
+                ]),
+            }
+        };
 
-            engine.insert_event(simple(1, 4, "test", "A")).unwrap(); // excluded by timestamp
-            engine.insert_event(simple(2, 1, "test", "A")).unwrap(); // excluded by level
-            engine.insert_event(simple(3, 2, "test", "A")).unwrap(); // excluded by level
-            engine.insert_event(simple(4, 3, "test", "A")).unwrap();
-            engine.insert_event(simple(5, 4, "test", "A")).unwrap();
-            engine.insert_event(simple(6, 4, "blah", "A")).unwrap(); // excluded by "blah"
-            engine.insert_event(simple(7, 4, "test", "B")).unwrap(); // excluded by "B"
-            engine.insert_event(simple(8, 4, "test", "C")).unwrap(); // excluded by "C"
-            engine.insert_event(simple(9, 4, "test", "A")).unwrap(); // excluded by timestamp
+        engine.insert_event(simple(1, 4, "test", "A")).unwrap(); // excluded by timestamp
+        engine.insert_event(simple(2, 1, "test", "A")).unwrap(); // excluded by level
+        engine.insert_event(simple(3, 2, "test", "A")).unwrap(); // excluded by level
+        engine.insert_event(simple(4, 3, "test", "A")).unwrap();
+        engine.insert_event(simple(5, 4, "test", "A")).unwrap();
+        engine.insert_event(simple(6, 4, "blah", "A")).unwrap(); // excluded by "blah"
+        engine.insert_event(simple(7, 4, "test", "B")).unwrap(); // excluded by "B"
+        engine.insert_event(simple(8, 4, "test", "C")).unwrap(); // excluded by "C"
+        engine.insert_event(simple(9, 4, "test", "A")).unwrap(); // excluded by timestamp
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
-                    .unwrap(),
-                order: Order::Asc,
-                limit: 3,
-                start: Timestamp::new(2).unwrap(),
-                end: Timestamp::new(8).unwrap(),
-                previous: None,
-            });
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
+                .unwrap(),
+            order: Order::Asc,
+            limit: 3,
+            start: Timestamp::new(2).unwrap(),
+            end: Timestamp::new(8).unwrap(),
+            previous: None,
+        });
 
-            assert_eq!(events.len(), 2);
-            assert_eq!(events[0].timestamp, Timestamp::new(4).unwrap());
-            assert_eq!(events[1].timestamp, Timestamp::new(5).unwrap());
-        })
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].timestamp, Timestamp::new(4).unwrap());
+        assert_eq!(events[1].timestamp, Timestamp::new(5).unwrap());
     }
 
     #[test]
     fn test_span_filters() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::new(),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            let simple_open =
-                |open: u64, level: i32, attribute1: &str, attribute2: &str| -> NewSpanEvent {
-                    NewSpanEvent {
-                        connection_key,
-                        timestamp: Timestamp::new(open).unwrap(),
-                        span_id: open.try_into().unwrap(),
-                        kind: NewSpanEventKind::Create(NewCreateSpanEvent {
-                            parent_id: None,
-                            target: "crate::storage::tests".to_owned(),
-                            name: "test".to_owned(),
-                            level,
-                            file_name: None,
-                            file_line: None,
-                            fields: BTreeMap::from_iter([
-                                ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
-                                ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
-                            ]),
-                        }),
-                    }
-                };
-
-            let simple_close = |open: u64, close: u64| -> NewSpanEvent {
+        let simple_open =
+            |open: u64, level: i32, attribute1: &str, attribute2: &str| -> NewSpanEvent {
                 NewSpanEvent {
                     connection_key,
-                    timestamp: Timestamp::new(close).unwrap(),
+                    timestamp: Timestamp::new(open).unwrap(),
                     span_id: open.try_into().unwrap(),
-                    kind: NewSpanEventKind::Close,
+                    kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                        parent_id: None,
+                        target: "crate::storage::tests".to_owned(),
+                        name: "test".to_owned(),
+                        level,
+                        file_name: None,
+                        file_line: None,
+                        fields: BTreeMap::from_iter([
+                            ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
+                            ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
+                        ]),
+                    }),
                 }
             };
 
-            engine
-                .insert_span_event(simple_open(1, 4, "test", "A"))
-                .unwrap(); // excluded by timestamp
-            engine.insert_span_event(simple_close(1, 2)).unwrap();
-            engine
-                .insert_span_event(simple_open(3, 1, "test", "A"))
-                .unwrap(); // excluded by level
-            engine.insert_span_event(simple_close(3, 6)).unwrap();
-            engine
-                .insert_span_event(simple_open(4, 2, "test", "A"))
-                .unwrap(); // excluded by level
-            engine.insert_span_event(simple_close(4, 7)).unwrap();
-            engine
-                .insert_span_event(simple_open(5, 3, "test", "A"))
-                .unwrap();
-            engine.insert_span_event(simple_close(5, 8)).unwrap();
-            engine
-                .insert_span_event(simple_open(9, 4, "test", "A"))
-                .unwrap();
-            engine
-                .insert_span_event(simple_open(10, 4, "blah", "A"))
-                .unwrap(); // excluded by "blah"
-            engine
-                .insert_span_event(simple_open(11, 4, "test", "B"))
-                .unwrap(); // excluded by "B"
-            engine
-                .insert_span_event(simple_open(12, 4, "test", "C"))
-                .unwrap(); // excluded by "C"
-            engine
-                .insert_span_event(simple_open(13, 4, "test", "A"))
-                .unwrap(); // excluded by timestamp
+        let simple_close = |open: u64, close: u64| -> NewSpanEvent {
+            NewSpanEvent {
+                connection_key,
+                timestamp: Timestamp::new(close).unwrap(),
+                span_id: open.try_into().unwrap(),
+                kind: NewSpanEventKind::Close,
+            }
+        };
 
-            let spans = engine.query_span(Query {
-                filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
-                    .unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: Timestamp::new(2).unwrap(),
-                end: Timestamp::new(10).unwrap(),
-                previous: None,
-            });
+        engine
+            .insert_span_event(simple_open(1, 4, "test", "A"))
+            .unwrap(); // excluded by timestamp
+        engine.insert_span_event(simple_close(1, 2)).unwrap();
+        engine
+            .insert_span_event(simple_open(3, 1, "test", "A"))
+            .unwrap(); // excluded by level
+        engine.insert_span_event(simple_close(3, 6)).unwrap();
+        engine
+            .insert_span_event(simple_open(4, 2, "test", "A"))
+            .unwrap(); // excluded by level
+        engine.insert_span_event(simple_close(4, 7)).unwrap();
+        engine
+            .insert_span_event(simple_open(5, 3, "test", "A"))
+            .unwrap();
+        engine.insert_span_event(simple_close(5, 8)).unwrap();
+        engine
+            .insert_span_event(simple_open(9, 4, "test", "A"))
+            .unwrap();
+        engine
+            .insert_span_event(simple_open(10, 4, "blah", "A"))
+            .unwrap(); // excluded by "blah"
+        engine
+            .insert_span_event(simple_open(11, 4, "test", "B"))
+            .unwrap(); // excluded by "B"
+        engine
+            .insert_span_event(simple_open(12, 4, "test", "C"))
+            .unwrap(); // excluded by "C"
+        engine
+            .insert_span_event(simple_open(13, 4, "test", "A"))
+            .unwrap(); // excluded by timestamp
 
-            assert_eq!(spans.len(), 2);
-            assert_eq!(spans[0].created_at, Timestamp::new(5).unwrap());
-            assert_eq!(spans[1].created_at, Timestamp::new(9).unwrap());
+        let spans = engine.query_span(Query {
+            filter: FilterPredicate::parse("#level: >=WARN @attribute1: test @attribute2: A")
+                .unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: Timestamp::new(2).unwrap(),
+            end: Timestamp::new(10).unwrap(),
+            previous: None,
         });
+
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].created_at, Timestamp::new(5).unwrap());
+        assert_eq!(spans[1].created_at, Timestamp::new(9).unwrap());
     }
 
     #[test]
     fn event_found_with_nonindexed_connection_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: None,
-                    name: "event".to_owned(),
-                    target: "crate::storage::tests".to_owned(),
-                    level: 4,
-                    file_name: None,
-                    file_line: None,
-                    fields: BTreeMap::new(),
-                })
-                .unwrap();
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: None,
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: B").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 0);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 1);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 0);
     }
 
     #[test]
     fn event_found_with_indexed_connection_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: None,
-                    name: "event".to_owned(),
-                    target: "crate::storage::tests".to_owned(),
-                    level: 4,
-                    file_name: None,
-                    file_line: None,
-                    fields: BTreeMap::new(),
-                })
-                .unwrap();
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: None,
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: B").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 0);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 1);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 0);
     }
 
     #[test]
     fn event_found_with_nonindexed_inherent_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: None,
-                    name: "event".to_owned(),
-                    target: "crate::storage::tests".to_owned(),
-                    level: 4,
-                    file_name: None,
-                    file_line: None,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
-                })
-                .unwrap();
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: None,
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 0);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: B").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 0);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
     fn event_found_with_indexed_inherent_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: None,
-                    name: "event".to_owned(),
-                    target: "crate::storage::tests".to_owned(),
-                    level: 4,
-                    file_name: None,
-                    file_line: None,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
-                })
-                .unwrap();
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: None,
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 0);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: B").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 0);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: B").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
     fn event_found_with_nonindexed_span_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            engine
-                .insert_span_event(NewSpanEvent {
-                    connection_key,
-                    timestamp: now(),
-                    span_id: 1.try_into().unwrap(),
-                    kind: NewSpanEventKind::Create(NewCreateSpanEvent {
-                        parent_id: None,
-                        target: "crate::storage::tests".to_owned(),
-                        name: "test".to_owned(),
-                        level: 4,
-                        file_name: None,
-                        file_line: None,
-                        fields: BTreeMap::from_iter([(
-                            "attr1".to_owned(),
-                            Value::Str("C".to_owned()),
-                        )]),
-                    }),
-                })
-                .unwrap();
-
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: SpanId::new(1),
-                    name: "event".to_owned(),
+        engine
+            .insert_span_event(NewSpanEvent {
+                connection_key,
+                timestamp: now(),
+                span_id: 1.try_into().unwrap(),
+                kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    parent_id: None,
                     target: "crate::storage::tests".to_owned(),
+                    name: "test".to_owned(),
                     level: 4,
                     file_name: None,
                     file_line: None,
-                    fields: BTreeMap::new(),
-                })
-                .unwrap();
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("C".to_owned()))]),
+                }),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: SpanId::new(1),
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            assert_eq!(events.len(), 0);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: C").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 0);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
     fn event_found_with_indexed_span_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            engine
-                .insert_span_event(NewSpanEvent {
-                    connection_key,
-                    timestamp: now(),
-                    span_id: 1.try_into().unwrap(),
-                    kind: NewSpanEventKind::Create(NewCreateSpanEvent {
-                        parent_id: None,
-                        target: "crate::storage::tests".to_owned(),
-                        name: "test".to_owned(),
-                        level: 4,
-                        file_name: None,
-                        file_line: None,
-                        fields: BTreeMap::from_iter([(
-                            "attr1".to_owned(),
-                            Value::Str("C".to_owned()),
-                        )]),
-                    }),
-                })
-                .unwrap();
-
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: SpanId::new(1),
-                    name: "event".to_owned(),
+        engine
+            .insert_span_event(NewSpanEvent {
+                connection_key,
+                timestamp: now(),
+                span_id: 1.try_into().unwrap(),
+                kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    parent_id: None,
                     target: "crate::storage::tests".to_owned(),
+                    name: "test".to_owned(),
                     level: 4,
                     file_name: None,
                     file_line: None,
-                    fields: BTreeMap::new(),
-                })
-                .unwrap();
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("C".to_owned()))]),
+                }),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: SpanId::new(1),
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            assert_eq!(events.len(), 0);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: C").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 0);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
     fn event_found_with_nonindexed_updated_span_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            engine
-                .insert_span_event(NewSpanEvent {
-                    connection_key,
-                    timestamp: now(),
-                    span_id: 1.try_into().unwrap(),
-                    kind: NewSpanEventKind::Create(NewCreateSpanEvent {
-                        parent_id: None,
-                        target: "crate::storage::tests".to_owned(),
-                        name: "test".to_owned(),
-                        level: 4,
-                        file_name: None,
-                        file_line: None,
-                        fields: BTreeMap::new(),
-                    }),
-                })
-                .unwrap();
-
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: SpanId::new(1),
-                    name: "event".to_owned(),
+        engine
+            .insert_span_event(NewSpanEvent {
+                connection_key,
+                timestamp: now(),
+                span_id: 1.try_into().unwrap(),
+                kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    parent_id: None,
                     target: "crate::storage::tests".to_owned(),
+                    name: "test".to_owned(),
                     level: 4,
                     file_name: None,
                     file_line: None,
                     fields: BTreeMap::new(),
-                })
-                .unwrap();
+                }),
+            })
+            .unwrap();
 
-            engine
-                .insert_span_event(NewSpanEvent {
-                    connection_key,
-                    timestamp: super::now(),
-                    span_id: 1.try_into().unwrap(),
-                    kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                        fields: BTreeMap::from_iter([(
-                            "attr1".to_owned(),
-                            Value::Str("C".to_owned()),
-                        )]),
-                    }),
-                })
-                .unwrap();
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: SpanId::new(1),
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
+        engine
+            .insert_span_event(NewSpanEvent {
+                connection_key,
+                timestamp: super::now(),
+                span_id: 1.try_into().unwrap(),
+                kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("C".to_owned()))]),
+                }),
+            })
+            .unwrap();
 
-            assert_eq!(events.len(), 0);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: C").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 0);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
     fn event_found_with_indexed_updated_span_attribute() {
-        GhostToken::new(|token| {
-            let mut engine = RawEngine::new(TransientStorage::new(), token);
+        let mut engine = RawEngine::new(TransientStorage::new());
 
-            let connection_key = engine
-                .insert_connection(NewConnection {
-                    id: 1,
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
-                })
-                .unwrap();
+        let connection_key = engine
+            .insert_connection(NewConnection {
+                id: 1,
+                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
 
-            engine
-                .insert_span_event(NewSpanEvent {
-                    connection_key,
-                    timestamp: now(),
-                    span_id: 1.try_into().unwrap(),
-                    kind: NewSpanEventKind::Create(NewCreateSpanEvent {
-                        parent_id: None,
-                        target: "crate::storage::tests".to_owned(),
-                        name: "test".to_owned(),
-                        level: 4,
-                        file_name: None,
-                        file_line: None,
-                        fields: BTreeMap::new(),
-                    }),
-                })
-                .unwrap();
-
-            let now = now();
-            engine
-                .insert_event(NewEvent {
-                    connection_key,
-                    timestamp: now.saturating_add(1),
-                    span_id: SpanId::new(1),
-                    name: "event".to_owned(),
+        engine
+            .insert_span_event(NewSpanEvent {
+                connection_key,
+                timestamp: now(),
+                span_id: 1.try_into().unwrap(),
+                kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    parent_id: None,
                     target: "crate::storage::tests".to_owned(),
+                    name: "test".to_owned(),
                     level: 4,
                     file_name: None,
                     file_line: None,
                     fields: BTreeMap::new(),
-                })
-                .unwrap();
+                }),
+            })
+            .unwrap();
 
-            engine
-                .insert_span_event(NewSpanEvent {
-                    connection_key,
-                    timestamp: super::now(),
-                    span_id: 1.try_into().unwrap(),
-                    kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                        fields: BTreeMap::from_iter([(
-                            "attr1".to_owned(),
-                            Value::Str("C".to_owned()),
-                        )]),
-                    }),
-                })
-                .unwrap();
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                connection_key,
+                timestamp: now.saturating_add(1),
+                span_id: SpanId::new(1),
+                name: "event".to_owned(),
+                target: "crate::storage::tests".to_owned(),
+                level: 4,
+                file_name: None,
+                file_line: None,
+                fields: BTreeMap::new(),
+            })
+            .unwrap();
 
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: A").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
+        engine
+            .insert_span_event(NewSpanEvent {
+                connection_key,
+                timestamp: super::now(),
+                span_id: 1.try_into().unwrap(),
+                kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
+                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("C".to_owned()))]),
+                }),
+            })
+            .unwrap();
 
-            assert_eq!(events.len(), 0);
-
-            let events = engine.query_event(Query {
-                filter: FilterPredicate::parse("@attr1: C").unwrap(),
-                order: Order::Asc,
-                limit: 5,
-                start: now,
-                end: now.saturating_add(2),
-                previous: None,
-            });
-
-            assert_eq!(events.len(), 1);
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: A").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
         });
+
+        assert_eq!(events.len(), 0);
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("@attr1: C").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
