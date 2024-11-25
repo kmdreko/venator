@@ -1556,16 +1556,16 @@ function App() {
             <Show when={status()}>
                 {s => <>
                     <span class="statusbar-region">
-                        <span style="padding: 0 4px;">using {s().dataset_name}</span>
+                        <span style="padding: 0 8px;">using {s().dataset_name}</span>
                         -
-                        <span style="padding: 0 4px;" title={s().ingress_error}>{s().ingress_message}</span>
+                        <span style="padding: 0 8px;" title={s().ingress_error}>{s().ingress_message}</span>
                     </span>
                     <span class="statusbar-region">
-                        <span style="padding: 0 4px;">{formatBytesPerSecond(s().ingress_bytes_per_second)}</span>
+                        <span style="padding: 0 8px;">{formatBytesPerSecond(s().ingress_bytes_per_second)}</span>
                         -
-                        <span style="padding: 0 4px;" title={s().ingress_error}>connections: {s().ingress_connections}</span>
+                        <span style="padding: 0 8px;" title={s().ingress_error}>connections: {s().ingress_connections}</span>
                         -
-                        <span style="padding: 0 4px;">load: {s().engine_load.toFixed(1)}%</span>
+                        <span style="padding: 0 8px;">load: {s().engine_load.toFixed(1)}%</span>
                     </span>
                 </>}
             </Show>
