@@ -17,7 +17,7 @@
 
 #detail-header {
     flex: 0;
-    font-family: monospace;
+    font-family: 'Noto Sans Mono', monospace;
     font-size: 12px;
     font-weight: 800;
     border-bottom: 1px solid var(--border-normal-color);
@@ -123,7 +123,8 @@
 }
 
 .detailed-meta-parent {
-    font-family: monospace;
+    font-family: 'Noto Sans Mono', monospace;
+    font-weight: 500;
     margin-left: 16px;
 }
 
@@ -132,7 +133,8 @@
 }
 
 .detail-info-primary {
-    font-family: monospace;
+    font-family: 'Noto Sans Mono', monospace;
+    font-weight: 500;
     background-color: var(--bg-highlight-color);
     border-radius: 4px;
     padding: 2px 6px;
@@ -168,15 +170,18 @@
 }
 
 .detail-info-attributes-value.value-type-number {
-    font-family: monospace;
+    font-family: 'Noto Sans Mono', monospace;
+    font-weight: 500;
 }
 
 .detail-info-attributes-value.value-type-boolean {
-    font-family: monospace;
+    font-family: 'Noto Sans Mono', monospace;
+    font-weight: 500;
     font-weight: bold;
 }
 
 .detail-info-attributes-value.value-type-string {
-    font-family: monospace;
+    font-family: 'Noto Sans Mono', monospace;
+    font-weight: 500;
     color: var(--text-light);
 }

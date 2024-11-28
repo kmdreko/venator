@@ -79,8 +79,10 @@
     border-bottom: 1px solid var(--border-light-color);
     border-right: 1px solid var(--border-light-color);
     padding: 0 4px;
-    font-family: monospace;
-    font-size: 13px;
+    font-family: 'Noto Sans Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    font-optical-sizing: auto;
     white-space: nowrap;
     overflow: clip;
 }

@@ -417,7 +417,7 @@ export function DetailedMetaId(props: { value: string, created_at: number, close
     return (<div class="detailed-meta-id" oncontextmenu={showcontext}>
         <b>#id</b>
         &nbsp;
-        <span style="font-family: monospace;">{props.value}</span>
+        <span style="font-family: 'Noto Sans Mono', monospace; font-weight: 500;">{props.value}</span>
     </div>);
 }
 
@@ -455,7 +455,7 @@ export function DetailedMeta(props: { name: string, value: string | undefined, a
     return (<div class="detailed-meta" oncontextmenu={e => showInherentContextMenu(e, props.name, props.value)}>
         <b>#{props.name + ':'}</b>
         &nbsp;
-        <span style="font-family: monospace;">{props.value}</span>
+        <span style="font-family: 'Noto Sans Mono', monospace; font-weight: 500;">{props.value}</span>
     </div>);
 }
 
@@ -481,7 +481,7 @@ export function DetailedMetaParents(props: { id?: FullSpanId, name?: string, anc
         <div class="detailed-meta" onclick={() => setCollapsed(!collapsed())}>
             <b>#stack:</b>
             &nbsp;
-            <span style="font-family: monospace;">{props.ancestors.length + (props.name ? 1 : 0)}</span>
+            <span style="font-family: 'Noto Sans Mono', monospace; font-weight: 500;">{props.ancestors.length + (props.name ? 1 : 0)}</span>
         </div>
         <Show when={!collapsed()}>
             <Show when={props.name}>
