@@ -82,7 +82,7 @@ export function FilterInput(props: FilterInputProps) {
         return p.length;
     }
 
-    return (<div class="filter-input-container">
+    return (<div class="filter-input-container" spellcheck={false}>
         <For each={localPredicates().slice(0, getUneditableLength(localPredicates()))}>
             {(predicate, i) => <>
                 <FilterPredicate predicate={predicate} remove={() => { }} update={p => update(i(), p)} />
