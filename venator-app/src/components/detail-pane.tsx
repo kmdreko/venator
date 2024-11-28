@@ -87,7 +87,7 @@ export function EventDetailPane(props: EventDetailPaneProps) {
     return (<>
         <div id="detail-pane-grabber" onmousedown={ongrab} oncontextmenu={showGrabberContextMenu}></div>
         <div id="detail-pane" style={`width: ${width()}px; min-width: ${width()}px;`}>
-            <div id="detail-header" onauxclick={onClickHeader}>
+            <div id="detail-header" onauxclick={onClickHeader} onclick={onClickHeader}>
                 <span>event details</span>
                 <button onclick={() => props.updateSelectedRow(null)}>X</button>
             </div>
@@ -205,7 +205,7 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
     return (<>
         <div id="detail-pane-grabber" onmousedown={ongrab} oncontextmenu={showGrabberContextMenu}></div>
         <div id="detail-pane" style={`width: ${width()}px; min-width: ${width()}px;`}>
-            <div id="detail-header" onauxclick={onClickHeader}>span details</div>
+            <div id="detail-header" onauxclick={onClickHeader} onclick={onClickHeader}>span details</div>
             <div id="detail-info">
                 <div id="detail-info-head">
                     <DetailedLevel level={props.span.level} />
@@ -324,7 +324,7 @@ export function ConnectionDetailPane(props: ConnectionDetailPaneProps) {
     return (<>
         <div id="detail-pane-grabber" onmousedown={ongrab} oncontextmenu={showGrabberContextMenu}></div>
         <div id="detail-pane" style={`width: ${width()}px; min-width: ${width()}px;`}>
-            <div id="detail-header" onauxclick={onClickHeader}>connection details</div>
+            <div id="detail-header" onauxclick={onClickHeader} onclick={onClickHeader}>connection details</div>
             <div id="detail-info">
                 <div id="detail-info-head">
                     <DetailedTimestamp timestamp={props.connection.connected_at} />

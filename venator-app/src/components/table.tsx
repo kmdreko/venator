@@ -1026,7 +1026,7 @@ function ResizeableHeader(props: ResizeableHeaderProps) {
         }
     }
 
-    return (<div class="header" style={`z-index: ${props.n}`} ref={header_ref} onauxclick={onclick} onmousedown={onmousedown} oncontextmenu={props.oncontextmenu}>
+    return (<div class="header" style={`z-index: ${props.n}`} ref={header_ref} onauxclick={onclick} onclick={onclick} onmousedown={onmousedown} oncontextmenu={props.oncontextmenu}>
         {props.children}
         <Show when={props.enabled}>
             <div class="grabber" classList={{ grabbed: dragging() }} onmousedown={ongrab} onmousemove={onmove} onmouseup={onrelease} onmouseleave={onrelease}></div>

@@ -280,10 +280,18 @@ export function TabBar(props: TabBarProps) {
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
     }
 
+    function onclick(e: MouseEvent, i: number) {
+        if (e.button == 0) {
+            navigation.activateTab(i);
+        } else if (e.button == 1) {
+            navigation.removeTab(i);
+        }
+    }
+
     return (<div class="tabbar">
         <div class="tabs" onwheel={onwheel}>
             <For each={props.screens}>
-                {(screen, idx) => (<div title={getTabHovertext(screen)} class="tab" classList={{ active: idx() == props.active }} onclick={() => navigation.activateTab(idx())} onauxclick={e => { if (e.button == 1) navigation.removeTab(idx()); }} oncontextmenu={e => showContextMenu(e, idx())}>
+                {(screen, idx) => (<div title={getTabHovertext(screen)} class="tab" classList={{ active: idx() == props.active }} onclick={e => onclick(e, idx())} onauxclick={e => onclick(e, idx())} oncontextmenu={e => showContextMenu(e, idx())}>
                     <span><b>{getTabPrefix(screen)}:</b>{stringifyFilter(screen.filter)}</span>
                     <button onclick={e => { navigation.removeTab(idx()); e.stopPropagation(); }}>X</button>
                 </div>)}

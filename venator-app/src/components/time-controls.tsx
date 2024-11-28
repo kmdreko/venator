@@ -264,11 +264,11 @@ export function TimeControls(props: TimeControlProps) {
 
     return <div class="time-controls" classList={{ enabled: enabled() }}>
         <div class="time-control">
-            <button class="left" onclick={enabled() ? decStartTime : () => { }} onauxclick={showLeftContextMenu}>&lt;</button>
+            <button class="left" onclick={enabled() ? decStartTime : () => { }} oncontextmenu={showLeftContextMenu}>&lt;</button>
             <div contenteditable={enabled() ? "plaintext-only" : false} onblur={onDateTimeBlur} onkeypress={focusoutOnEnter} class="main" classList={{ error: dateParseError() }} style="width: 150px;">
                 {renderedStartTime()}
             </div>
-            <button class="right" onclick={enabled() ? incStartTime : () => { }} onauxclick={showRightContextMenu}>&gt;</button>
+            <button class="right" onclick={enabled() ? incStartTime : () => { }} oncontextmenu={showRightContextMenu}>&gt;</button>
         </div>
         <div class="time-control">
             <button class="left" onclick={enabled() ? decDuration : () => { }}>-</button>

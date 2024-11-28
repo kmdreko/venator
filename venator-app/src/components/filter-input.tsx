@@ -133,7 +133,7 @@ export function InvalidFilterInputPredicate(props: { predicate: InvalidFilterPre
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
     }
 
-    return (<span class="predicate attribute-predicate error" onauxclick={onclick} oncontextmenu={showContextMenu} title={props.predicate.error}>
+    return (<span class="predicate attribute-predicate error" onauxclick={onclick} onclick={onclick} oncontextmenu={showContextMenu} title={props.predicate.error}>
         {props.predicate.text}
     </span>);
 }
@@ -256,7 +256,7 @@ export function FilterInputLevelPredicate(props: { predicate: { predicate: Filte
         }
     }
 
-    function onmiddleclick(e: MouseEvent) {
+    function onclick(e: MouseEvent) {
         if (e.button == 1) {
             e.preventDefault();
             e.stopPropagation();
@@ -286,27 +286,27 @@ export function FilterInputLevelPredicate(props: { predicate: { predicate: Filte
 
     return (<Switch>
         <Match when={props.predicate.predicate.value[1] == "TRACE"}>
-            <span class="predicate level-predicate-0" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
+            <span class="predicate level-predicate-0" onauxclick={onclick} onclick={onclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "DEBUG"}>
-            <span class="predicate level-predicate-1" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
+            <span class="predicate level-predicate-1" onauxclick={onclick} onclick={onclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "INFO"}>
-            <span class="predicate level-predicate-2" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
+            <span class="predicate level-predicate-2" onauxclick={onclick} onclick={onclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "WARN"}>
-            <span class="predicate level-predicate-3" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
+            <span class="predicate level-predicate-3" onauxclick={onclick} onclick={onclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
         <Match when={props.predicate.predicate.value[1] == "ERROR"}>
-            <span class="predicate level-predicate-4" onauxclick={onmiddleclick} onwheel={wheel} oncontextmenu={showContextMenu}>
+            <span class="predicate level-predicate-4" onauxclick={onclick} onclick={onclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>
@@ -334,7 +334,7 @@ export function FilterInputMetaPredicate(props: { predicate: { predicate: Filter
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
     }
 
-    return (<span class="predicate meta-predicate" onauxclick={onclick} oncontextmenu={showContextMenu}>
+    return (<span class="predicate meta-predicate" onauxclick={onclick} onclick={onclick} oncontextmenu={showContextMenu}>
         {props.predicate.predicate.text}
     </span>);
 }
@@ -360,7 +360,7 @@ export function FilterInputAttributePredicate(props: { predicate: { predicate: F
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
     }
 
-    return (<span class="predicate attribute-predicate" onauxclick={onclick} oncontextmenu={showContextMenu}>
+    return (<span class="predicate attribute-predicate" onauxclick={onclick} onclick={onclick} oncontextmenu={showContextMenu}>
         {props.predicate.predicate.text}
     </span>);
 }
