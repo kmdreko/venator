@@ -200,23 +200,27 @@
 
 #table .data .time-bar-event.time-bar-0 {
     background-color: var(--level-0-bg-color);
-    outline: 1px solid var(--border-normal-color);
+    outline: 1px solid var(--level-0-bar-color);
 }
 
 #table .data .time-bar-event.time-bar-1 {
     background-color: var(--level-1-bg-color);
+    outline: 1px solid var(--level-1-bg-color);
 }
 
 #table .data .time-bar-event.time-bar-2 {
     background-color: var(--level-2-bg-color);
+    outline: 1px solid var(--level-2-bar-color);
 }
 
 #table .data .time-bar-event.time-bar-3 {
     background-color: var(--level-3-bg-color);
+    outline: 1px solid var(--level-3-bar-color);
 }
 
 #table .data .time-bar-event.time-bar-4 {
     background-color: var(--level-4-bg-color);
+    outline: 1px solid var(--level-4-bar-color);
 }
 
 #table .data.collapser {
@@ -230,11 +234,8 @@
     color: var(--text-click-active-color);
 }
 
-[data-theme="dark"] #table .data .time-bar {
-    background-color: var(--level-1-bg-color);
-}
-
 #table .data:hover {
-    translate: -1px -1px;
-    border: 1px solid var(--border-dark-color);
+    outline: 1px solid var(--border-dark-color);
+    border-right: 1px solid var(--border-dark-color);
+    border-bottom: 1px solid var(--border-dark-color);
 }
