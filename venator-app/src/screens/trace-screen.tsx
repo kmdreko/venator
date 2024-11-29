@@ -48,9 +48,11 @@ export function TraceScreen(props: TraceScreenProps) {
         return entries.filter(e => e.ancestors.every(a => props.collapsed[a.id] != true));
     }
 
-    createEffect(() => {
+    createEffect(async () => {
         props.filter;
-        props.getEntries({ order: 'asc' });
+        let entries = props.getEntries({ order: 'asc' });
+
+        setCount([(await entries).length, true]);
     });
 
     async function parseTraceFilter(f: string): Promise<Input[]> {
