@@ -1404,6 +1404,10 @@ function App() {
         let current_screens = screens();
         let current_timespan = current_screens[current_selected_screen].timespan!;
 
+        if (current_screens[current_selected_screen].kind == 'trace') {
+            return;
+        }
+
         let bias = 0.5;
         let scale = 1 / 1.1;
 
@@ -1422,6 +1426,10 @@ function App() {
         let current_selected_screen = selectedScreen()!;
         let current_screens = screens();
         let current_timespan = current_screens[current_selected_screen].timespan!;
+
+        if (current_screens[current_selected_screen].kind == 'trace') {
+            return;
+        }
 
         let bias = 0.5;
         let scale = 1.1;
