@@ -569,7 +569,7 @@ export const TIMESPAN: ColumnDef<Event | Span> = {
 };
 
 export const COLLAPSABLE: ColumnDef<Event | Span> = {
-    defaultWidth: "22px",
+    defaultWidth: "20px",
     header: (props) => {
         return <div class="header collapsable" style={`z-index: ${props.n}`}></div>;
     },
@@ -591,7 +591,7 @@ export const COLLAPSABLE: ColumnDef<Event | Span> = {
         }
         return (props.entry as any).id == undefined
             ? (<div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}></div>)
-            : (<div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={toggle} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+            : (<div class="data collapser" classList={{ selected: props.selected, hovered: props.hovered }} onclick={toggle} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
                 {collapsed() ? '⏶' : '⏷'}
             </div>);
     },

@@ -143,6 +143,17 @@
     height: 80%;
 }
 
+#table .data.collapser {
+    font-size: 16px;
+    color: var(--text-click-inactive-color);
+    user-select: none;
+    padding: 0 2px;
+}
+
+#table .data.collapser:hover {
+    color: var(--text-click-active-color);
+}
+
 [data-theme="dark"] #table .data .time-bar {
     background-color: var(--level-1-bg-color);
 }
