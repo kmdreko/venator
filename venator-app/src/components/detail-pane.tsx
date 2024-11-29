@@ -12,6 +12,7 @@ import { TraceDataLayer } from '../utils/datalayer';
 import "./detail-pane.css";
 import spanIcon from '../assets/span.svg';
 import connectionIcon from '../assets/connection.svg';
+import traceIcon from "../assets/trace.svg";
 
 export type EventDetailPaneProps = {
     event: Event,
@@ -25,6 +26,8 @@ export type EventDetailPaneProps = {
 export function EventDetailPane(props: EventDetailPaneProps) {
     let [width, setWidth] = createSignal<number>(500);
     let [inFilter, setInFilter] = createSignal<boolean>(true);
+
+    let navigation = useContext(NavigationContext);
 
     function eventInTimespan(): boolean {
         if (props.timespan == null) {
@@ -84,6 +87,14 @@ export function EventDetailPane(props: EventDetailPaneProps) {
         document.removeEventListener('mouseup', ongrabrelease);
     }
 
+    function onclicktracebutton(e: MouseEvent) {
+        if (e.button != 0) {
+            return;
+        }
+
+        navigation?.createTab(...createDefaultTraceScreen(props.event.ancestors[0].id), true)
+    }
+
     return (<>
         <div id="detail-pane-grabber" onmousedown={ongrab} oncontextmenu={showGrabberContextMenu}></div>
         <div id="detail-pane" style={`width: ${width()}px; min-width: ${width()}px;`}>
@@ -93,14 +104,23 @@ export function EventDetailPane(props: EventDetailPaneProps) {
             </div>
             <div id="detail-info">
                 <div id="detail-info-head">
-                    <DetailedLevel level={props.event.level} />
-                    <DetailedTimestamp timestamp={props.event.timestamp} />
-                    <Show when={!inFilter()}>
-                        <span style="color: #555555; margin: 0 4px;">not in filter</span>
-                    </Show>
-                    <Show when={!eventInTimespan()}>
-                        <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
-                    </Show>
+                    <div id="detail-info-head-data">
+                        <DetailedLevel level={props.event.level} />
+                        <DetailedTimestamp timestamp={props.event.timestamp} />
+                        <Show when={!inFilter()}>
+                            <span style="color: #555555; margin: 0 4px;">not in filter</span>
+                        </Show>
+                        <Show when={!eventInTimespan()}>
+                            <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
+                        </Show>
+                    </div>
+                    <div id="detail-info-head-controls">
+                        <Show when={props.event.ancestors.length > 0}>
+                            <button onclick={onclicktracebutton}>
+                                <img src={traceIcon} style="width:16px;height:16px" title="open root trace in new tab" />
+                            </button>
+                        </Show>
+                    </div>
                 </div>
                 <div id="detail-info-meta">
                     <DetailedMeta name={"target"} value={props.event.target} addToFilter={props.addToFilter} addColumn={props.addColumn} />
@@ -127,6 +147,8 @@ export type SpanDetailPaneProps = {
 export function SpanDetailPane(props: SpanDetailPaneProps) {
     let [width, setWidth] = createSignal<number>(500);
     let [inFilter, setInFilter] = createSignal<boolean>(true);
+
+    let navigation = useContext(NavigationContext);
 
     function spanInTimespan(): boolean {
         if (props.timespan == null) {
@@ -202,23 +224,40 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
         document.removeEventListener('mouseup', ongrabrelease);
     }
 
+    function onclicktracebutton(e: MouseEvent) {
+        if (e.button != 0) {
+            return;
+        }
+
+        let root_id = props.span.ancestors.length > 0 ? props.span.ancestors[0].id : props.span.id;
+
+        navigation?.createTab(...createDefaultTraceScreen(root_id), true)
+    }
+
     return (<>
         <div id="detail-pane-grabber" onmousedown={ongrab} oncontextmenu={showGrabberContextMenu}></div>
         <div id="detail-pane" style={`width: ${width()}px; min-width: ${width()}px;`}>
             <div id="detail-header" onauxclick={onClickHeader} onclick={onClickHeader}>span details</div>
             <div id="detail-info">
                 <div id="detail-info-head">
-                    <DetailedLevel level={props.span.level} />
-                    <DetailedTimestamp timestamp={props.span.created_at} />
-                    <Show when={props.span.closed_at != null}>
-                        <DetailedDuration duration={props.span.closed_at! - props.span.created_at} />
-                    </Show>
-                    <Show when={!inFilter()}>
-                        <span style="color: #555555; margin: 0 4px;">not in filter</span>
-                    </Show>
-                    <Show when={!spanInTimespan()}>
-                        <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
-                    </Show>
+                    <div id="detail-info-head-data">
+                        <DetailedLevel level={props.span.level} />
+                        <DetailedTimestamp timestamp={props.span.created_at} />
+                        <Show when={props.span.closed_at != null}>
+                            <DetailedDuration duration={props.span.closed_at! - props.span.created_at} />
+                        </Show>
+                        <Show when={!inFilter()}>
+                            <span style="color: #555555; margin: 0 4px;">not in filter</span>
+                        </Show>
+                        <Show when={!spanInTimespan()}>
+                            <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
+                        </Show>
+                    </div>
+                    <div id="detail-info-head-controls">
+                        <button onclick={onclicktracebutton}>
+                            <img src={traceIcon} style="width:16px;height:16px" title="open root trace in new tab" />
+                        </button>
+                    </div>
                 </div>
                 <div id="detail-info-meta">
                     <DetailedMetaId value={props.span.id} created_at={props.span.created_at} closed_at={props.span.closed_at} />
@@ -327,16 +366,20 @@ export function ConnectionDetailPane(props: ConnectionDetailPaneProps) {
             <div id="detail-header" onauxclick={onClickHeader} onclick={onClickHeader}>connection details</div>
             <div id="detail-info">
                 <div id="detail-info-head">
-                    <DetailedTimestamp timestamp={props.connection.connected_at} />
-                    <Show when={props.connection.disconnected_at != null}>
-                        <DetailedDuration duration={props.connection.disconnected_at! - props.connection.connected_at} />
-                    </Show>
-                    <Show when={!inFilter()}>
-                        <span style="color: #555555; margin: 0 4px;">not in filter</span>
-                    </Show>
-                    <Show when={!connectionInTimespan()}>
-                        <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
-                    </Show>
+                    <div id="detail-info-head-data">
+                        <DetailedTimestamp timestamp={props.connection.connected_at} />
+                        <Show when={props.connection.disconnected_at != null}>
+                            <DetailedDuration duration={props.connection.disconnected_at! - props.connection.connected_at} />
+                        </Show>
+                        <Show when={!inFilter()}>
+                            <span style="color: #555555; margin: 0 4px;">not in filter</span>
+                        </Show>
+                        <Show when={!connectionInTimespan()}>
+                            <span style="color: #555555; margin: 0 4px;">not in timeframe</span>
+                        </Show>
+                    </div>
+                    <div id="detail-info-head-controls">
+                    </div>
                 </div>
                 <div id="detail-info-meta">
                     <DetailedMeta name={"id"} value={props.connection.id} addToFilter={props.addToFilter} addColumn={props.addColumn} />
@@ -415,7 +458,7 @@ export function DetailedMetaId(props: { value: string, created_at: number, close
     }
 
     return (<div class="detailed-meta-id" oncontextmenu={showcontext}>
-        <b>#id</b>
+        <b>#id:</b>
         &nbsp;
         <span style="font-family: 'Noto Sans Mono', monospace; font-weight: 500;">{props.value}</span>
     </div>);

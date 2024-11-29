@@ -56,7 +56,30 @@
 #detail-info-head {
     display: flex;
     flex-direction: row;
+    justify-content: space-between;
+}
+
+#detail-info-head-data {
+    display: flex;
+    flex-direction: row;
     gap: 4px;
+}
+
+#detail-info-head-controls button {
+    flex: 0;
+    background: transparent;
+    border: none;
+    padding: 0 4px;
+    opacity: 75%;
+    height: 18px;
+}
+
+#detail-info-head-controls button:hover {
+    opacity: 100%;
+}
+
+[data-theme="dark"] #detail-info-head-controls button {
+    filter: invert(90%);
 }
 
 .detailed-level-0,
