@@ -561,8 +561,10 @@ export const TIMESPAN: ColumnDef<Event | Span> = {
             }
         }
 
+        let kind = (props.entry as any).timestamp != undefined ? 'event' : 'span';
+
         return (<div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
-            <div class="time-bar" style={{ ...position(props.entry as Span) }}></div>
+            <div class={`time-bar time-bar-${props.entry.level} time-bar-${kind}`} style={{ ...position(props.entry as Span) }}></div>
         </div>);
     },
     dataText: () => '',

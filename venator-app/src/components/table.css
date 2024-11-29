@@ -136,11 +136,87 @@
 }
 
 #table .data .time-bar {
-    background-color: var(--level-2-bg-color);
     position: absolute;
-    min-width: 3px;
+}
+
+#table .data .time-bar-span {
     top: 10%;
     height: 80%;
+    min-width: 3px;
+    border-left: 1px solid black;
+    border-right: 1px solid black;
+}
+
+#table .data .time-bar-event {
+    top: 30%;
+    height: 40%;
+    min-width: 5px;
+}
+
+#table .data .time-bar-span.time-bar-0 {
+    border-color: var(--level-0-bar-color);
+    background-image: linear-gradient(transparent 0 24%,
+            var(--level-0-bar-color) 24% 30%,
+            var(--level-0-bg-color) 30% 70%,
+            var(--level-0-bar-color) 70% 76%,
+            transparent 76% 100%);
+}
+
+#table .data .time-bar-span.time-bar-1 {
+    border-color: var(--level-1-bar-color);
+    background-image: linear-gradient(transparent 0 24%,
+            var(--level-1-bar-color) 24% 30%,
+            var(--level-1-bg-color) 30% 70%,
+            var(--level-1-bar-color) 70% 76%,
+            transparent 76% 100%);
+}
+
+#table .data .time-bar-span.time-bar-2 {
+    border-color: var(--level-2-bar-color);
+    background-image: linear-gradient(transparent 0 24%,
+            var(--level-2-bar-color) 24% 30%,
+            var(--level-2-bg-color) 30% 70%,
+            var(--level-2-bar-color) 70% 76%,
+            transparent 76% 100%);
+}
+
+#table .data .time-bar-span.time-bar-3 {
+    border-color: var(--level-3-bar-color);
+    background-image: linear-gradient(transparent 0 24%,
+            var(--level-3-bar-color) 24% 30%,
+            var(--level-3-bg-color) 30% 70%,
+            var(--level-3-bar-color) 70% 76%,
+            transparent 76% 100%);
+}
+
+#table .data .time-bar-span.time-bar-4 {
+    border-color: var(--level-4-bar-color);
+    background-image: linear-gradient(transparent 0 24%,
+            var(--level-4-bar-color) 24% 30%,
+            var(--level-4-bg-color) 30% 70%,
+            var(--level-4-bar-color) 70% 76%,
+            transparent 76% 100%);
+}
+
+#table .data .time-bar-event.time-bar-0 {
+    background-color: var(--level-0-bg-color);
+    outline: 1px solid var(--border-normal-color);
+}
+
+#table .data .time-bar-event.time-bar-1 {
+    background-color: var(--level-1-bg-color);
+}
+
+#table .data .time-bar-event.time-bar-2 {
+    background-color: var(--level-2-bg-color);
+}
+
+#table .data .time-bar-event.time-bar-3 {
+    background-color: var(--level-3-bg-color);
+}
+
+#table .data .time-bar-event.time-bar-4 {
+    background-color: var(--level-4-bg-color);
 }
 
 #table .data.collapser {
