@@ -532,20 +532,25 @@ function App() {
     async function getEntries(screen: TraceScreenData, filter: PaginationFilter): Promise<(Event | Span)[]> {
         let entries = await screen.store.getEntries(filter);
 
-        function getEndTimestamp(e: Event | Span): Timestamp {
-            return (e as any).timestamp || ((e as any).closed_at ?? 0);
-        }
-
-        let max_closed_at = getEndTimestamp(entries[0]) ?? 0;
-        for (let i = 1; i < entries.length; i++) {
-            if (getEndTimestamp(entries[i]) > max_closed_at) {
-                max_closed_at = getEndTimestamp(entries[i]);
-            }
-        }
-
-        let timespan = getPaddedTimespan([(entries[0] as Span).created_at, max_closed_at || (Date.now() * 1000)]);
-
         if (screen.timespan == null) {
+            let timespan: Timespan;
+            if (entries.length > 0) {
+                function getEndTimestamp(e: Event | Span): Timestamp {
+                    return (e as any).timestamp || ((e as any).closed_at ?? 0);
+                }
+
+                let max_closed_at = getEndTimestamp(entries[0]) ?? 0;
+                for (let i = 1; i < entries.length; i++) {
+                    if (getEndTimestamp(entries[i]) > max_closed_at) {
+                        max_closed_at = getEndTimestamp(entries[i]);
+                    }
+                }
+
+                timespan = getPaddedTimespan([(entries[0] as Span).created_at, max_closed_at || (Date.now() * 1000)]);
+            } else {
+                timespan = [0, 0];
+            }
+
             let current_selected_screen = selectedScreen()!;
             let current_screens = screens();
             let updated_screens = [...current_screens];
@@ -685,7 +690,7 @@ function App() {
                     ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new SpanDataLayer(filter) }
                     : current_screens[current_selected_screen].kind == 'connections'
                         ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new ConnectionDataLayer(filter) }
-                        : { ...current_screens[current_selected_screen], filter: valid_filter };
+                        : { ...current_screens[current_selected_screen], filter: valid_filter, store: new TraceDataLayer(filter) };
 
             if (updated_screens[current_selected_screen].live) {
                 updated_screens[current_selected_screen].store.subscribe();
