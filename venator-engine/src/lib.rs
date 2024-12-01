@@ -13,7 +13,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
-use models::{AttributeTypeView, EventKey, FollowsSpanEvent};
+use models::{AttributeTypeView, EnterSpanEvent, EventKey, FollowsSpanEvent};
 use serde::Serialize;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
@@ -33,10 +33,10 @@ pub use filter::{
 };
 pub use models::{
     AncestorView, AttributeSourceView, AttributeView, Connection, ConnectionId, ConnectionKey,
-    ConnectionView, CreateSpanEvent, Event, EventView, NewConnection, NewCreateSpanEvent, NewEvent,
-    NewFollowsSpanEvent, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent, Span, SpanEvent,
-    SpanEventKey, SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
-    UpdateSpanEvent, Value, ValueOperator,
+    ConnectionView, CreateSpanEvent, Event, EventView, NewConnection, NewCreateSpanEvent,
+    NewEnterSpanEvent, NewEvent, NewFollowsSpanEvent, NewSpanEvent, NewSpanEventKind,
+    NewUpdateSpanEvent, Span, SpanEvent, SpanEventKey, SpanEventKind, SpanId, SpanKey, SpanView,
+    StatsView, SubscriptionId, Timestamp, UpdateSpanEvent, Value, ValueOperator,
 };
 pub use storage::{CachedStorage, Storage, TransientStorage};
 
@@ -1030,7 +1030,7 @@ impl<S: Storage> RawEngine<S> {
                 self.insert_span_event_bookeeping(&span_event);
                 self.storage.insert_span_event(span_event);
             }
-            NewSpanEventKind::Enter => {
+            NewSpanEventKind::Enter(new_enter_event) => {
                 let span_key = self
                     .span_key_map
                     .get(&(new_span_event.connection_key, new_span_event.span_id))
@@ -1041,7 +1041,9 @@ impl<S: Storage> RawEngine<S> {
                     connection_key: new_span_event.connection_key,
                     timestamp: new_span_event.timestamp,
                     span_key,
-                    kind: SpanEventKind::Enter,
+                    kind: SpanEventKind::Enter(EnterSpanEvent {
+                        thread_id: new_enter_event.thread_id,
+                    }),
                 };
 
                 self.insert_span_event_bookeeping(&span_event);

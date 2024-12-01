@@ -120,7 +120,7 @@ pub enum NewSpanEventKind {
     Create(NewCreateSpanEvent),
     Update(NewUpdateSpanEvent),
     Follows(NewFollowsSpanEvent),
-    Enter,
+    Enter(NewEnterSpanEvent),
     Exit,
     Close,
 }
@@ -138,7 +138,7 @@ pub enum SpanEventKind {
     Create(CreateSpanEvent),
     Update(UpdateSpanEvent),
     Follows(FollowsSpanEvent),
-    Enter,
+    Enter(EnterSpanEvent),
     Exit,
     Close,
 }
@@ -177,9 +177,18 @@ pub struct NewFollowsSpanEvent {
     pub follows: SpanId,
 }
 
+pub struct NewEnterSpanEvent {
+    pub thread_id: u64,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct FollowsSpanEvent {
     pub follows: SpanKey,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct EnterSpanEvent {
+    pub thread_id: u64,
 }
 
 pub struct NewEvent {

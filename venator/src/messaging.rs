@@ -61,7 +61,7 @@ enum MessageData<'a, 'callsite> {
     Create(CreateData<'a, 'callsite>),
     Update(UpdateData<'a, 'callsite>),
     Follows(FollowsData),
-    Enter,
+    Enter(EnterData),
     Exit,
     Close,
     Event(EventData<'a, 'callsite>),
@@ -136,7 +136,9 @@ impl Message<'_, '_> {
         Message {
             timestamp,
             span_id: Some(id.0),
-            data: MessageData::Enter,
+            data: MessageData::Enter(EnterData {
+                thread_id: thread_id::get() as u64,
+            }),
         }
     }
 
@@ -207,6 +209,11 @@ struct UpdateData<'a, 'callsite> {
 #[derive(Serialize)]
 struct FollowsData {
     follows: NonZeroU64,
+}
+
+#[derive(Serialize)]
+struct EnterData {
+    thread_id: u64,
 }
 
 #[derive(Serialize)]

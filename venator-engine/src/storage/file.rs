@@ -464,13 +464,14 @@ fn span_event_to_params(span_event: SpanEvent) -> impl Params {
 
             (key, connection_key, span_key, kind, Some(data))
         }
-        SpanEventKind::Enter => {
+        SpanEventKind::Enter(enter_span_event) => {
             let key = span_event.timestamp;
             let connection_key = span_event.connection_key;
             let span_key = span_event.span_key;
             let kind = "enter";
+            let data = serde_json::to_string(&enter_span_event).unwrap();
 
-            (key, connection_key, span_key, kind, None)
+            (key, connection_key, span_key, kind, Some(data))
         }
         SpanEventKind::Exit => {
             let key = span_event.timestamp;
@@ -525,12 +526,15 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
                 kind: SpanEventKind::Follows(follows_span_event),
             })
         }
-        "enter" => Ok(SpanEvent {
-            connection_key,
-            timestamp: key,
-            span_key,
-            kind: SpanEventKind::Enter,
-        }),
+        "enter" => {
+            let enter_span_event = serde_json::from_str(&data.unwrap()).unwrap();
+            Ok(SpanEvent {
+                connection_key,
+                timestamp: key,
+                span_key,
+                kind: SpanEventKind::Enter(enter_span_event),
+            })
+        }
         "exit" => Ok(SpanEvent {
             connection_key,
             timestamp: key,

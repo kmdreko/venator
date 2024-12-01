@@ -14,8 +14,8 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpListener;
 
 use venator_engine::{
-    Engine, NewConnection, NewCreateSpanEvent, NewEvent, NewFollowsSpanEvent, NewSpanEvent,
-    NewSpanEventKind, NewUpdateSpanEvent,
+    Engine, NewConnection, NewCreateSpanEvent, NewEnterSpanEvent, NewEvent, NewFollowsSpanEvent,
+    NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent,
 };
 
 enum IngressState {
@@ -251,7 +251,7 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                             }),
                         });
                     }
-                    MessageData::Enter => {
+                    MessageData::Enter(enter_data) => {
                         // we have no need for the result, and the insert is
                         // executed regardless if we poll
                         #[allow(clippy::let_underscore_future)]
@@ -259,7 +259,9 @@ async fn ingress_task(bind: String, engine: Engine, stats: Arc<IngressStats>) ->
                             connection_key,
                             timestamp: msg.timestamp,
                             span_id: msg.span_id.unwrap(),
-                            kind: NewSpanEventKind::Enter,
+                            kind: NewSpanEventKind::Enter(NewEnterSpanEvent {
+                                thread_id: enter_data.thread_id,
+                            }),
                         });
                     }
                     MessageData::Exit => {
@@ -342,7 +344,7 @@ impl From<Message> for MessageView {
                 MessageData::Create(create) => MessageDataView::Create(create),
                 MessageData::Update(update) => MessageDataView::Update(update),
                 MessageData::Follows(follows) => MessageDataView::Follows(follows),
-                MessageData::Enter => MessageDataView::Enter,
+                MessageData::Enter(enter) => MessageDataView::Enter(enter),
                 MessageData::Exit => MessageDataView::Exit,
                 MessageData::Close => MessageDataView::Close,
                 MessageData::Event(event) => MessageDataView::Event(event),
@@ -356,7 +358,7 @@ enum MessageData {
     Create(CreateData),
     Update(UpdateData),
     Follows(FollowsData),
-    Enter,
+    Enter(EnterData),
     Exit,
     Close,
     Event(EventData),
@@ -369,7 +371,7 @@ enum MessageDataView {
     Create(CreateData),
     Update(UpdateData),
     Follows(FollowsData),
-    Enter,
+    Enter(EnterData),
     Exit,
     Close,
     Event(EventData),
@@ -394,6 +396,11 @@ struct UpdateData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct FollowsData {
     follows: NonZeroU64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EnterData {
+    thread_id: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
