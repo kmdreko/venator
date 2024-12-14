@@ -3189,7 +3189,7 @@ impl<T: Ord> BoundSearch<T> for [T] {
     }
 }
 
-fn merge<T>(a: Option<T>, b: Option<T>, f: impl FnOnce(T, T) -> T) -> Option<T> {
+pub(crate) fn merge<T>(a: Option<T>, b: Option<T>, f: impl FnOnce(T, T) -> T) -> Option<T> {
     // I wish this was in the standard library
 
     match (a, b) {

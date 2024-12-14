@@ -793,9 +793,14 @@ impl<S: Storage> RawEngine<S> {
     }
 
     pub fn query_stats(&self) -> StatsView {
+        let event_start = self.event_indexes.all.first().copied();
+        let event_end = self.event_indexes.all.last().copied();
+        let span_start = self.span_indexes.all.first().copied();
+        let span_end = self.span_indexes.all.last().copied(); // TODO: not technically right, but maybe okay
+
         StatsView {
-            start: self.event_indexes.all.first().copied(),
-            end: self.event_indexes.all.last().copied(),
+            start: filter::merge(event_start, span_start, Ord::min),
+            end: filter::merge(event_end, span_end, Ord::max),
             total_events: self.event_indexes.all.len(),
             total_spans: self.span_indexes.all.len(),
         }
