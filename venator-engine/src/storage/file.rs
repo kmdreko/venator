@@ -5,7 +5,9 @@ use std::sync::Arc;
 use rusqlite::{params, Connection as DbConnection, Error as DbError, Params, Row};
 
 use crate::models::{EventKey, Level, SourceKind, Value};
-use crate::{Event, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp};
+use crate::{
+    Event, FullSpanId, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp,
+};
 
 use super::Storage;
 
@@ -43,7 +45,7 @@ impl FileStorage {
                 busy         INT8,
                 parent_id    TEXT,
                 parent_key   INT8,
-                follows      TEXT,
+                links        TEXT,
                 name         TEXT,
                 namespace    TEXT,
                 function     TEXT,
@@ -230,7 +232,7 @@ impl Storage for FileStorage {
         let busy = span.busy.map(|b| b as i64);
         let parent_id = span.parent_id.map(|id| id.to_string());
         let parent_key = span.parent_key;
-        let follows = serde_json::to_string(&span.follows).unwrap();
+        let links = serde_json::to_string(&span.links).unwrap();
         let name = span.name;
         let namespace = span.namespace;
         let function = span.function;
@@ -250,7 +252,7 @@ impl Storage for FileStorage {
             busy,
             parent_id,
             parent_key,
-            follows,
+            links,
             name,
             namespace,
             function,
@@ -317,21 +319,26 @@ impl Storage for FileStorage {
         stmt.execute((at, fields)).unwrap();
     }
 
-    fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey) {
+    fn update_span_link(
+        &mut self,
+        at: Timestamp,
+        link: FullSpanId,
+        fields: BTreeMap<String, Value>,
+    ) {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
             .unwrap();
 
         let span = stmt.query_row((at,), span_from_row).unwrap();
-        let existing_follows = span.follows;
+        let existing_links = span.links;
 
-        let follows = {
-            let mut new_follows = existing_follows;
-            new_follows.push(follows);
-            new_follows
+        let links = {
+            let mut new_linkss = existing_links;
+            new_linkss.push((link, fields));
+            new_linkss
         };
-        let fields = serde_json::to_string(&follows).unwrap();
+        let fields = serde_json::to_string(&links).unwrap();
 
         let mut stmt = self
             .connection
@@ -459,8 +466,8 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
     let busy: Option<i64> = row.get(5)?;
     let parent_id: Option<String> = row.get(6)?;
     let parent_key = row.get(7)?;
-    let follows: String = row.get(8)?;
-    let follows = serde_json::from_str(&follows).unwrap();
+    let links: String = row.get(8)?;
+    let links = serde_json::from_str(&links).unwrap();
     let name = row.get(9)?;
     let namespace = row.get(10)?;
     let function = row.get(11)?;
@@ -482,7 +489,7 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
         busy: busy.map(|b| b as u64),
         parent_id: parent_id.map(|id| id.parse().unwrap()),
         parent_key,
-        follows,
+        links,
         name,
         namespace,
         function,

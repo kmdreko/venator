@@ -638,6 +638,7 @@ impl<S: Storage> RawEngine<S> {
                 (Some(name), None) => Some(name.clone()),
                 (Some(name), Some(line)) => Some(format!("{name}:{line}")),
             },
+            links: span.links.clone(),
             attributes: attributes
                 .into_iter()
                 .map(|(name, (kind, value, typ))| AttributeView {
@@ -752,7 +753,7 @@ impl<S: Storage> RawEngine<S> {
                     busy: None,
                     parent_id,
                     parent_key,
-                    follows: Vec::new(),
+                    links: Vec::new(),
                     name: new_create_event.name.clone(),
                     namespace: new_create_event.namespace.clone(),
                     function: new_create_event.function.clone(),
@@ -876,9 +877,10 @@ impl<S: Storage> RawEngine<S> {
                     return Err(EngineInsertError::InvalidSpanIdKind);
                 };
 
+                let follows_span_id = FullSpanId::Tracing(instance_id, new_follows_event.follows);
                 let follows_span_key = self
                     .span_key_map
-                    .get(&FullSpanId::Tracing(instance_id, new_follows_event.follows))
+                    .get(&follows_span_id)
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
 
@@ -893,7 +895,8 @@ impl<S: Storage> RawEngine<S> {
                     }),
                 };
 
-                self.storage.update_span_follows(span_key, follows_span_key);
+                self.storage
+                    .update_span_link(span_key, follows_span_id, BTreeMap::new());
 
                 self.insert_span_event_bookeeping(&span_event);
                 self.storage.insert_span_event(span_event);

@@ -1,9 +1,11 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::num::NonZeroU64;
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub type Timestamp = NonZeroU64;
 
@@ -79,6 +81,25 @@ impl Display for FullSpanId {
             FullSpanId::Tracing(instance, span) => write!(f, "tracing-{instance:032x}-{span:016x}"),
             FullSpanId::Opentelemetry(trace, span) => write!(f, "otel-{trace:032x}-{span:016x}"),
         }
+    }
+}
+
+impl Serialize for FullSpanId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'d> Deserialize<'d> for FullSpanId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'d>,
+    {
+        let s = <Cow<'d, str>>::deserialize(deserializer)?;
+        FullSpanId::from_str(&s).map_err(|_| D::Error::custom("invalid full span id"))
     }
 }
 
@@ -461,7 +482,7 @@ pub struct Span {
     pub busy: Option<u64>,
     pub parent_id: Option<FullSpanId>,
     pub parent_key: Option<SpanKey>,
-    pub follows: Vec<SpanKey>,
+    pub links: Vec<(FullSpanId, BTreeMap<String, Value>)>,
     pub name: String,
     pub namespace: Option<String>,
     pub function: Option<String>,
@@ -492,6 +513,7 @@ pub struct SpanView {
     pub function: Option<String>,
     pub level: SimpleLevel,
     pub file: Option<String>,
+    pub links: Vec<(FullSpanId, BTreeMap<String, Value>)>,
     pub attributes: Vec<AttributeView>,
 }
 

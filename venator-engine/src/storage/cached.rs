@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use lru::LruCache;
 
-use crate::{Event, EventKey, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
+use crate::{Event, EventKey, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 
 use super::Storage;
 
@@ -120,9 +120,14 @@ where
         self.inner.update_span_fields(at, fields);
     }
 
-    fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey) {
+    fn update_span_link(
+        &mut self,
+        at: Timestamp,
+        link: FullSpanId,
+        fields: BTreeMap<String, Value>,
+    ) {
         self.spans.borrow_mut().pop(&at);
-        self.inner.update_span_follows(at, follows);
+        self.inner.update_span_link(at, link, fields);
     }
 
     fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {

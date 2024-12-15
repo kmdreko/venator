@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::Storage;
 use crate::models::{EventKey, Value};
-use crate::{Event, Resource, Span, SpanEvent, SpanKey, Timestamp};
+use crate::{Event, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp};
 
 /// This storage implementation just holds elements in memory.
 pub struct TransientStorage {
@@ -95,10 +95,15 @@ impl Storage for TransientStorage {
         }
     }
 
-    fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey) {
+    fn update_span_link(
+        &mut self,
+        at: Timestamp,
+        link: FullSpanId,
+        fields: BTreeMap<String, Value>,
+    ) {
         if let Some(span) = self.spans.get(&at) {
             let mut span = (**span).clone();
-            span.follows.push(follows);
+            span.links.push((link, fields));
             self.spans.insert(at, Arc::new(span));
         }
     }
