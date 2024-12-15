@@ -36,9 +36,9 @@ pub use models::{
     AncestorView, AttributeSourceView, AttributeView, CreateSpanEvent, Event, EventView,
     FullSpanId, InstanceId, Level, LevelConvertError, NewCloseSpanEvent, NewCreateSpanEvent,
     NewEnterSpanEvent, NewEvent, NewFollowsSpanEvent, NewResource, NewSpanEvent, NewSpanEventKind,
-    NewUpdateSpanEvent, Resource, ResourceKey, Span, SpanEvent, SpanEventKey, SpanEventKind,
-    SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp, TraceId, UpdateSpanEvent,
-    Value, ValueOperator,
+    NewUpdateSpanEvent, Resource, ResourceKey, SourceKind, Span, SpanEvent, SpanEventKey,
+    SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp, TraceId,
+    UpdateSpanEvent, Value, ValueOperator,
 };
 pub use storage::{CachedStorage, Storage, TransientStorage};
 
@@ -513,6 +513,7 @@ impl<S: Storage> RawEngine<S> {
         }
 
         EventView {
+            kind: event.kind,
             ancestors: {
                 let mut ancestors = context
                     .parents()
@@ -611,6 +612,7 @@ impl<S: Storage> RawEngine<S> {
         }
 
         SpanView {
+            kind: span.kind,
             id: span.id.to_string(),
             ancestors: {
                 let mut ancestors = context
@@ -742,6 +744,7 @@ impl<S: Storage> RawEngine<S> {
                 let parent_key = parent_id.and_then(|id| self.span_key_map.get(&id).copied());
 
                 let span = Span {
+                    kind: new_create_event.kind,
                     resource_key: new_create_event.resource_key,
                     id: new_span_event.span_id,
                     created_at: new_span_event.timestamp,
@@ -765,6 +768,7 @@ impl<S: Storage> RawEngine<S> {
                     timestamp: new_span_event.timestamp,
                     span_key: span.created_at,
                     kind: SpanEventKind::Create(CreateSpanEvent {
+                        kind: new_create_event.kind,
                         resource_key: new_create_event.resource_key,
                         parent_key,
                         name: new_create_event.name,
@@ -1075,6 +1079,7 @@ impl<S: Storage> RawEngine<S> {
         let parent_key = parent_id.and_then(|id| self.span_key_map.get(&id).copied());
 
         let event = Event {
+            kind: new_event.kind,
             resource_key: new_event.resource_key,
             timestamp: new_event.timestamp,
             parent_id,
@@ -1728,7 +1733,7 @@ fn now() -> Timestamp {
 #[cfg(test)]
 mod tests {
     use filter::Order;
-    use models::{Level, NewCloseSpanEvent, NewCreateSpanEvent, NewUpdateSpanEvent};
+    use models::{Level, NewCloseSpanEvent, NewCreateSpanEvent, NewUpdateSpanEvent, SourceKind};
 
     use super::*;
 
@@ -1744,6 +1749,7 @@ mod tests {
 
         let simple = |id: u64, level: i32, attribute1: &str, attribute2: &str| -> NewEvent {
             NewEvent {
+                kind: SourceKind::Tracing,
                 resource_key,
                 timestamp: id.try_into().unwrap(),
                 span_id: None,
@@ -1804,6 +1810,7 @@ mod tests {
                     timestamp: Timestamp::new(open).unwrap(),
                     span_id: FullSpanId::Tracing(1.try_into().unwrap(), open),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                        kind: SourceKind::Tracing,
                         resource_key,
                         parent_id: None,
                         name: "test".to_owned(),
@@ -1892,6 +1899,7 @@ mod tests {
         let now = now();
         engine
             .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
                 resource_key,
                 timestamp: now.saturating_add(1),
                 span_id: None,
@@ -1942,6 +1950,7 @@ mod tests {
         let now = now();
         engine
             .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
                 resource_key,
                 timestamp: now.saturating_add(1),
                 span_id: None,
@@ -1994,6 +2003,7 @@ mod tests {
                 timestamp: now(),
                 span_id: FullSpanId::Tracing(1.try_into().unwrap(), 1),
                 kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    kind: SourceKind::Tracing,
                     resource_key,
                     parent_id: None,
                     name: "test".to_owned(),
@@ -2012,6 +2022,7 @@ mod tests {
         let now = now();
         engine
             .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
                 resource_key,
                 timestamp: now.saturating_add(1),
                 span_id: Some(FullSpanId::Tracing(1.try_into().unwrap(), 1)),
@@ -2064,6 +2075,7 @@ mod tests {
                 timestamp: now(),
                 span_id: FullSpanId::Tracing(1.try_into().unwrap(), 1),
                 kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    kind: SourceKind::Tracing,
                     resource_key,
                     parent_id: None,
                     name: "test".to_owned(),
@@ -2082,6 +2094,7 @@ mod tests {
         let now = now();
         engine
             .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
                 resource_key,
                 timestamp: now.saturating_add(1),
                 span_id: Some(FullSpanId::Tracing(1.try_into().unwrap(), 1)),
@@ -2144,6 +2157,7 @@ mod tests {
                 timestamp: now(),
                 span_id: FullSpanId::Tracing(1.try_into().unwrap(), 1),
                 kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    kind: SourceKind::Tracing,
                     resource_key,
                     parent_id: None,
                     name: "test".to_owned(),
@@ -2162,6 +2176,7 @@ mod tests {
         let now = now();
         engine
             .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
                 resource_key,
                 timestamp: now.saturating_add(1),
                 span_id: Some(FullSpanId::Tracing(1.try_into().unwrap(), 1)),

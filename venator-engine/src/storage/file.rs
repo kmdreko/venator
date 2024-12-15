@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use rusqlite::{params, Connection as DbConnection, Error as DbError, Params, Row};
 
-use crate::models::{EventKey, Level, Value};
+use crate::models::{EventKey, Level, SourceKind, Value};
 use crate::{Event, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp};
 
 use super::Storage;
@@ -36,6 +36,7 @@ impl FileStorage {
             r#"
             CREATE TABLE spans (
                 key          INT8 NOT NULL,
+                kind         INT,
                 resource_key INT8,
                 id           TEXT,
                 closed_at    INT8,
@@ -75,6 +76,7 @@ impl FileStorage {
             r#"
             CREATE TABLE events (
                 key          INT8 NOT NULL,
+                kind         INT,
                 resource_key INT8,
                 parent_id    TEXT,
                 parent_key   INT8,
@@ -214,13 +216,14 @@ impl Storage for FileStorage {
         let mut stmt = self
             .connection
             .prepare_cached(
-                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             )
             .unwrap();
 
         // have to inline it since I exceeded 16 elements
 
         let key = span.created_at;
+        let kind = span.kind as i32;
         let resource_key = span.resource_key;
         let id = span.id.to_string();
         let closed_at = span.closed_at;
@@ -240,6 +243,7 @@ impl Storage for FileStorage {
 
         stmt.execute(params![
             key,
+            kind,
             resource_key,
             id,
             closed_at,
@@ -273,7 +277,7 @@ impl Storage for FileStorage {
         let mut stmt = self
             .connection
             .prepare_cached(
-                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )
             .unwrap();
 
@@ -448,27 +452,29 @@ fn resource_from_row(row: &Row<'_>) -> Result<Resource, DbError> {
 
 fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
     let key = row.get(0)?;
-    let resource_key = row.get(1)?;
-    let id: String = row.get(2)?;
-    let closed_at = row.get(3)?;
-    let busy: Option<i64> = row.get(4)?;
-    let parent_id: Option<String> = row.get(5)?;
-    let parent_key = row.get(6)?;
-    let follows: String = row.get(7)?;
+    let kind: i32 = row.get(1)?;
+    let resource_key = row.get(2)?;
+    let id: String = row.get(3)?;
+    let closed_at = row.get(4)?;
+    let busy: Option<i64> = row.get(5)?;
+    let parent_id: Option<String> = row.get(6)?;
+    let parent_key = row.get(7)?;
+    let follows: String = row.get(8)?;
     let follows = serde_json::from_str(&follows).unwrap();
-    let name = row.get(8)?;
-    let namespace = row.get(9)?;
-    let function = row.get(10)?;
-    let level: i32 = row.get(11)?;
-    let file_name = row.get(12)?;
-    let file_line = row.get(13)?;
-    let file_column = row.get(14)?;
-    let instrumentation_fields: String = row.get(15)?;
+    let name = row.get(9)?;
+    let namespace = row.get(10)?;
+    let function = row.get(11)?;
+    let level: i32 = row.get(12)?;
+    let file_name = row.get(13)?;
+    let file_line = row.get(14)?;
+    let file_column = row.get(15)?;
+    let instrumentation_fields: String = row.get(16)?;
     let instrumentation_fields = serde_json::from_str(&instrumentation_fields).unwrap();
-    let fields: String = row.get(16)?;
+    let fields: String = row.get(17)?;
     let fields = serde_json::from_str(&fields).unwrap();
 
     Ok(Span {
+        kind: SourceKind::try_from(kind).unwrap(),
         created_at: key,
         resource_key,
         id: id.parse().unwrap(),
@@ -599,6 +605,7 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
 #[rustfmt::skip]
 fn event_to_params(event: Event) -> impl Params {
     let key = event.timestamp;
+    let kind = event.kind as i32;
     let resource_key = event.resource_key;
     let parent_id = event.parent_id.map(|id| id.to_string());
     let parent_key = event.parent_key;
@@ -611,26 +618,28 @@ fn event_to_params(event: Event) -> impl Params {
     let file_column = event.file_column;
     let fields = serde_json::to_string(&event.fields).unwrap();
 
-    (key, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, fields)
+    (key, kind, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, fields)
 }
 
 fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
     let key = row.get(0)?;
-    let resource_key = row.get(1)?;
-    let parent_id: Option<String> = row.get(2)?;
-    let parent_key = row.get(3)?;
-    let content: String = row.get(4)?;
+    let kind: i32 = row.get(1)?;
+    let resource_key = row.get(2)?;
+    let parent_id: Option<String> = row.get(3)?;
+    let parent_key = row.get(4)?;
+    let content: String = row.get(5)?;
     let content = serde_json::from_str(&content).unwrap();
-    let namespace = row.get(5)?;
-    let function = row.get(6)?;
-    let level: i32 = row.get(7)?;
-    let file_name = row.get(8)?;
-    let file_line = row.get(9)?;
-    let file_column = row.get(10)?;
-    let fields: String = row.get(11)?;
+    let namespace = row.get(6)?;
+    let function = row.get(7)?;
+    let level: i32 = row.get(8)?;
+    let file_name = row.get(9)?;
+    let file_line = row.get(10)?;
+    let file_column = row.get(11)?;
+    let fields: String = row.get(12)?;
     let fields = serde_json::from_str(&fields).unwrap();
 
     Ok(Event {
+        kind: SourceKind::try_from(kind).unwrap(),
         timestamp: key,
         resource_key,
         parent_id: parent_id.map(|id| id.parse().unwrap()),

@@ -127,8 +127,11 @@ export function EventDetailPane(props: EventDetailPaneProps) {
                     </div>
                 </div>
                 <div id="detail-info-meta">
-                    <Show when={props.event.namespace != null}>
+                    <Show when={props.event.namespace != null && props.event.kind == 'opentelemetry'}>
                         <DetailedMeta name={"namespace"} value={props.event.namespace!} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                    </Show>
+                    <Show when={props.event.namespace != null && props.event.kind == 'tracing'}>
+                        <DetailedMeta name={"target"} value={props.event.namespace!} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                     </Show>
                     <Show when={props.event.function != null}>
                         <DetailedMeta name={"function"} value={props.event.function!} addToFilter={props.addToFilter} addColumn={props.addColumn} />
@@ -274,8 +277,11 @@ export function SpanDetailPane(props: SpanDetailPaneProps) {
                 </Show>
                 <div id="detail-info-meta">
                     <DetailedMetaId value={props.span.id} created_at={props.span.created_at} closed_at={props.span.closed_at} />
-                    <Show when={props.span.namespace != null}>
+                    <Show when={props.span.namespace != null && props.span.kind == 'opentelemetry'}>
                         <DetailedMeta name={"namespace"} value={props.span.namespace!} addToFilter={props.addToFilter} addColumn={props.addColumn} />
+                    </Show>
+                    <Show when={props.span.namespace != null && props.span.kind == 'tracing'}>
+                        <DetailedMeta name={"target"} value={props.span.namespace!} addToFilter={props.addToFilter} addColumn={props.addColumn} />
                     </Show>
                     <Show when={props.span.function != null}>
                         <DetailedMeta name={"function"} value={props.span.function!} addToFilter={props.addToFilter} addColumn={props.addColumn} />

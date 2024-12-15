@@ -16,6 +16,7 @@ use tokio_util::io::StreamReader;
 use venator_engine::{
     Engine, FullSpanId, Level, NewCloseSpanEvent, NewCreateSpanEvent, NewEnterSpanEvent, NewEvent,
     NewFollowsSpanEvent, NewResource, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent,
+    SourceKind,
 };
 
 use super::IngressState;
@@ -149,6 +150,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     timestamp: msg.timestamp,
                     span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                        kind: SourceKind::Tracing,
                         resource_key,
                         parent_id: create_data
                             .parent_id
@@ -224,12 +226,14 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
             MessageData::Event(event) => {
                 let mut fields = conv_value_map(event.fields);
 
-                let content = extract_content(&mut fields);
+                let content =
+                    extract_content(&mut fields).unwrap_or(venator_engine::Value::Str(event.name));
 
                 // we have no need for the result, and the insert is
                 // executed regardless if we poll
                 #[allow(clippy::let_underscore_future)]
                 let _ = engine.insert_event(NewEvent {
+                    kind: SourceKind::Tracing,
                     resource_key,
                     timestamp: msg.timestamp,
                     span_id: msg
@@ -237,7 +241,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                         .map(|span_id| FullSpanId::Tracing(instance_id, span_id)),
                     content,
                     namespace: Some(event.target),
-                    function: Some(event.name),
+                    function: None,
                     level: Level::from_tracing_level(event.level).unwrap(),
                     file_name: event.file_name,
                     file_line: event.file_line,
@@ -376,8 +380,8 @@ fn conv_value(v: Value) -> venator_engine::Value {
     }
 }
 
-fn extract_content(fields: &mut BTreeMap<String, venator_engine::Value>) -> venator_engine::Value {
-    fields
-        .remove("message")
-        .unwrap_or(venator_engine::Value::Null)
+fn extract_content(
+    fields: &mut BTreeMap<String, venator_engine::Value>,
+) -> Option<venator_engine::Value> {
+    fields.remove("message")
 }

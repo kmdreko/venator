@@ -29,7 +29,7 @@ use tonic::{async_trait, Request, Response, Status};
 
 use venator_engine::{
     Engine, FullSpanId, Level, NewCloseSpanEvent, NewCreateSpanEvent, NewEvent, NewResource,
-    NewSpanEvent, NewSpanEventKind, SpanId, Timestamp, TraceId, Value,
+    NewSpanEvent, NewSpanEventKind, SourceKind, SpanId, Timestamp, TraceId, Value,
 };
 
 use super::IngressState;
@@ -246,6 +246,7 @@ async fn process_logs_request(
                 let file_column = extract_file_column(&mut fields);
 
                 let event = NewEvent {
+                    kind: SourceKind::Opentelemetry,
                     resource_key,
                     timestamp: Timestamp::new(timestamp).unwrap(),
                     span_id: trace_id.and_then(|trace_id| {
@@ -346,6 +347,7 @@ async fn process_trace_request(
                     timestamp: Timestamp::new(created_timestamp).unwrap(),
                     span_id: FullSpanId::Opentelemetry(trace_id, span_id),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                        kind: SourceKind::Opentelemetry,
                         resource_key,
                         parent_id: parent_span_id
                             .map(|parent_id| FullSpanId::Opentelemetry(trace_id, parent_id)),
@@ -395,6 +397,7 @@ async fn process_trace_request(
                     let file_column = extract_file_column(&mut fields).or(scope_file_column);
 
                     let event = NewEvent {
+                        kind: SourceKind::Opentelemetry,
                         resource_key,
                         timestamp: Timestamp::new(timestamp).unwrap(),
                         span_id: Some(FullSpanId::Opentelemetry(trace_id, span_id)),
@@ -550,12 +553,12 @@ fn extract_level(fields: &mut BTreeMap<String, Value>) -> Option<i32> {
 
     match val {
         Some((key, Value::Str(level))) => match level.trim().to_lowercase().as_str() {
-            "trace" => Some(0),
-            "debug" => Some(1),
-            "info" => Some(2),
-            "warn" => Some(3),
-            "error" => Some(4),
-            "fatal" => Some(5),
+            "trace" => Some(1),
+            "debug" => Some(5),
+            "info" => Some(9),
+            "warn" => Some(13),
+            "error" => Some(17),
+            "fatal" => Some(21),
             _ => {
                 fields.insert(key, Value::Str(level));
                 None

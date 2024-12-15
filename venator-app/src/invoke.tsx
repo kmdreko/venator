@@ -5,6 +5,7 @@ export type InstanceId = string;
 export type FullSpanId = string;
 export type TraceRoot = string;
 export type Level = 0 | 1 | 2 | 3 | 4 | 5;
+export type SourceKind = 'tracing' | 'opentelemetry';
 
 export type Stats = {
     start?: Timestamp;
@@ -54,6 +55,7 @@ export type CountFilter = {
 };
 
 export type Event = {
+    kind: SourceKind,
     ancestors: Ancestor[];
     timestamp: Timestamp;
     content: string;
@@ -74,6 +76,7 @@ export type SpanFilter = {
 };
 
 export type Span = {
+    kind: SourceKind,
     id: FullSpanId,
     ancestors: Ancestor[];
     created_at: Timestamp;

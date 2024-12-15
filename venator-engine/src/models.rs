@@ -126,6 +126,29 @@ impl FromStr for TraceRoot {
 }
 
 #[derive(Debug)]
+pub struct SourceKindConvertError;
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[repr(i32)]
+pub enum SourceKind {
+    Tracing,
+    Opentelemetry,
+}
+
+impl TryFrom<i32> for SourceKind {
+    type Error = SourceKindConvertError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(SourceKind::Tracing),
+            1 => Ok(SourceKind::Opentelemetry),
+            _ => Err(SourceKindConvertError),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct LevelConvertError;
 
 #[derive(
@@ -311,6 +334,7 @@ pub enum SpanEventKind {
 }
 
 pub struct NewCreateSpanEvent {
+    pub kind: SourceKind,
     pub resource_key: ResourceKey,
     pub parent_id: Option<FullSpanId>,
     pub name: String,
@@ -326,6 +350,7 @@ pub struct NewCreateSpanEvent {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CreateSpanEvent {
+    pub kind: SourceKind,
     pub resource_key: ResourceKey,
     pub parent_key: Option<SpanKey>,
     pub name: String,
@@ -376,6 +401,7 @@ pub struct CloseSpanEvent {
 }
 
 pub struct NewEvent {
+    pub kind: SourceKind,
     pub resource_key: ResourceKey,
     pub timestamp: Timestamp,
     pub span_id: Option<FullSpanId>,
@@ -391,6 +417,7 @@ pub struct NewEvent {
 
 #[derive(Clone)]
 pub struct Event {
+    pub kind: SourceKind,
     pub resource_key: ResourceKey,
     pub timestamp: Timestamp,
     pub parent_id: Option<FullSpanId>,
@@ -413,6 +440,7 @@ impl Event {
 
 #[derive(Clone, Serialize)]
 pub struct EventView {
+    pub kind: SourceKind,
     pub ancestors: Vec<AncestorView>, // in root-first order
     pub timestamp: Timestamp,
     pub content: String,
@@ -425,6 +453,7 @@ pub struct EventView {
 
 #[derive(Debug, Clone)]
 pub struct Span {
+    pub kind: SourceKind,
     pub resource_key: ResourceKey,
     pub id: FullSpanId,
     pub created_at: Timestamp,
@@ -452,6 +481,7 @@ impl Span {
 
 #[derive(Serialize)]
 pub struct SpanView {
+    pub kind: SourceKind,
     pub id: FullSpanIdView,
     pub ancestors: Vec<AncestorView>, // in root-first order
     pub created_at: Timestamp,
