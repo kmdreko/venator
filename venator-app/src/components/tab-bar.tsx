@@ -1,11 +1,11 @@
 import { For, useContext } from "solid-js";
 import { ColumnData, defaultEventsScreen, defaultSpansScreen, ScreenData } from "../App";
-import { Input, parseEventFilter, parseConnectionFilter, parseSpanFilter } from "../invoke";
+import { Input, parseEventFilter, parseSpanFilter } from "../invoke";
 import { NavigationContext } from "../context/navigation";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { Menu, MenuItemOptions } from "@tauri-apps/api/menu";
-import { EventDataLayer, ConnectionDataLayer, SpanDataLayer, TraceDataLayer } from "../utils/datalayer";
-import { ATTRIBUTE, CONNECTED, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./table";
+import { EventDataLayer, SpanDataLayer, TraceDataLayer } from "../utils/datalayer";
+import { CONTENT, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./table";
 
 import './tab-bar.css';
 import eventsAddIcon from '../assets/event-add.svg';
@@ -111,17 +111,6 @@ export function TabBar(props: TabBarProps) {
                 columns: [...column_data.columns],
                 columnWidths: [...column_data.columnWidths],
             }];
-        } else if (screen.kind == 'connections') {
-            return [{
-                kind: 'connections',
-                filter: [...screen.filter],
-                timespan: screen.timespan,
-                live: false,
-                store: new ConnectionDataLayer([...screen.filter]),
-            }, {
-                columns: [...column_data.columns],
-                columnWidths: [...column_data.columnWidths],
-            }];
         } else {
             return [{
                 kind: 'trace',
@@ -137,10 +126,10 @@ export function TabBar(props: TabBarProps) {
         }
     }
 
-    async function duplicateScreenAs(screen: ScreenData, screenKind: 'events' | 'spans' | 'connections'): Promise<[ScreenData, ColumnData]> {
+    async function duplicateScreenAs(screen: ScreenData, screenKind: 'events' | 'spans'): Promise<[ScreenData, ColumnData]> {
         if (screenKind == 'events') {
             // TODO: put these default columns somewhere else
-            let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
+            let columns = [LEVEL, TIMESTAMP, CONTENT];
             let columnWidths = columns.map(def => def.defaultWidth);
 
             let filterText = stringifyFilter(screen.filter);
@@ -171,7 +160,7 @@ export function TabBar(props: TabBarProps) {
                 columns: columns as any,
                 columnWidths,
             }];
-        } else if (screenKind == 'spans') {
+        } else /*if (screenKind == 'spans')*/ {
             // TODO: put these default columns somewhere else
             let columns = [LEVEL, CREATED, INHERENT('name')];
             let columnWidths = columns.map(def => def.defaultWidth);
@@ -204,24 +193,6 @@ export function TabBar(props: TabBarProps) {
                 columns: columns as any,
                 columnWidths,
             }];
-        } else {
-            // TODO: put these default columns somewhere else
-            let columns = [CONNECTED, INHERENT('id')];
-            let columnWidths = columns.map(def => def.defaultWidth);
-
-            let filterText = stringifyFilter(screen.filter);
-            let filter = await parseConnectionFilter(filterText);
-
-            return [{
-                kind: 'connections',
-                filter,
-                timespan: screen.timespan!,
-                live: false,
-                store: new ConnectionDataLayer(filter),
-            }, {
-                columns: columns as any,
-                columnWidths,
-            }];
         }
     }
 
@@ -230,19 +201,11 @@ export function TabBar(props: TabBarProps) {
             return [
                 { text: "duplicate tab", action: () => navigation.createTab(...duplicateScreen(screen, column_data), true) },
                 { text: "duplicate tab for spans", action: async () => navigation.createTab(...await duplicateScreenAs(screen, 'spans'), true) },
-                { text: "duplicate tab for connections", action: async () => navigation.createTab(...await duplicateScreenAs(screen, 'connections'), true) },
             ];
         } else if (screen.kind == 'spans') {
             return [
                 { text: "duplicate tab", action: () => navigation.createTab(...duplicateScreen(screen, column_data), true) },
                 { text: "duplicate tab for events", action: async () => navigation.createTab(...await duplicateScreenAs(screen, 'events'), true) },
-                { text: "duplicate tab for connections", action: async () => navigation.createTab(...await duplicateScreenAs(screen, 'connections'), true) },
-            ];
-        } else if (screen.kind == 'connections') {
-            return [
-                { text: "duplicate tab", action: () => navigation.createTab(...duplicateScreen(screen, column_data), true) },
-                { text: "duplicate tab for events", action: async () => navigation.createTab(...await duplicateScreenAs(screen, 'events'), true) },
-                { text: "duplicate tab for spans", action: async () => navigation.createTab(...await duplicateScreenAs(screen, 'spans'), true) },
             ];
         } else /* screen.kind == 'trace' */ {
             if (screen.timespan == null) {

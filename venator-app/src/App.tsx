@@ -2,15 +2,14 @@ import { listen } from '@tauri-apps/api/event';
 import { ask, message, save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { EventsScreen } from "./screens/events-screen";
-import { AppStatus, deleteEntities, Event, getEvents, getConnections, getSpans, getStats, getStatus, Input, Connection, Span, Timestamp, ValidFilterPredicate } from "./invoke";
+import { AppStatus, deleteEntities, Event, getEvents, getSpans, getStats, getStatus, Input, Span, Timestamp, ValidFilterPredicate } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
-import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedConnection, PositionedSpan, Timespan } from "./models";
+import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
-import { EventDataLayer, SpanDataLayer, TraceDataLayer, ConnectionDataLayer } from "./utils/datalayer";
+import { EventDataLayer, SpanDataLayer, TraceDataLayer } from "./utils/datalayer";
 import { NavigationContext } from "./context/navigation";
 import { TraceScreen } from "./screens/trace-screen";
-import { ATTRIBUTE, ColumnDef, CONNECTED, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./components/table";
-import { ConnectionsScreen } from "./screens/connections-screen";
+import { ColumnDef, CONTENT, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./components/table";
 import { TabBar } from "./components/tab-bar";
 import { UndoHistory } from './utils/undo';
 
@@ -19,7 +18,7 @@ import "./App.css";
 const HOUR = 3600000000;
 
 export type ColumnData = {
-    columns: ColumnDef<Span | Event | Connection>[],
+    columns: ColumnDef<Span | Event>[],
     columnWidths: string[],
 }
 
@@ -48,15 +47,7 @@ type TraceScreenData = {
     collapsed: { [id: string]: true },
 };
 
-type ConnectionsScreenData = {
-    kind: 'connections',
-    filter: Input[],
-    timespan: Timespan,
-    live: boolean,
-    store: ConnectionDataLayer,
-};
-
-export type ScreenData = EventsScreenData | SpansScreenData | TraceScreenData | ConnectionsScreenData;
+export type ScreenData = EventsScreenData | SpansScreenData | TraceScreenData;
 
 export async function defaultEventsScreen(): Promise<[EventsScreenData, ColumnData]> {
     let stats = await getStats();
@@ -90,7 +81,7 @@ export async function defaultEventsScreen(): Promise<[EventsScreenData, ColumnDa
         },
         editable: false,
     }];
-    let columns = [LEVEL, TIMESTAMP, ATTRIBUTE("message")];
+    let columns = [LEVEL, TIMESTAMP, CONTENT];
     let columnWidths = columns.map(def => def.defaultWidth);
 
     return [{
@@ -162,40 +153,6 @@ export async function defaultSpansScreen(): Promise<[SpansScreenData, ColumnData
     }];
 }
 
-export async function defaultConnectionsScreen(): Promise<[ConnectionsScreenData, ColumnData]> {
-    let stats = await getStats();
-
-    let start;
-    let end;
-    if (stats.start == null) {
-        let now = Date.now() * 1000;
-        start = now - HOUR;
-        end = now;
-    } else {
-        start = stats.start!;
-        end = stats.end!;
-
-        let duration = end - start;
-        start -= duration * 0.05;
-        end += duration * 0.05;
-
-        [start, end] = normalizeTimespan([start, end]);
-    }
-
-    let columns = [CONNECTED, INHERENT('id')];
-    let columnWidths = columns.map(def => def.defaultWidth);
-    return [{
-        kind: 'connections',
-        filter: [],
-        timespan: [start, end],
-        live: false,
-        store: new ConnectionDataLayer([]),
-    }, {
-        columns: columns as any,
-        columnWidths,
-    }];
-}
-
 function normalizeTimespan(new_timespan: Timespan): Timespan {
     let [new_start, new_end] = new_timespan;
 
@@ -246,7 +203,7 @@ function normalizeTimespan(new_timespan: Timespan): Timespan {
 function App() {
     let [screens, setScreens] = createSignal<ScreenData[]>([]);
     let [rawFilters, setRawFilters] = createSignal<Input[][]>([]);
-    let [selectedRows, setSelectedRows] = createSignal<(Event | Span | Connection | null)[]>([]);
+    let [selectedRows, setSelectedRows] = createSignal<(Event | Span | null)[]>([]);
     let [columnDatas, setColumnDatas] = createSignal<ColumnData[]>([]);
 
     let [selectedScreen, setSelectedScreen] = createSignal<number | undefined>();
@@ -330,28 +287,6 @@ function App() {
 
                     previous = spans[spans.length - 1].created_at;
                 }
-            } else if (current_screen.kind == 'connections') {
-                let previous: number | undefined;
-
-                while (true) {
-                    let connections = await getConnections({
-                        filter: current_screen.filter.filter(f => f.input == 'valid'),
-                        start: timespan[0],
-                        end: timespan[1],
-                        order: 'asc', // TODO: use screen ordering
-                        previous,
-                    });
-
-                    for (let i of connections) {
-                        csvData += columns.map(c => c.dataText(i)).map(encodeCsvValue).join(',') + '\n';
-                    }
-
-                    if (connections.length < 50) {
-                        break;
-                    }
-
-                    previous = connections[connections.length - 1].connected_at;
-                }
             }
 
             let file = await save({
@@ -380,10 +315,6 @@ function App() {
 
         await listen('tab-new-spans-clicked', () => {
             performNewSpansTab();
-        });
-
-        await listen('tab-new-connections-clicked', () => {
-            performNewConnectionsTab();
         });
 
         await listen('tab-duplicate-clicked', () => {
@@ -425,7 +356,7 @@ function App() {
         await listen('delete-all-clicked', async () => {
             let metrics = await deleteEntities(null, null, true, true);
 
-            let answer = await ask(`This will delete ${metrics.connections} connections, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+            let answer = await ask(`This will delete ${metrics.spans} spans and ${metrics.events} events. \n\n Proceed?`, {
                 title: `Delete from ${status()?.dataset_name}`,
                 kind: 'warning',
             });
@@ -443,7 +374,7 @@ function App() {
 
             let metrics = await deleteEntities(timespan[0], timespan[1], true, true);
 
-            let answer = await ask(`This will delete ${metrics.connections} connections, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+            let answer = await ask(`This will delete ${metrics.spans} spans and ${metrics.events} events. \n\n Proceed?`, {
                 title: `Delete from ${status()?.dataset_name}`,
                 kind: 'warning',
             });
@@ -461,7 +392,7 @@ function App() {
 
             let metrics = await deleteEntities(timespan[0], timespan[1], false, true);
 
-            let answer = await ask(`This will delete ${metrics.connections} connections, ${metrics.spans} spans, and ${metrics.events} events. \n\n Proceed?`, {
+            let answer = await ask(`This will delete ${metrics.spans} spans and ${metrics.events} events. \n\n Proceed?`, {
                 title: `Delete from ${status()?.dataset_name}`,
                 kind: 'warning',
             });
@@ -565,14 +496,6 @@ function App() {
         return entries;
     }
 
-    async function getAndCacheConnections(screen: ConnectionsScreenData, filter: PartialFilter): Promise<Connection[] | null> {
-        return await screen.store.getConnections(filter);
-    }
-
-    async function getAndCachePositionedConnections(screen: ConnectionsScreenData, filter: PartialFilter): Promise<PositionedConnection[] | null> {
-        return await screen.store.getPositionedConnections(filter);
-    }
-
     function getPaddedTimespan(timespan: Timespan): Timespan {
         let now = Date.now() * 1000;
 
@@ -603,7 +526,7 @@ function App() {
         return current_raw_filters[current_selected_screen];
     }
 
-    function getCurrentSelectedRow(): Event | Span | Connection | null {
+    function getCurrentSelectedRow(): Event | Span | null {
         let current_selected_screen = selectedScreen();
         if (current_selected_screen == undefined) {
             return null;
@@ -688,9 +611,7 @@ function App() {
                 ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new EventDataLayer(filter) }
                 : current_screens[current_selected_screen].kind == 'spans'
                     ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new SpanDataLayer(filter) }
-                    : current_screens[current_selected_screen].kind == 'connections'
-                        ? { ...current_screens[current_selected_screen], filter: valid_filter, store: new ConnectionDataLayer(filter) }
-                        : { ...current_screens[current_selected_screen], filter: valid_filter, store: new TraceDataLayer(filter) };
+                    : { ...current_screens[current_selected_screen], filter: valid_filter, store: new TraceDataLayer(filter) };
 
             if (updated_screens[current_selected_screen].live) {
                 updated_screens[current_selected_screen].store.subscribe();
@@ -718,9 +639,6 @@ function App() {
                     break;
                 case 'spans':
                     updated_screens[i] = { ...current_screens[i], filter, store: new SpanDataLayer(filter) as any };
-                    break;
-                case 'connections':
-                    updated_screens[i] = { ...current_screens[i], filter, store: new ConnectionDataLayer(filter) as any };
                     break;
                 case 'trace':
                     updated_screens[i] = { ...current_screens[i], filter };
@@ -1094,9 +1012,6 @@ function App() {
             case 'spans':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new SpanDataLayer(filter) as any };
                 break;
-            case 'connections':
-                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new ConnectionDataLayer(filter) as any };
-                break;
             case 'trace':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter };
                 break;
@@ -1138,9 +1053,6 @@ function App() {
                 break;
             case 'spans':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new SpanDataLayer(filter) as any };
-                break;
-            case 'connections':
-                updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter, store: new ConnectionDataLayer(filter) as any };
                 break;
             case 'trace':
                 updated_screens[current_selected_screen] = { ...current_screens[current_selected_screen], timespan: data.timespan, filter };
@@ -1233,41 +1145,6 @@ function App() {
             let padded_end = end_timestamp + duration * 0.05;
 
             setScreenTimespan([padded_start, padded_end]);
-        } else if (current_screens[current_selected_screen].kind == 'connections') {
-            let [start, end] = current_screens[current_selected_screen].timespan;
-
-            let start_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
-                order: 'asc',
-                start,
-                end: null,
-                limit: 1,
-            });
-
-            let end_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
-                order: 'desc',
-                start: null,
-                end,
-                limit: 50,
-            });
-
-            // TODO: this will return a timestamp "before" the one provided if it
-            // intersects an connection
-            let start_timestamp = (start_connections == null || start_connections.length == 0) ? null : start_connections[0].connected_at;
-
-            // TODO: this gets the most recent "disconnected_at" of the 50 most
-            // recent connections by "connected_at" which isn't technically
-            // guaranteed to be exactly what we want, but its close enough
-            let end_timestamp = end_connections?.map(c => c.disconnected_at)?.reduce((prev, curr) => Math.max(prev || 0, curr || 0));
-
-            if (start_timestamp == null || end_timestamp == null || end_timestamp == 0) {
-                return;
-            }
-
-            let duration = end_timestamp - start_timestamp;
-            let padded_start = start_timestamp - duration * 0.05;
-            let padded_end = end_timestamp + duration * 0.05;
-
-            setScreenTimespan([padded_start, padded_end]);
         }
     }
 
@@ -1335,39 +1212,6 @@ function App() {
             let padded_end = end_timestamp + duration * 0.05;
 
             setScreenTimespan([padded_start, padded_end]);
-        } else if (current_screens[current_selected_screen].kind == 'connections') {
-            let start_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
-                order: 'asc',
-                start: null,
-                end: null,
-                limit: 1,
-            });
-
-            let end_connections = await getAndCacheConnections(current_screens[current_selected_screen], {
-                order: 'desc',
-                start: null,
-                end: null,
-                limit: 50,
-            });
-
-            // TODO: this will return a timestamp "before" the one provided if it
-            // intersects an connection
-            let start_timestamp = (start_connections == null || start_connections.length == 0) ? null : start_connections[0].connected_at;
-
-            // TODO: this gets the most recent "disconnected_at" of the 50 most
-            // recent connections by "connected_at" which isn't technically
-            // guaranteed to be exactly what we want, but its close enough
-            let end_timestamp = end_connections?.map(c => c.disconnected_at)?.reduce((prev, curr) => Math.max(prev || 0, curr || 0));
-
-            if (start_timestamp == null || end_timestamp == null) {
-                return;
-            }
-
-            let duration = end_timestamp - start_timestamp;
-            let padded_start = start_timestamp - duration * 0.05;
-            let padded_end = end_timestamp + duration * 0.05;
-
-            setScreenTimespan([padded_start, padded_end]);
         }
     }
 
@@ -1377,10 +1221,6 @@ function App() {
 
     async function performNewSpansTab() {
         createTab(...await defaultSpansScreen(), true);
-    }
-
-    async function performNewConnectionsTab() {
-        createTab(...await defaultConnectionsScreen(), true);
     }
 
     function performDuplicateTab() {
@@ -1531,30 +1371,6 @@ function App() {
 
                                 collapsed={(getCurrentScreen() as TraceScreenData).collapsed}
                                 setCollapsed={setCollapsed}
-
-                                selected={getCurrentSelectedRow() as any}
-                                setSelected={setScreenSelected}
-                            />
-                        </Match>
-                        <Match when={getCurrentScreen()!.kind == 'connections'}>
-                            <ConnectionsScreen
-                                raw_filter={getCurrentRawFilters()!}
-                                filter={getCurrentScreen()!.filter}
-                                setFilter={setScreenFilter}
-                                addToFilter={addToFilter}
-                                timespan={(getCurrentScreen() as ConnectionsScreenData).timespan}
-                                setTimespan={setScreenTimespan}
-
-                                columns={getCurrentColumnData()!.columns}
-                                columnWidths={getCurrentColumnData()!.columnWidths}
-                                columnUpdate={setColumnDef}
-                                columnUpdateWidth={setColumnWidth}
-                                columnMove={moveColumn}
-                                columnInsert={addColumnAfter}
-                                columnRemove={removeColumn}
-
-                                getConnections={f => getAndCacheConnections(getCurrentScreen() as ConnectionsScreenData, f)}
-                                getPositionedConnections={f => getAndCachePositionedConnections(getCurrentScreen() as ConnectionsScreenData, f)}
 
                                 selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}

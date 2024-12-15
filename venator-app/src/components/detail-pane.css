@@ -86,7 +86,8 @@
 .detailed-level-1,
 .detailed-level-2,
 .detailed-level-3,
-.detailed-level-4 {
+.detailed-level-4,
+.detailed-level-5 {
     height: 20px;
     border-radius: 4px;
     padding: 1px 6px;
@@ -119,6 +120,11 @@
     background-color: var(--level-4-bg-color);
 }
 
+.detailed-level-5 {
+    color: var(--level-4-color);
+    background-color: var(--level-4-bg-color);
+}
+
 .detailed-timestamp {
     height: 20px;
     border-radius: 4px;
@@ -127,10 +133,42 @@
 }
 
 .detailed-duration {
+    padding-top: 4px;
+    line-height: 16px;
+}
+
+.detailed-duration .total {
     height: 20px;
     border-radius: 4px;
     padding: 0px 6px;
-    border: 1px solid var(--border-normal-color);
+}
+
+.detailed-duration .bar {
+    position: relative;
+    display: inline-block;
+    width: 100px;
+    height: 10px;
+    border-color: var(--border-dark-color);
+    background-image: linear-gradient(transparent 0 44%,
+            var(--border-dark-color) 50% 56%,
+            transparent 56% 100%);
+    border-right: 1px solid var(--border-dark-color);
+    border-left: 1px solid var(--border-dark-color);
+}
+
+.detailed-duration .bar .busy-bar {
+    position: absolute;
+    top: 0%;
+    bottom: 0%;
+
+    background-color: var(--level-2-bar-color);
+}
+
+.detailed-duration .busy {
+    font-weight: bold;
+    height: 15px;
+    border-radius: 4px;
+    padding: 0px 6px;
 }
 
 /* .detailed-meta {} */

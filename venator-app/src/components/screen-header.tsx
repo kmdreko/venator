@@ -6,7 +6,6 @@ import "./screen-header.css";
 import eventIcon from '../assets/event.svg';
 import spanIcon from '../assets/span.svg';
 import traceIcon from '../assets/trace.svg';
-import connectionIcon from '../assets/connection.svg';
 
 export type ScreenHeaderProps = {
     screenKind: ScreenKind,
@@ -27,8 +26,6 @@ export function ScreenHeader(props: ScreenHeaderProps) {
             return 'Events';
         } else if (props.screenKind == 'spans') {
             return 'Spans';
-        } else if (props.screenKind == 'connections') {
-            return 'Connections';
         } else {
             return 'Trace';
         }
@@ -39,8 +36,6 @@ export function ScreenHeader(props: ScreenHeaderProps) {
             return eventIcon;
         } else if (props.screenKind == 'spans') {
             return spanIcon;
-        } else if (props.screenKind == 'connections') {
-            return connectionIcon;
         } else {
             return traceIcon;
         }

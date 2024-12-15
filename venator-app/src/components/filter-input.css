@@ -94,6 +94,12 @@
     border: 1px solid var(--level-4-bg-color);
 }
 
+.level-predicate-5 {
+    color: var(--level-5-color);
+    background-color: var(--level-5-bg-color);
+    border: 1px solid var(--level-5-bg-color);
+}
+
 .meta-predicate {
     background-color: var(--border-light-color);
     border-color: var(--border-normal-color);

@@ -6,7 +6,7 @@ import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { Event, Input, parseEventFilter, Timestamp } from '../invoke';
 import { Counts, PartialEventCountFilter, PartialFilter, Timespan } from "../models";
-import { ATTRIBUTE, ColumnDef, parseEventColumn, Table } from "../components/table";
+import { ColumnDef, CONTENT, parseEventColumn, Table } from "../components/table";
 
 import './events-screen.css';
 
@@ -105,7 +105,7 @@ export function EventsScreen(props: EventsScreenProps) {
                 columnMove={props.columnMove}
                 columnInsert={props.columnInsert}
                 columnRemove={props.columnRemove}
-                columnDefault={ATTRIBUTE("message")}
+                columnDefault={CONTENT}
                 columnMin={3}
                 selectedRow={props.selected}
                 setSelectedRow={props.setSelected}

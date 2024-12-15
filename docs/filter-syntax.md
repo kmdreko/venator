@@ -9,16 +9,14 @@ Properties come in two kinds:
     the instrumentation and reporting of events and spans. The available
     inherent properties are:
     - `#level`: 
-    - `#connection`: 
     - `#parent`: 
-    - `#stack`: 
+    - `#trace`: 
     - `#target`: 
     - `#file`: 
 
 - *attribute* properties start with `@` and are user-defined structured logging
     fields that can be provided on events and spans. Nested events and spans
-    inheret the attributes of their parent span(s) and root connection unless
-    overridden.
+    inheret the attributes of their parent span(s) and root unless overridden.
 
 Values can take a few different forms:
 

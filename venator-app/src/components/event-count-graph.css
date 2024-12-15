@@ -112,3 +112,8 @@
     min-height: 1px;
     background-color: var(--level-4-bar-color);
 }
+
+.event-count-graph-bar-level-5 {
+    min-height: 1px;
+    background-color: var(--level-5-bar-color);
+}

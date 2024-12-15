@@ -13,31 +13,43 @@ use super::util::IndexExt;
 // indexes. It is unlikely that an attribute has values with multiple types, but
 // it needs to be accounted for regardless.
 pub(crate) struct AttributeIndex {
-    strings: AttributeStringIndex,
+    nulls: Vec<Timestamp>,
     f64s: AttributeF64Index,
     i64s: AttributeI64Index,
     u64s: AttributeU64Index,
     i128s: AttributeI128Index,
     u128s: AttributeU128Index,
     bools: AttributeBoolIndex,
+    strings: AttributeStringIndex,
+    bytes: AttributeByteIndex,
+    arrays: AttributeArrayIndex,
+    objects: AttributeObjectIndex,
 }
 
 impl AttributeIndex {
     #[allow(unused)]
     pub(crate) fn new() -> AttributeIndex {
         AttributeIndex {
-            strings: AttributeStringIndex::new(),
+            nulls: Vec::new(),
             f64s: AttributeF64Index::new(),
             i64s: AttributeI64Index::new(),
             u64s: AttributeU64Index::new(),
             i128s: AttributeI128Index::new(),
             u128s: AttributeU128Index::new(),
             bools: AttributeBoolIndex::new(),
+            strings: AttributeStringIndex::new(),
+            bytes: AttributeByteIndex::new(),
+            arrays: AttributeArrayIndex::new(),
+            objects: AttributeObjectIndex::new(),
         }
     }
 
     pub(crate) fn add_entry(&mut self, key: Timestamp, value: &Value) {
         match value {
+            Value::Null => {
+                let idx = self.nulls.upper_bound_via_expansion(&key);
+                self.nulls.insert(idx, key);
+            }
             Value::F64(_) => {
                 let idx = self.f64s.index.upper_bound_via_expansion(&key);
                 self.f64s.index.insert(idx, key);
@@ -75,11 +87,27 @@ impl AttributeIndex {
                 let idx = value_index.upper_bound_via_expansion(&key);
                 value_index.insert(idx, key);
             }
+            Value::Bytes(_) => {
+                let idx = self.bytes.index.upper_bound_via_expansion(&key);
+                self.bytes.index.insert(idx, key);
+            }
+            Value::Array(_) => {
+                let idx = self.arrays.index.upper_bound_via_expansion(&key);
+                self.arrays.index.insert(idx, key);
+            }
+            Value::Object(_) => {
+                let idx = self.objects.index.upper_bound_via_expansion(&key);
+                self.objects.index.insert(idx, key);
+            }
         }
     }
 
     pub(crate) fn remove_entry(&mut self, key: Timestamp, value: &Value) {
         match value {
+            Value::Null => {
+                let idx = self.nulls.lower_bound(&key);
+                self.nulls.remove(idx);
+            }
             Value::F64(_) => {
                 let idx = self.f64s.index.lower_bound(&key);
                 self.f64s.index.remove(idx);
@@ -117,17 +145,33 @@ impl AttributeIndex {
                 let idx = value_index.lower_bound(&key);
                 value_index.remove(idx);
             }
+            Value::Bytes(_) => {
+                let idx = self.bytes.index.lower_bound(&key);
+                self.bytes.index.remove(idx);
+            }
+            Value::Array(_) => {
+                let idx = self.arrays.index.lower_bound(&key);
+                self.arrays.index.remove(idx);
+            }
+            Value::Object(_) => {
+                let idx = self.objects.index.lower_bound(&key);
+                self.objects.index.remove(idx);
+            }
         }
     }
 
     pub(crate) fn remove_entries(&mut self, keys: &[Timestamp]) {
-        self.strings.remove_entries(keys);
+        self.nulls.remove_list_sorted(keys);
         self.f64s.remove_entries(keys);
         self.i64s.remove_entries(keys);
         self.u64s.remove_entries(keys);
         self.i128s.remove_entries(keys);
         self.u128s.remove_entries(keys);
         self.bools.remove_entries(keys);
+        self.strings.remove_entries(keys);
+        self.bytes.remove_entries(keys);
+        self.arrays.remove_entries(keys);
+        self.objects.remove_entries(keys);
     }
 
     /// This returns a set of indexed filters that when OR'd together will yield
@@ -339,5 +383,50 @@ impl AttributeBoolIndex {
     fn remove_entries(&mut self, keys: &[Timestamp]) {
         self.trues.remove_list_sorted(keys);
         self.falses.remove_list_sorted(keys);
+    }
+}
+
+struct AttributeByteIndex {
+    // TODO: figure out how best to do indexing
+    index: Vec<Timestamp>,
+}
+
+impl AttributeByteIndex {
+    fn new() -> AttributeByteIndex {
+        AttributeByteIndex { index: Vec::new() }
+    }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
+    }
+}
+
+struct AttributeArrayIndex {
+    // TODO: figure out how best to do indexing
+    index: Vec<Timestamp>,
+}
+
+impl AttributeArrayIndex {
+    fn new() -> AttributeArrayIndex {
+        AttributeArrayIndex { index: Vec::new() }
+    }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
+    }
+}
+
+struct AttributeObjectIndex {
+    // TODO: figure out how best to do indexing
+    index: Vec<Timestamp>,
+}
+
+impl AttributeObjectIndex {
+    fn new() -> AttributeObjectIndex {
+        AttributeObjectIndex { index: Vec::new() }
+    }
+
+    fn remove_entries(&mut self, keys: &[Timestamp]) {
+        self.index.remove_list_sorted(keys);
     }
 }

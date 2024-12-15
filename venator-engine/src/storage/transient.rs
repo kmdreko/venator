@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::Storage;
-use crate::models::Value;
-use crate::{Connection, Event, Span, SpanEvent, SpanKey, Timestamp};
+use crate::models::{EventKey, Value};
+use crate::{Event, Resource, Span, SpanEvent, SpanKey, Timestamp};
 
 /// This storage implementation just holds elements in memory.
 pub struct TransientStorage {
-    connections: BTreeMap<Timestamp, Arc<Connection>>,
+    resources: BTreeMap<Timestamp, Arc<Resource>>,
     spans: BTreeMap<Timestamp, Arc<Span>>,
     span_events: BTreeMap<Timestamp, Arc<SpanEvent>>,
     events: BTreeMap<Timestamp, Arc<Event>>,
@@ -17,7 +17,7 @@ impl TransientStorage {
     #[allow(clippy::new_without_default)]
     pub fn new() -> TransientStorage {
         TransientStorage {
-            connections: BTreeMap::new(),
+            resources: BTreeMap::new(),
             spans: BTreeMap::new(),
             span_events: BTreeMap::new(),
             events: BTreeMap::new(),
@@ -26,8 +26,8 @@ impl TransientStorage {
 }
 
 impl Storage for TransientStorage {
-    fn get_connection(&self, at: Timestamp) -> Option<Arc<Connection>> {
-        self.connections.get(&at).cloned()
+    fn get_resource(&self, at: Timestamp) -> Option<Arc<Resource>> {
+        self.resources.get(&at).cloned()
     }
 
     fn get_span(&self, at: Timestamp) -> Option<Arc<Span>> {
@@ -42,8 +42,8 @@ impl Storage for TransientStorage {
         self.events.get(&at).cloned()
     }
 
-    fn get_all_connections(&self) -> Box<dyn Iterator<Item = Arc<Connection>> + '_> {
-        Box::new(self.connections.values().cloned())
+    fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
+        Box::new(self.resources.values().cloned())
     }
 
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_> {
@@ -58,9 +58,9 @@ impl Storage for TransientStorage {
         Box::new(self.events.values().cloned())
     }
 
-    fn insert_connection(&mut self, connection: Connection) {
-        let at = connection.key();
-        self.connections.insert(at, Arc::new(connection));
+    fn insert_resource(&mut self, resource: Resource) {
+        let at = resource.key();
+        self.resources.insert(at, Arc::new(resource));
     }
 
     fn insert_span(&mut self, span: Span) {
@@ -78,18 +78,11 @@ impl Storage for TransientStorage {
         self.events.insert(at, Arc::new(event));
     }
 
-    fn update_connection_disconnected(&mut self, at: Timestamp, disconnected_at: Timestamp) {
-        if let Some(connection) = self.connections.get(&at) {
-            let mut connection = (**connection).clone();
-            connection.disconnected_at = Some(disconnected_at);
-            self.connections.insert(at, Arc::new(connection));
-        }
-    }
-
-    fn update_span_closed(&mut self, at: Timestamp, closed_at: Timestamp) {
+    fn update_span_closed(&mut self, at: Timestamp, closed_at: Timestamp, busy: Option<u64>) {
         if let Some(span) = self.spans.get(&at) {
             let mut span = (**span).clone();
             span.closed_at = Some(closed_at);
+            span.busy = busy;
             self.spans.insert(at, Arc::new(span));
         }
     }
@@ -110,9 +103,29 @@ impl Storage for TransientStorage {
         }
     }
 
-    fn drop_connections(&mut self, connections: &[Timestamp]) {
-        for at in connections {
-            self.connections.remove(at);
+    fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {
+        for span in spans {
+            if let Some(span) = self.spans.get_mut(span) {
+                let mut span = (**span).clone();
+                span.parent_key = Some(parent_key);
+                self.spans.insert(span.key(), Arc::new(span));
+            }
+        }
+    }
+
+    fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]) {
+        for event in events {
+            if let Some(event) = self.events.get_mut(event) {
+                let mut event = (**event).clone();
+                event.parent_key = Some(parent_key);
+                self.events.insert(event.key(), Arc::new(event));
+            }
+        }
+    }
+
+    fn drop_resources(&mut self, resources: &[Timestamp]) {
+        for at in resources {
+            self.resources.remove(at);
         }
     }
 

@@ -10,9 +10,11 @@ use serde::Deserialize;
 use wildcard::WildcardBuilder;
 
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
-use crate::models::{parse_full_span_id, EventKey, Level, SpanKey, Timestamp, ValueOperator};
+use crate::models::{
+    EventKey, FullSpanId, Level, SimpleLevel, SpanKey, Timestamp, TraceRoot, ValueOperator,
+};
 use crate::storage::Storage;
-use crate::{ConnectionId, ConnectionKey, EventContext, RawEngine, SpanContext, SpanId};
+use crate::{EventContext, RawEngine, SpanContext};
 
 pub mod attribute;
 pub mod input;
@@ -44,10 +46,11 @@ pub enum IndexedEventFilter<'i> {
 }
 
 impl IndexedEventFilter<'_> {
-    pub fn build(
+    pub fn build<'a, S: Storage>(
         filter: Option<BasicEventFilter>,
-        event_indexes: &EventIndexes,
-    ) -> IndexedEventFilter<'_> {
+        event_indexes: &'a EventIndexes,
+        storage: &S,
+    ) -> IndexedEventFilter<'a> {
         let Some(filter) = filter else {
             return IndexedEventFilter::Single(&event_indexes.all, None);
         };
@@ -79,41 +82,32 @@ impl IndexedEventFilter<'_> {
             BasicEventFilter::Level(level) => {
                 IndexedEventFilter::Single(&event_indexes.levels[level as usize], None)
             }
-            BasicEventFilter::Connection(connection_key) => {
-                let connection_index = event_indexes
-                    .connections
-                    .get(&connection_key)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
-
-                IndexedEventFilter::Single(connection_index, None)
-            }
-            BasicEventFilter::Target(filter) => match filter {
+            BasicEventFilter::Namespace(filter) => match filter {
                 ValueStringComparison::None => IndexedEventFilter::Single(&[], None),
                 ValueStringComparison::Compare(ValueOperator::Eq, value) => {
-                    let target_index = event_indexes
-                        .targets
+                    let namespace_index = event_indexes
+                        .namespaces
                         .get(&value)
                         .map(Vec::as_slice)
                         .unwrap_or_default();
 
-                    IndexedEventFilter::Single(target_index, None)
+                    IndexedEventFilter::Single(namespace_index, None)
                 }
                 ValueStringComparison::Compare(_, _) => IndexedEventFilter::Single(
                     &event_indexes.all,
-                    Some(NonIndexedEventFilter::Target(filter)),
+                    Some(NonIndexedEventFilter::Namespace(filter)),
                 ),
                 ValueStringComparison::Wildcard(_) => IndexedEventFilter::Single(
                     &event_indexes.all,
-                    Some(NonIndexedEventFilter::Target(filter)),
+                    Some(NonIndexedEventFilter::Namespace(filter)),
                 ),
                 ValueStringComparison::Regex(_) => IndexedEventFilter::Single(
                     &event_indexes.all,
-                    Some(NonIndexedEventFilter::Target(filter)),
+                    Some(NonIndexedEventFilter::Namespace(filter)),
                 ),
                 ValueStringComparison::All => IndexedEventFilter::Single(
                     &event_indexes.all,
-                    Some(NonIndexedEventFilter::Target(filter)),
+                    Some(NonIndexedEventFilter::Namespace(filter)),
                 ),
             },
             BasicEventFilter::File(filter) => match &filter.name {
@@ -147,24 +141,41 @@ impl IndexedEventFilter<'_> {
                     Some(NonIndexedEventFilter::File(filter)),
                 ),
             },
-            BasicEventFilter::Ancestor(ancestor_key) => {
+            BasicEventFilter::Root => IndexedEventFilter::Single(&event_indexes.roots, None),
+            BasicEventFilter::Trace(trace) => {
                 let index = event_indexes
-                    .descendents
-                    .get(&ancestor_key)
+                    .traces
+                    .get(&trace)
                     .map(Vec::as_slice)
                     .unwrap_or_default();
 
                 IndexedEventFilter::Single(index, None)
             }
-            BasicEventFilter::Root => IndexedEventFilter::Single(&event_indexes.roots, None),
             BasicEventFilter::Parent(parent_key) => {
+                let parent = SpanContext::new(parent_key, storage);
+
                 let index = event_indexes
-                    .descendents
-                    .get(&parent_key)
+                    .traces
+                    .get(&parent.trace_root())
                     .map(Vec::as_slice)
                     .unwrap_or_default();
 
                 IndexedEventFilter::Single(index, Some(NonIndexedEventFilter::Parent(parent_key)))
+            }
+            BasicEventFilter::Content(value_filter) => {
+                let filters = event_indexes
+                    .contents
+                    .make_indexed_filter(value_filter)
+                    .into_iter()
+                    .map(|(i, f)| {
+                        IndexedEventFilter::Single(
+                            i,
+                            f.map(|f| NonIndexedEventFilter::Content(Box::new(f))),
+                        )
+                    })
+                    .collect();
+
+                IndexedEventFilter::Or(filters)
             }
             BasicEventFilter::Attribute(attribute, value_filter) => {
                 if let Some(attr_index) = event_indexes.attributes.get(&attribute) {
@@ -190,18 +201,22 @@ impl IndexedEventFilter<'_> {
             }
             BasicEventFilter::Not(filter) => IndexedEventFilter::Not(
                 &event_indexes.all,
-                Box::new(IndexedEventFilter::build(Some(*filter), event_indexes)),
+                Box::new(IndexedEventFilter::build(
+                    Some(*filter),
+                    event_indexes,
+                    storage,
+                )),
             ),
             BasicEventFilter::And(filters) => IndexedEventFilter::And(
                 filters
                     .into_iter()
-                    .map(|f| IndexedEventFilter::build(Some(f), event_indexes))
+                    .map(|f| IndexedEventFilter::build(Some(f), event_indexes, storage))
                     .collect(),
             ),
             BasicEventFilter::Or(filters) => IndexedEventFilter::Or(
                 filters
                     .into_iter()
-                    .map(|f| IndexedEventFilter::build(Some(f), event_indexes))
+                    .map(|f| IndexedEventFilter::build(Some(f), event_indexes, storage))
                     .collect(),
             ),
         }
@@ -463,8 +478,6 @@ pub enum InputError {
     InvalidLevelOperator,
     InvalidNameValue,
     InvalidNameOperator,
-    InvalidConnectionValue,
-    InvalidConnectionOperator,
     InvalidAttributeValue,
     InvalidInherentProperty,
     InvalidDurationValue,
@@ -474,8 +487,8 @@ pub enum InputError {
     InvalidClosedValue,
     InvalidParentValue,
     InvalidParentOperator,
-    InvalidStackValue,
-    InvalidStackOperator,
+    InvalidTraceValue,
+    InvalidTraceOperator,
     InvalidConnectedValue,
     InvalidDisconnectedValue,
     InvalidWildcardValue,
@@ -491,8 +504,6 @@ impl Display for InputError {
             InputError::InvalidLevelOperator => write!(f, "invalid #level operator"),
             InputError::InvalidNameValue => write!(f, "invalid #name value"),
             InputError::InvalidNameOperator => write!(f, "invalid #name operator"),
-            InputError::InvalidConnectionValue => write!(f, "invalid #connection value"),
-            InputError::InvalidConnectionOperator => write!(f, "invalid #connection operator"),
             InputError::InvalidAttributeValue => write!(f, "invalid #attribute value"),
             InputError::InvalidInherentProperty => write!(f, "invalid '#' Property"),
             InputError::InvalidDurationValue => write!(f, "invalid #duration value"),
@@ -502,8 +513,8 @@ impl Display for InputError {
             InputError::InvalidClosedValue => write!(f, "invalid #closed value"),
             InputError::InvalidParentValue => write!(f, "invalid #parent value"),
             InputError::InvalidParentOperator => write!(f, "invalid #parent operator"),
-            InputError::InvalidStackValue => write!(f, "invalid #stack value"),
-            InputError::InvalidStackOperator => write!(f, "invalid #stack operator"),
+            InputError::InvalidTraceValue => write!(f, "invalid #trace value"),
+            InputError::InvalidTraceOperator => write!(f, "invalid #trace operator"),
             InputError::InvalidConnectedValue => write!(f, "invalid #connected value"),
             InputError::InvalidDisconnectedValue => write!(f, "invalid #disconnected value"),
             InputError::InvalidWildcardValue => write!(f, "invalid wildcard syntax"),
@@ -538,13 +549,13 @@ impl FileFilter {
 
 pub enum BasicEventFilter {
     Timestamp(ValueOperator, Timestamp),
-    Level(Level),
-    Connection(ConnectionKey),
-    Target(ValueStringComparison),
+    Level(SimpleLevel),
+    Namespace(ValueStringComparison),
     File(FileFilter),
-    Ancestor(SpanKey),
     Root,
+    Trace(TraceRoot),
     Parent(SpanKey),
+    Content(ValueFilter),
     Attribute(String, ValueFilter),
     Not(Box<BasicEventFilter>),
     And(Vec<BasicEventFilter>),
@@ -556,12 +567,12 @@ impl BasicEventFilter {
         match self {
             BasicEventFilter::Timestamp(_, _) => {}
             BasicEventFilter::Level(_) => {}
-            BasicEventFilter::Connection(_) => {}
-            BasicEventFilter::Target(_) => {}
+            BasicEventFilter::Namespace(_) => {}
             BasicEventFilter::File(_) => {}
-            BasicEventFilter::Ancestor(_) => {}
             BasicEventFilter::Root => {}
+            BasicEventFilter::Trace(_) => {}
             BasicEventFilter::Parent(_) => {}
+            BasicEventFilter::Content(_) => {}
             BasicEventFilter::Attribute(_, _) => {}
             BasicEventFilter::Not(_) => {}
             BasicEventFilter::And(filters) => {
@@ -616,7 +627,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "connection" | "parent" | "target" | "file" | "stack" => Inherent,
+                "level" | "parent" | "namespace" | "file" | "trace" | "content" => Inherent,
                 _ => Attribute,
             });
 
@@ -642,24 +653,6 @@ impl BasicEventFilter {
                     _ => return Err(InputError::InvalidLevelOperator),
                 };
             }
-            (Inherent, "connection") => {
-                validate_value_predicate(
-                    &predicate.value,
-                    |op, value| {
-                        if *op != ValueOperator::Eq {
-                            return Err(InputError::InvalidConnectionOperator);
-                        }
-
-                        let _: ConnectionId = value
-                            .parse()
-                            .map_err(|_| InputError::InvalidConnectionValue)?;
-
-                        Ok(())
-                    },
-                    |_| Err(InputError::InvalidConnectionValue),
-                    |_| Err(InputError::InvalidConnectionValue),
-                )?;
-            }
             (Inherent, "parent") => {
                 validate_value_predicate(
                     &predicate.value,
@@ -669,8 +662,8 @@ impl BasicEventFilter {
                         }
 
                         if value != "none" {
-                            let _ =
-                                parse_full_span_id(value).ok_or(InputError::InvalidParentValue)?;
+                            let _: FullSpanId =
+                                value.parse().map_err(|_| InputError::InvalidParentValue)?;
                         }
 
                         Ok(())
@@ -679,7 +672,7 @@ impl BasicEventFilter {
                     |_| Err(InputError::InvalidParentValue),
                 )?;
             }
-            (Inherent, "target") => validate_value_predicate(
+            (Inherent, "namespace") => validate_value_predicate(
                 &predicate.value,
                 |_op, _value| Ok(()),
                 |wildcard| {
@@ -729,20 +722,38 @@ impl BasicEventFilter {
                     Ok(())
                 },
             )?,
-            (Inherent, "stack") => {
+            (Inherent, "trace") => {
                 validate_value_predicate(
                     &predicate.value,
                     |op, value| {
                         if *op != ValueOperator::Eq {
-                            return Err(InputError::InvalidStackOperator);
+                            return Err(InputError::InvalidTraceOperator);
                         }
 
-                        let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+                        let _: TraceRoot =
+                            value.parse().map_err(|_| InputError::InvalidTraceValue)?;
 
                         Ok(())
                     },
-                    |_| Err(InputError::InvalidStackValue),
-                    |_| Err(InputError::InvalidStackValue),
+                    |_| Err(InputError::InvalidTraceValue),
+                    |_| Err(InputError::InvalidTraceValue),
+                )?;
+            }
+            (Inherent, "content") => {
+                validate_value_predicate(
+                    &predicate.value,
+                    |_op, _value| Ok(()),
+                    |wildcard| {
+                        WildcardBuilder::new(wildcard.as_bytes())
+                            .without_one_metasymbol()
+                            .build()
+                            .map_err(|_| InputError::InvalidWildcardValue)?;
+                        Ok(())
+                    },
+                    |regex| {
+                        Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
+                        Ok(())
+                    },
                 )?;
             }
             (Inherent, _) => {
@@ -775,8 +786,7 @@ impl BasicEventFilter {
 
     pub fn from_predicate(
         predicate: FilterPredicate,
-        connection_key_map: &HashMap<ConnectionId, ConnectionKey>,
-        span_key_map: &HashMap<(ConnectionKey, SpanId), SpanKey>,
+        span_key_map: &HashMap<FullSpanId, SpanKey>,
     ) -> Result<BasicEventFilter, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
@@ -786,14 +796,14 @@ impl BasicEventFilter {
             FilterPredicate::And(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicEventFilter::And)
             }
             FilterPredicate::Or(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicEventFilter::Or)
             }
@@ -802,7 +812,7 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "connection" | "parent" | "target" | "stack" => Inherent,
+                "level" | "parent" | "namespace" | "file" | "trace" | "content" => Inherent,
                 _ => Attribute,
             });
 
@@ -814,11 +824,12 @@ impl BasicEventFilter {
                 };
 
                 let level = match value.as_str() {
-                    "TRACE" => Level::Trace,
-                    "DEBUG" => Level::Debug,
-                    "INFO" => Level::Info,
-                    "WARN" => Level::Warn,
-                    "ERROR" => Level::Error,
+                    "TRACE" => SimpleLevel::Trace,
+                    "DEBUG" => SimpleLevel::Debug,
+                    "INFO" => SimpleLevel::Info,
+                    "WARN" => SimpleLevel::Warn,
+                    "ERROR" => SimpleLevel::Error,
+                    "FATAL" => SimpleLevel::Fatal,
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
@@ -829,36 +840,11 @@ impl BasicEventFilter {
                 };
 
                 if above {
-                    BasicEventFilter::Or(
-                        ((level as i32)..5)
-                            .map(|l| BasicEventFilter::Level(l.try_into().unwrap()))
-                            .collect(),
-                    )
+                    BasicEventFilter::Or(level.iter_gte().map(BasicEventFilter::Level).collect())
                 } else {
                     BasicEventFilter::Level(level)
                 }
             }
-            (Inherent, "connection") => filterify_event_filter(
-                predicate.value,
-                |op, value| {
-                    if op != ValueOperator::Eq {
-                        return Err(InputError::InvalidConnectionOperator);
-                    }
-
-                    let connection_id: ConnectionId = value
-                        .parse()
-                        .map_err(|_| InputError::InvalidConnectionValue)?;
-
-                    let connection_key = connection_key_map
-                        .get(&connection_id)
-                        .copied()
-                        .unwrap_or(ConnectionKey::MIN);
-
-                    Ok(BasicEventFilter::Connection(connection_key))
-                },
-                |_| Err(InputError::InvalidConnectionValue),
-                |_| Err(InputError::InvalidConnectionValue),
-            )?,
             (Inherent, "parent") => filterify_event_filter(
                 predicate.value,
                 |op, value| {
@@ -869,30 +855,25 @@ impl BasicEventFilter {
                     if value == "none" {
                         Ok(BasicEventFilter::Root)
                     } else {
-                        let (connection_id, parent_id) =
-                            parse_full_span_id(&value).ok_or(InputError::InvalidParentValue)?;
-
-                        let connection_key = connection_key_map
-                            .get(&connection_id)
-                            .copied()
-                            .unwrap_or(ConnectionKey::MIN);
+                        let parent_id: FullSpanId =
+                            value.parse().map_err(|_| InputError::InvalidParentValue)?;
 
                         let parent_key = span_key_map
-                            .get(&(connection_key, parent_id))
+                            .get(&parent_id)
                             .copied()
                             .unwrap_or(SpanKey::MIN);
 
                         Ok(BasicEventFilter::Parent(parent_key))
                     }
                 },
-                |_| Err(InputError::InvalidConnectionValue),
-                |_| Err(InputError::InvalidConnectionValue),
+                |_| Err(InputError::InvalidParentValue),
+                |_| Err(InputError::InvalidParentValue),
             )?,
-            (Inherent, "target") => filterify_event_filter(
+            (Inherent, "namespace") => filterify_event_filter(
                 predicate.value,
                 |op, value| {
                     let filter = ValueStringComparison::Compare(op, value);
-                    Ok(BasicEventFilter::Target(filter))
+                    Ok(BasicEventFilter::Namespace(filter))
                 },
                 |wildcard| {
                     let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
@@ -901,13 +882,13 @@ impl BasicEventFilter {
                         .map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Wildcard(wildcard);
-                    Ok(BasicEventFilter::Target(filter))
+                    Ok(BasicEventFilter::Namespace(filter))
                 },
                 |regex| {
                     let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Regex(regex);
-                    Ok(BasicEventFilter::Target(filter))
+                    Ok(BasicEventFilter::Namespace(filter))
                 },
             )?,
             (Inherent, "file") => filterify_event_filter(
@@ -975,29 +956,35 @@ impl BasicEventFilter {
                     }))
                 },
             )?,
-            (Inherent, "stack") => filterify_event_filter(
+            (Inherent, "trace") => filterify_event_filter(
                 predicate.value,
                 |op, value| {
                     if op != ValueOperator::Eq {
-                        return Err(InputError::InvalidStackOperator);
+                        return Err(InputError::InvalidTraceOperator);
                     }
 
-                    let (connection_id, span_id) =
-                        parse_full_span_id(&value).ok_or(InputError::InvalidStackValue)?;
+                    let trace: TraceRoot =
+                        value.parse().map_err(|_| InputError::InvalidTraceValue)?;
 
-                    let connection_key = connection_key_map
-                        .get(&connection_id)
-                        .copied()
-                        .unwrap_or(ConnectionKey::MIN);
-                    let span_key = span_key_map
-                        .get(&(connection_key, span_id))
-                        .copied()
-                        .unwrap_or(SpanKey::MIN);
-
-                    Ok(BasicEventFilter::Ancestor(span_key))
+                    Ok(BasicEventFilter::Trace(trace))
                 },
-                |_| Err(InputError::InvalidStackValue),
-                |_| Err(InputError::InvalidStackValue),
+                |_| Err(InputError::InvalidTraceValue),
+                |_| Err(InputError::InvalidTraceValue),
+            )?,
+            (Inherent, "content") => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    let value_filter = ValueFilter::from_input(op, &value);
+                    Ok(BasicEventFilter::Content(value_filter))
+                },
+                |wildcard| {
+                    let value_filter = ValueFilter::from_wildcard(wildcard)?;
+                    Ok(BasicEventFilter::Content(value_filter))
+                },
+                |regex| {
+                    let value_filter = ValueFilter::from_regex(regex)?;
+                    Ok(BasicEventFilter::Content(value_filter))
+                },
             )?,
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
@@ -1026,15 +1013,15 @@ impl BasicEventFilter {
         let event = context.event();
         match self {
             BasicEventFilter::Timestamp(op, timestamp) => op.compare(&event.timestamp, timestamp),
-            BasicEventFilter::Level(level) => event.level == *level,
-            BasicEventFilter::Connection(connection_key) => event.connection_key == *connection_key,
-            BasicEventFilter::Target(filter) => filter.matches(&event.target),
+            BasicEventFilter::Level(level) => event.level.into_simple_level() == *level,
+            BasicEventFilter::Namespace(filter) => filter.matches_opt(event.namespace.as_deref()),
             BasicEventFilter::File(filter) => {
                 filter.matches(event.file_name.as_deref(), event.file_line)
             }
-            BasicEventFilter::Ancestor(span_key) => context.parents().any(|p| p.key() == *span_key),
-            BasicEventFilter::Root => event.span_key.is_none(),
-            BasicEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
+            BasicEventFilter::Root => event.parent_key.is_none(),
+            BasicEventFilter::Trace(trace) => context.trace_root() == Some(*trace),
+            BasicEventFilter::Parent(parent_key) => event.parent_key == Some(*parent_key),
+            BasicEventFilter::Content(value_filter) => value_filter.matches(&event.content),
             BasicEventFilter::Attribute(attribute, value_filter) => context
                 .attribute(attribute)
                 .map(|v| value_filter.matches(v))
@@ -1048,8 +1035,9 @@ impl BasicEventFilter {
 
 pub enum NonIndexedEventFilter {
     Parent(SpanKey),
-    Target(ValueStringComparison),
+    Namespace(ValueStringComparison),
     File(FileFilter),
+    Content(Box<ValueFilter>),
     Attribute(String, Box<ValueFilter>),
 }
 
@@ -1057,11 +1045,14 @@ impl NonIndexedEventFilter {
     fn matches<S: Storage>(&self, context: EventContext<'_, S>) -> bool {
         let event = context.event();
         match self {
-            NonIndexedEventFilter::Parent(parent_key) => event.span_key == Some(*parent_key),
-            NonIndexedEventFilter::Target(filter) => filter.matches(&event.target),
+            NonIndexedEventFilter::Parent(parent_key) => event.parent_key == Some(*parent_key),
+            NonIndexedEventFilter::Namespace(filter) => {
+                filter.matches_opt(event.namespace.as_deref())
+            }
             NonIndexedEventFilter::File(filter) => {
                 filter.matches(event.file_name.as_deref(), event.file_line)
             }
+            NonIndexedEventFilter::Content(value_filter) => value_filter.matches(&event.content),
             NonIndexedEventFilter::Attribute(attribute, value_filter) => context
                 .attribute(attribute)
                 .map(|v| value_filter.matches(v))
@@ -1078,25 +1069,19 @@ pub struct IndexedEventFilterIterator<'i, S> {
     storage: &'i S,
 }
 
-impl<'i, S> IndexedEventFilterIterator<'i, S> {
+impl<'i, S: Storage> IndexedEventFilterIterator<'i, S> {
     pub fn new(query: Query, engine: &'i RawEngine<S>) -> IndexedEventFilterIterator<'i, S> {
         let mut filter = BasicEventFilter::And(
             query
                 .filter
                 .into_iter()
-                .map(|p| {
-                    BasicEventFilter::from_predicate(
-                        p,
-                        &engine.connection_key_map,
-                        &engine.span_key_map,
-                    )
-                    .unwrap()
-                })
+                .map(|p| BasicEventFilter::from_predicate(p, &engine.span_key_map).unwrap())
                 .collect(),
         );
         filter.simplify();
 
-        let mut filter = IndexedEventFilter::build(Some(filter), &engine.event_indexes);
+        let mut filter =
+            IndexedEventFilter::build(Some(filter), &engine.event_indexes, &engine.storage);
 
         let mut start = query.start;
         let mut end = query.end;
@@ -1172,10 +1157,11 @@ pub enum IndexedSpanFilter<'i> {
 }
 
 impl IndexedSpanFilter<'_> {
-    pub fn build(
+    pub fn build<'a, S: Storage>(
         filter: Option<BasicSpanFilter>,
-        span_indexes: &SpanIndexes,
-    ) -> IndexedSpanFilter<'_> {
+        span_indexes: &'a SpanIndexes,
+        storage: &S,
+    ) -> IndexedSpanFilter<'a> {
         let Some(filter) = filter else {
             return IndexedSpanFilter::Single(&span_indexes.all, None);
         };
@@ -1286,20 +1272,11 @@ impl IndexedSpanFilter<'_> {
 
                 IndexedSpanFilter::Or(filters)
             }
-            BasicSpanFilter::Connection(connection_key) => {
-                let connection_index = span_indexes
-                    .connections
-                    .get(&connection_key)
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
-
-                IndexedSpanFilter::Single(connection_index, None)
-            }
             BasicSpanFilter::Name(filter) => match filter {
                 ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
                 ValueStringComparison::Compare(ValueOperator::Eq, value) => {
                     let name_index = span_indexes
-                        .names
+                        .functions
                         .get(&value)
                         .map(Vec::as_slice)
                         .unwrap_or_default();
@@ -1308,47 +1285,47 @@ impl IndexedSpanFilter<'_> {
                 }
                 ValueStringComparison::Compare(_, _) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Name(filter)),
+                    Some(NonIndexedSpanFilter::Function(filter)),
                 ),
                 ValueStringComparison::Wildcard(_) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Name(filter)),
+                    Some(NonIndexedSpanFilter::Function(filter)),
                 ),
                 ValueStringComparison::Regex(_) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Name(filter)),
+                    Some(NonIndexedSpanFilter::Function(filter)),
                 ),
                 ValueStringComparison::All => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Name(filter)),
+                    Some(NonIndexedSpanFilter::Function(filter)),
                 ),
             },
-            BasicSpanFilter::Target(filter) => match filter {
+            BasicSpanFilter::Namespace(filter) => match filter {
                 ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
                 ValueStringComparison::Compare(ValueOperator::Eq, value) => {
-                    let target_index = span_indexes
-                        .targets
+                    let namespace_index = span_indexes
+                        .namespaces
                         .get(&value)
                         .map(Vec::as_slice)
                         .unwrap_or_default();
 
-                    IndexedSpanFilter::Single(target_index, None)
+                    IndexedSpanFilter::Single(namespace_index, None)
                 }
                 ValueStringComparison::Compare(_, _) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Target(filter)),
+                    Some(NonIndexedSpanFilter::Namespace(filter)),
                 ),
                 ValueStringComparison::Wildcard(_) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Target(filter)),
+                    Some(NonIndexedSpanFilter::Namespace(filter)),
                 ),
                 ValueStringComparison::Regex(_) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Target(filter)),
+                    Some(NonIndexedSpanFilter::Namespace(filter)),
                 ),
                 ValueStringComparison::All => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Target(filter)),
+                    Some(NonIndexedSpanFilter::Namespace(filter)),
                 ),
             },
             BasicSpanFilter::File(filter) => match &filter.name {
@@ -1382,20 +1359,22 @@ impl IndexedSpanFilter<'_> {
                     Some(NonIndexedSpanFilter::File(filter)),
                 ),
             },
-            BasicSpanFilter::Ancestor(ancestor_key) => {
+            BasicSpanFilter::Root => IndexedSpanFilter::Single(&span_indexes.roots, None),
+            BasicSpanFilter::Trace(trace) => {
                 let index = span_indexes
-                    .descendents
-                    .get(&ancestor_key)
+                    .traces
+                    .get(&trace)
                     .map(Vec::as_slice)
                     .unwrap_or_default();
 
                 IndexedSpanFilter::Single(index, None)
             }
-            BasicSpanFilter::Root => IndexedSpanFilter::Single(&span_indexes.roots, None),
             BasicSpanFilter::Parent(parent_key) => {
+                let parent = SpanContext::new(parent_key, storage);
+
                 let index = span_indexes
-                    .descendents
-                    .get(&parent_key)
+                    .traces
+                    .get(&parent.trace_root())
                     .map(Vec::as_slice)
                     .unwrap_or_default();
 
@@ -1423,18 +1402,22 @@ impl IndexedSpanFilter<'_> {
             }
             BasicSpanFilter::Not(filter) => IndexedSpanFilter::Not(
                 &span_indexes.all,
-                Box::new(IndexedSpanFilter::build(Some(*filter), span_indexes)),
+                Box::new(IndexedSpanFilter::build(
+                    Some(*filter),
+                    span_indexes,
+                    storage,
+                )),
             ),
             BasicSpanFilter::And(filters) => IndexedSpanFilter::And(
                 filters
                     .into_iter()
-                    .map(|f| IndexedSpanFilter::build(Some(f), span_indexes))
+                    .map(|f| IndexedSpanFilter::build(Some(f), span_indexes, storage))
                     .collect(),
             ),
             BasicSpanFilter::Or(filters) => IndexedSpanFilter::Or(
                 filters
                     .into_iter()
-                    .map(|f| IndexedSpanFilter::build(Some(f), span_indexes))
+                    .map(|f| IndexedSpanFilter::build(Some(f), span_indexes, storage))
                     .collect(),
             ),
         }
@@ -1827,16 +1810,15 @@ impl<'a> IndexedSpanFilter<'a> {
 }
 
 pub enum BasicSpanFilter {
-    Level(Level),
+    Level(SimpleLevel),
     Duration(DurationFilter),
     Created(ValueOperator, Timestamp),
     Closed(ValueOperator, Timestamp),
-    Connection(ConnectionKey),
     Name(ValueStringComparison),
-    Target(ValueStringComparison),
+    Namespace(ValueStringComparison),
     File(FileFilter),
-    Ancestor(SpanKey),
     Root,
+    Trace(TraceRoot),
     Parent(SpanKey),
     Attribute(String, ValueFilter),
     Not(Box<BasicSpanFilter>),
@@ -1851,12 +1833,11 @@ impl BasicSpanFilter {
             BasicSpanFilter::Duration(_) => {}
             BasicSpanFilter::Created(_, _) => {}
             BasicSpanFilter::Closed(_, _) => {}
-            BasicSpanFilter::Connection(_) => {}
             BasicSpanFilter::Name(_) => {}
-            BasicSpanFilter::Target(_) => {}
+            BasicSpanFilter::Namespace(_) => {}
             BasicSpanFilter::File(_) => {}
-            BasicSpanFilter::Ancestor(_) => {}
             BasicSpanFilter::Root => {}
+            BasicSpanFilter::Trace(_) => {}
             BasicSpanFilter::Parent(_) => {}
             BasicSpanFilter::Attribute(_, _) => {}
             BasicSpanFilter::Not(_) => {}
@@ -1912,8 +1893,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "connection" | "duration" | "name" | "target" | "file" | "parent"
-                | "created" | "closed" | "stack" => Inherent,
+                "level" | "duration" | "name" | "namespace" | "file" | "parent" | "created"
+                | "closed" | "trace" => Inherent,
                 _ => Attribute,
             });
 
@@ -1963,7 +1944,7 @@ impl BasicSpanFilter {
                     Ok(())
                 },
             )?,
-            (Inherent, "target") => validate_value_predicate(
+            (Inherent, "namespace") => validate_value_predicate(
                 &predicate.value,
                 |_op, _value| Ok(()),
                 |wildcard| {
@@ -2013,24 +1994,6 @@ impl BasicSpanFilter {
                     Ok(())
                 },
             )?,
-            (Inherent, "connection") => {
-                validate_value_predicate(
-                    &predicate.value,
-                    |op, value| {
-                        if *op != ValueOperator::Eq {
-                            return Err(InputError::InvalidConnectionOperator);
-                        }
-
-                        let _: ConnectionId = value
-                            .parse()
-                            .map_err(|_| InputError::InvalidConnectionValue)?;
-
-                        Ok(())
-                    },
-                    |_| Err(InputError::InvalidConnectionValue),
-                    |_| Err(InputError::InvalidConnectionValue),
-                )?;
-            }
             (Inherent, "created") => {
                 validate_value_predicate(
                     &predicate.value,
@@ -2066,8 +2029,8 @@ impl BasicSpanFilter {
                         }
 
                         if value != "none" {
-                            let _ =
-                                parse_full_span_id(value).ok_or(InputError::InvalidParentValue)?;
+                            let _: FullSpanId =
+                                value.parse().map_err(|_| InputError::InvalidParentValue)?;
                         }
 
                         Ok(())
@@ -2076,20 +2039,21 @@ impl BasicSpanFilter {
                     |_| Err(InputError::InvalidParentValue),
                 )?;
             }
-            (Inherent, "stack") => {
+            (Inherent, "trace") => {
                 validate_value_predicate(
                     &predicate.value,
                     |op, value| {
                         if *op != ValueOperator::Eq {
-                            return Err(InputError::InvalidStackOperator);
+                            return Err(InputError::InvalidTraceOperator);
                         }
 
-                        let _ = parse_full_span_id(value).ok_or(InputError::InvalidStackValue)?;
+                        let _: TraceRoot =
+                            value.parse().map_err(|_| InputError::InvalidTraceValue)?;
 
                         Ok(())
                     },
-                    |_| Err(InputError::InvalidStackValue),
-                    |_| Err(InputError::InvalidStackValue),
+                    |_| Err(InputError::InvalidTraceValue),
+                    |_| Err(InputError::InvalidTraceValue),
                 )?;
             }
             (Inherent, _) => {
@@ -2122,8 +2086,7 @@ impl BasicSpanFilter {
 
     pub fn from_predicate(
         predicate: FilterPredicate,
-        connection_key_map: &HashMap<ConnectionId, ConnectionKey>,
-        span_key_map: &HashMap<(ConnectionKey, SpanId), SpanKey>,
+        span_key_map: &HashMap<FullSpanId, SpanKey>,
     ) -> Result<BasicSpanFilter, InputError> {
         use FilterPropertyKind::*;
         use ValueOperator::*;
@@ -2133,14 +2096,14 @@ impl BasicSpanFilter {
             FilterPredicate::And(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicSpanFilter::And)
             }
             FilterPredicate::Or(predicates) => {
                 return predicates
                     .into_iter()
-                    .map(|p| Self::from_predicate(p, connection_key_map, span_key_map))
+                    .map(|p| Self::from_predicate(p, span_key_map))
                     .collect::<Result<_, _>>()
                     .map(BasicSpanFilter::Or)
             }
@@ -2149,8 +2112,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "connection" | "duration" | "name" | "target" | "file" | "parent"
-                | "created" | "closed" | "stack" => Inherent,
+                "level" | "duration" | "name" | "namespace" | "file" | "parent" | "created"
+                | "closed" | "trace" => Inherent,
                 _ => Attribute,
             });
 
@@ -2162,11 +2125,12 @@ impl BasicSpanFilter {
                 };
 
                 let level = match value.as_str() {
-                    "TRACE" => Level::Trace,
-                    "DEBUG" => Level::Debug,
-                    "INFO" => Level::Info,
-                    "WARN" => Level::Warn,
-                    "ERROR" => Level::Error,
+                    "TRACE" => SimpleLevel::Trace,
+                    "DEBUG" => SimpleLevel::Debug,
+                    "INFO" => SimpleLevel::Info,
+                    "WARN" => SimpleLevel::Warn,
+                    "ERROR" => SimpleLevel::Error,
+                    "FATAL" => SimpleLevel::Fatal,
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
@@ -2177,11 +2141,7 @@ impl BasicSpanFilter {
                 };
 
                 if above {
-                    BasicSpanFilter::Or(
-                        ((level as i32)..5)
-                            .map(|l| BasicSpanFilter::Level(l.try_into().unwrap()))
-                            .collect(),
-                    )
+                    BasicSpanFilter::Or(level.iter_gte().map(BasicSpanFilter::Level).collect())
                 } else {
                     BasicSpanFilter::Level(level)
                 }
@@ -2218,11 +2178,11 @@ impl BasicSpanFilter {
                     Ok(BasicSpanFilter::Name(filter))
                 },
             )?,
-            (Inherent, "target") => filterify_span_filter(
+            (Inherent, "namespace") => filterify_span_filter(
                 predicate.value,
                 |op, value| {
                     let filter = ValueStringComparison::Compare(op, value);
-                    Ok(BasicSpanFilter::Target(filter))
+                    Ok(BasicSpanFilter::Namespace(filter))
                 },
                 |wildcard| {
                     let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
@@ -2231,13 +2191,13 @@ impl BasicSpanFilter {
                         .map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Wildcard(wildcard);
-                    Ok(BasicSpanFilter::Target(filter))
+                    Ok(BasicSpanFilter::Namespace(filter))
                 },
                 |regex| {
                     let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Regex(regex);
-                    Ok(BasicSpanFilter::Target(filter))
+                    Ok(BasicSpanFilter::Namespace(filter))
                 },
             )?,
             (Inherent, "file") => filterify_span_filter(
@@ -2305,27 +2265,6 @@ impl BasicSpanFilter {
                     }))
                 },
             )?,
-            (Inherent, "connection") => filterify_span_filter(
-                predicate.value,
-                |op, value| {
-                    if op != ValueOperator::Eq {
-                        return Err(InputError::InvalidConnectionOperator);
-                    }
-
-                    let connection_id: ConnectionId = value
-                        .parse()
-                        .map_err(|_| InputError::InvalidConnectionValue)?;
-
-                    let connection_key = connection_key_map
-                        .get(&connection_id)
-                        .copied()
-                        .unwrap_or(ConnectionKey::MIN);
-
-                    Ok(BasicSpanFilter::Connection(connection_key))
-                },
-                |_| Err(InputError::InvalidConnectionValue),
-                |_| Err(InputError::InvalidConnectionValue),
-            )?,
             (Inherent, "created") => filterify_span_filter(
                 predicate.value,
                 |op, value| {
@@ -2358,48 +2297,34 @@ impl BasicSpanFilter {
                     if value == "none" {
                         Ok(BasicSpanFilter::Root)
                     } else {
-                        let (connection_id, parent_id) =
-                            parse_full_span_id(&value).ok_or(InputError::InvalidParentValue)?;
-
-                        let connection_key = connection_key_map
-                            .get(&connection_id)
-                            .copied()
-                            .unwrap_or(ConnectionKey::MIN);
+                        let parent_id: FullSpanId =
+                            value.parse().map_err(|_| InputError::InvalidParentValue)?;
 
                         let parent_key = span_key_map
-                            .get(&(connection_key, parent_id))
+                            .get(&parent_id)
                             .copied()
                             .unwrap_or(SpanKey::MIN);
 
                         Ok(BasicSpanFilter::Parent(parent_key))
                     }
                 },
-                |_| Err(InputError::InvalidConnectionValue),
-                |_| Err(InputError::InvalidConnectionValue),
+                |_| Err(InputError::InvalidParentValue),
+                |_| Err(InputError::InvalidParentValue),
             )?,
-            (Inherent, "stack") => filterify_span_filter(
+            (Inherent, "trace") => filterify_span_filter(
                 predicate.value,
                 |op, value| {
                     if op != ValueOperator::Eq {
-                        return Err(InputError::InvalidStackOperator);
+                        return Err(InputError::InvalidTraceOperator);
                     }
 
-                    let (connection_id, span_id) =
-                        parse_full_span_id(&value).ok_or(InputError::InvalidStackValue)?;
+                    let trace: TraceRoot =
+                        value.parse().map_err(|_| InputError::InvalidTraceValue)?;
 
-                    let connection_key = connection_key_map
-                        .get(&connection_id)
-                        .copied()
-                        .unwrap_or(ConnectionKey::MIN);
-                    let span_key = span_key_map
-                        .get(&(connection_key, span_id))
-                        .copied()
-                        .unwrap_or(SpanKey::MIN);
-
-                    Ok(BasicSpanFilter::Ancestor(span_key))
+                    Ok(BasicSpanFilter::Trace(trace))
                 },
-                |_| Err(InputError::InvalidStackValue),
-                |_| Err(InputError::InvalidStackValue),
+                |_| Err(InputError::InvalidTraceValue),
+                |_| Err(InputError::InvalidTraceValue),
             )?,
             (Inherent, _) => {
                 return Err(InputError::InvalidInherentProperty);
@@ -2428,8 +2353,8 @@ impl BasicSpanFilter {
 pub enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Closed(ValueOperator, Timestamp),
-    Name(ValueStringComparison),
-    Target(ValueStringComparison),
+    Function(ValueStringComparison),
+    Namespace(ValueStringComparison),
     File(FileFilter),
     Parent(SpanKey),
     Attribute(String, ValueFilter),
@@ -2447,8 +2372,10 @@ impl NonIndexedSpanFilter {
 
                 op.compare(closed_at, *value)
             }
-            NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
-            NonIndexedSpanFilter::Target(filter) => filter.matches(&span.target),
+            NonIndexedSpanFilter::Function(filter) => filter.matches_opt(span.function.as_deref()),
+            NonIndexedSpanFilter::Namespace(filter) => {
+                filter.matches_opt(span.namespace.as_deref())
+            }
             NonIndexedSpanFilter::File(filter) => {
                 filter.matches(span.file_name.as_deref(), span.file_line)
             }
@@ -2543,25 +2470,19 @@ pub struct IndexedSpanFilterIterator<'i, S> {
     storage: &'i S,
 }
 
-impl<'i, S> IndexedSpanFilterIterator<'i, S> {
+impl<'i, S: Storage> IndexedSpanFilterIterator<'i, S> {
     pub fn new(query: Query, engine: &'i RawEngine<S>) -> IndexedSpanFilterIterator<'i, S> {
         let mut filter = BasicSpanFilter::And(
             query
                 .filter
                 .into_iter()
-                .map(|p| {
-                    BasicSpanFilter::from_predicate(
-                        p,
-                        &engine.connection_key_map,
-                        &engine.span_key_map,
-                    )
-                    .unwrap()
-                })
+                .map(|p| BasicSpanFilter::from_predicate(p, &engine.span_key_map).unwrap())
                 .collect(),
         );
         filter.simplify();
 
-        let mut filter = IndexedSpanFilter::build(Some(filter), &engine.span_indexes);
+        let mut filter =
+            IndexedSpanFilter::build(Some(filter), &engine.span_indexes, &engine.storage);
 
         let curr;
         let mut start = query.start;
@@ -2660,264 +2581,6 @@ where
     // fn size_hint(&self) -> (usize, Option<usize>) {
     //     self.filter.size_hint()
     // }
-}
-
-pub enum BasicConnectionFilter {
-    Duration(DurationFilter),
-    Connected(ValueOperator, Timestamp),
-    Disconnected(ValueOperator, Timestamp),
-    Attribute(String, ValueFilter),
-    Not(Box<BasicConnectionFilter>),
-    And(Vec<BasicConnectionFilter>),
-    Or(Vec<BasicConnectionFilter>),
-}
-
-impl BasicConnectionFilter {
-    pub fn simplify(&mut self) {
-        match self {
-            BasicConnectionFilter::Duration(_) => {}
-            BasicConnectionFilter::Connected(_, _) => {}
-            BasicConnectionFilter::Disconnected(_, _) => {}
-            BasicConnectionFilter::Attribute(_, _) => {}
-            BasicConnectionFilter::Not(_) => {}
-            BasicConnectionFilter::And(filters) => {
-                for filter in &mut *filters {
-                    filter.simplify()
-                }
-
-                if filters.len() == 1 {
-                    let mut filters = std::mem::take(filters);
-                    let filter = filters.pop().unwrap();
-                    *self = filter;
-                }
-            }
-            BasicConnectionFilter::Or(filters) => {
-                for filter in &mut *filters {
-                    filter.simplify()
-                }
-
-                if filters.len() == 1 {
-                    let mut filters = std::mem::take(filters);
-                    let filter = filters.pop().unwrap();
-                    *self = filter;
-                }
-            }
-        }
-    }
-
-    pub fn validate(predicate: FilterPredicate) -> Result<FallibleFilterPredicate, InputError> {
-        use FilterPropertyKind::*;
-
-        let predicate = match predicate {
-            FilterPredicate::Single(single) => single,
-            FilterPredicate::And(predicates) => {
-                return Ok(FallibleFilterPredicate::And(
-                    predicates
-                        .into_iter()
-                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
-                        .collect(),
-                ))
-            }
-            FilterPredicate::Or(predicates) => {
-                return Ok(FallibleFilterPredicate::Or(
-                    predicates
-                        .into_iter()
-                        .map(|p| Self::validate(p.clone()).map_err(|e| (e, p.to_string())))
-                        .collect(),
-                ))
-            }
-        };
-
-        let property_kind = predicate
-            .property_kind
-            .unwrap_or(match predicate.property.as_str() {
-                "duration" | "connected" | "disconnected" => Inherent,
-                _ => Attribute,
-            });
-
-        match (property_kind, predicate.property.as_str()) {
-            (Inherent, "duration") => validate_value_predicate(
-                &predicate.value,
-                |op, value| {
-                    DurationFilter::from_input(*op, value)?;
-                    Ok(())
-                },
-                |_| Err(InputError::InvalidDurationValue),
-                |_| Err(InputError::InvalidDurationValue),
-            )?,
-            (Inherent, "connected") => validate_value_predicate(
-                &predicate.value,
-                |_op, value| {
-                    let _: Timestamp = value
-                        .parse()
-                        .map_err(|_| InputError::InvalidConnectedValue)?;
-
-                    Ok(())
-                },
-                |_| Err(InputError::InvalidConnectedValue),
-                |_| Err(InputError::InvalidConnectedValue),
-            )?,
-            (Inherent, "disconnected") => validate_value_predicate(
-                &predicate.value,
-                |_op, value| {
-                    let _: Timestamp = value
-                        .parse()
-                        .map_err(|_| InputError::InvalidDisconnectedValue)?;
-
-                    Ok(())
-                },
-                |_| Err(InputError::InvalidDisconnectedValue),
-                |_| Err(InputError::InvalidDisconnectedValue),
-            )?,
-            (Inherent, _) => {
-                return Err(InputError::InvalidInherentProperty);
-            }
-            (Attribute, _) => {
-                validate_value_predicate(
-                    &predicate.value,
-                    |_op, _value| Ok(()),
-                    |wildcard| {
-                        WildcardBuilder::new(wildcard.as_bytes())
-                            .without_one_metasymbol()
-                            .build()
-                            .map_err(|_| InputError::InvalidWildcardValue)?;
-                        Ok(())
-                    },
-                    |regex| {
-                        Regex::new(regex).map_err(|_| InputError::InvalidRegexValue)?;
-                        Ok(())
-                    },
-                )?;
-            }
-        }
-
-        Ok(FallibleFilterPredicate::Single(FilterPredicateSingle {
-            property_kind: Some(property_kind),
-            ..predicate
-        }))
-    }
-
-    pub fn from_predicate(predicate: FilterPredicate) -> Result<BasicConnectionFilter, InputError> {
-        use FilterPropertyKind::*;
-
-        let predicate = match predicate {
-            FilterPredicate::Single(single) => single,
-            FilterPredicate::And(predicates) => {
-                return predicates
-                    .into_iter()
-                    .map(Self::from_predicate)
-                    .collect::<Result<_, _>>()
-                    .map(BasicConnectionFilter::And)
-            }
-            FilterPredicate::Or(predicates) => {
-                return predicates
-                    .into_iter()
-                    .map(Self::from_predicate)
-                    .collect::<Result<_, _>>()
-                    .map(BasicConnectionFilter::Or)
-            }
-        };
-
-        let property_kind = predicate
-            .property_kind
-            .unwrap_or(match predicate.property.as_str() {
-                "duration" | "connected" | "disconnected" => Inherent,
-                _ => Attribute,
-            });
-
-        let filter = match (property_kind, predicate.property.as_str()) {
-            (Inherent, "duration") => filterify_connection_filter(
-                predicate.value,
-                |op, value| {
-                    Ok(BasicConnectionFilter::Duration(DurationFilter::from_input(
-                        op, &value,
-                    )?))
-                },
-                |_| Err(InputError::InvalidDurationValue),
-                |_| Err(InputError::InvalidDurationValue),
-            )?,
-            (Inherent, "connected") => filterify_connection_filter(
-                predicate.value,
-                |op, value| {
-                    let at: Timestamp = value
-                        .parse()
-                        .map_err(|_| InputError::InvalidConnectedValue)?;
-
-                    Ok(BasicConnectionFilter::Connected(op, at))
-                },
-                |_| Err(InputError::InvalidConnectedValue),
-                |_| Err(InputError::InvalidConnectedValue),
-            )?,
-            (Inherent, "disconnected") => filterify_connection_filter(
-                predicate.value,
-                |op, value| {
-                    let at: Timestamp = value
-                        .parse()
-                        .map_err(|_| InputError::InvalidDisconnectedValue)?;
-
-                    Ok(BasicConnectionFilter::Disconnected(op, at))
-                },
-                |_| Err(InputError::InvalidDisconnectedValue),
-                |_| Err(InputError::InvalidDisconnectedValue),
-            )?,
-            (Inherent, _) => {
-                return Err(InputError::InvalidInherentProperty);
-            }
-            (Attribute, name) => filterify_connection_filter(
-                predicate.value,
-                |op, value| {
-                    let value_filter = ValueFilter::from_input(op, &value);
-                    Ok(BasicConnectionFilter::Attribute(
-                        name.to_owned(),
-                        value_filter,
-                    ))
-                },
-                |wildcard| {
-                    let value_filter = ValueFilter::from_wildcard(wildcard)?;
-                    Ok(BasicConnectionFilter::Attribute(
-                        name.to_owned(),
-                        value_filter,
-                    ))
-                },
-                |regex| {
-                    let value_filter = ValueFilter::from_regex(regex)?;
-                    Ok(BasicConnectionFilter::Attribute(
-                        name.to_owned(),
-                        value_filter,
-                    ))
-                },
-            )?,
-        };
-
-        Ok(filter)
-    }
-
-    pub fn matches<S: Storage>(&self, storage: &S, entry: Timestamp) -> bool {
-        let connection = storage.get_connection(entry).unwrap();
-        match self {
-            BasicConnectionFilter::Duration(filter) => filter.matches(connection.duration()),
-            BasicConnectionFilter::Connected(op, value) => {
-                op.compare(connection.connected_at, *value)
-            }
-            BasicConnectionFilter::Disconnected(op, value) => {
-                let Some(disconnected_at) = connection.disconnected_at else {
-                    return false; // never match connected connections
-                };
-
-                op.compare(disconnected_at, *value)
-            }
-            BasicConnectionFilter::Attribute(attribute, value_filter) => connection
-                .fields
-                .get(attribute)
-                .map(|v| value_filter.matches(v))
-                .unwrap_or(false),
-            BasicConnectionFilter::Not(inner_filter) => !inner_filter.matches(storage, entry),
-            BasicConnectionFilter::And(filters) => {
-                filters.iter().all(|f| f.matches(storage, entry))
-            }
-            BasicConnectionFilter::Or(filters) => filters.iter().any(|f| f.matches(storage, entry)),
-        }
-    }
 }
 
 fn validate_value_predicate(
@@ -3040,54 +2703,6 @@ fn filterify_span_filter(
                 .into_iter()
                 .map(|p| {
                     filterify_span_filter(
-                        p,
-                        comparison_filterifier.clone(),
-                        wildcard_filterifier.clone(),
-                        regex_filterifier.clone(),
-                    )
-                })
-                .collect::<Result<_, _>>()?,
-        )),
-    }
-}
-
-fn filterify_connection_filter(
-    value: ValuePredicate,
-    comparison_filterifier: impl Fn(ValueOperator, String) -> Result<BasicConnectionFilter, InputError>
-        + Clone,
-    wildcard_filterifier: impl Fn(String) -> Result<BasicConnectionFilter, InputError> + Clone,
-    regex_filterifier: impl Fn(String) -> Result<BasicConnectionFilter, InputError> + Clone,
-) -> Result<BasicConnectionFilter, InputError> {
-    match value {
-        ValuePredicate::Not(predicate) => Ok(BasicConnectionFilter::Not(Box::new(
-            filterify_connection_filter(
-                *predicate,
-                comparison_filterifier,
-                wildcard_filterifier,
-                regex_filterifier,
-            )?,
-        ))),
-        ValuePredicate::Comparison(op, value) => comparison_filterifier(op, value),
-        ValuePredicate::Wildcard(wildcard) => wildcard_filterifier(wildcard),
-        ValuePredicate::Regex(regex) => regex_filterifier(regex),
-        ValuePredicate::And(predicates) => Ok(BasicConnectionFilter::And(
-            predicates
-                .into_iter()
-                .map(|p| {
-                    filterify_connection_filter(
-                        p,
-                        comparison_filterifier.clone(),
-                        wildcard_filterifier.clone(),
-                        regex_filterifier.clone(),
-                    )
-                })
-                .collect::<Result<_, _>>()?,
-        )),
-        ValuePredicate::Or(predicates) => Ok(BasicConnectionFilter::Or(
-            predicates
-                .into_iter()
-                .map(|p| {
-                    filterify_connection_filter(
                         p,
                         comparison_filterifier.clone(),
                         wildcard_filterifier.clone(),

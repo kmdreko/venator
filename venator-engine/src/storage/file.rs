@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use rusqlite::{Connection as DbConnection, Error as DbError, Params, Row};
+use rusqlite::{params, Connection as DbConnection, Error as DbError, Params, Row};
 
-use crate::models::Value;
-use crate::{Connection, Event, Span, SpanEvent, SpanEventKind, SpanId, SpanKey, Timestamp};
+use crate::models::{EventKey, Level, Value};
+use crate::{Event, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp};
 
 use super::Storage;
 
@@ -23,13 +23,11 @@ impl FileStorage {
 
         let _ = connection.execute(
             r#"
-            CREATE TABLE connections (
+            CREATE TABLE resources (
                 key             INT8 NOT NULL,
-                id              INT8,
-                disconnected_at INT8,
                 fields          TEXT,
 
-                CONSTRAINT connections_pk PRIMARY KEY (key)
+                CONSTRAINT resources_pk PRIMARY KEY (key)
             );"#,
             (),
         );
@@ -37,18 +35,23 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE spans (
-                key        INT8 NOT NULL,
-                connection INT8,
-                id         INT8,
-                closed_at  INT8,
-                parent_id  INT8,
-                follows    TEXT,
-                target     TEXT,
-                name       TEXT,
-                level      INT,
-                file_name  TEXT,
-                file_line  INTEGER,
-                fields     TEXT,
+                key          INT8 NOT NULL,
+                resource_key INT8,
+                id           TEXT,
+                closed_at    INT8,
+                busy         INT8,
+                parent_id    TEXT,
+                parent_key   INT8,
+                follows      TEXT,
+                name         TEXT,
+                namespace    TEXT,
+                function     TEXT,
+                level        INT,
+                file_name    TEXT,
+                file_line    INT,
+                file_column  INT,
+                instrumentation_fields TEXT,
+                fields       TEXT,
 
                 CONSTRAINT spans_pk PRIMARY KEY (key)
             );"#,
@@ -58,11 +61,10 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE span_events (
-                key        INT8 NOT NULL,
-                connection INT8,
-                span_id    INT8,
-                kind       TEXT,
-                data       TEXT,
+                key      INT8 NOT NULL,
+                span_key INT8 NOT NULL,
+                kind     TEXT NOT NULL,
+                data     TEXT,
 
                 CONSTRAINT span_events_pk PRIMARY KEY (key)
             );"#,
@@ -72,15 +74,18 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE events (
-                key        INT8 NOT NULL,
-                connection INT8,
-                span_id    INT8,
-                target     TEXT,
-                name       TEXT,
-                level      INT,
-                file_name  TEXT,
-                file_line  INTEGER,
-                fields     TEXT,
+                key          INT8 NOT NULL,
+                resource_key INT8,
+                parent_id    TEXT,
+                parent_key   INT8,
+                content      TEXT,
+                namespace    TEXT,
+                function     TEXT,
+                level        INT,
+                file_name    TEXT,
+                file_line    INT,
+                file_column  INT,
+                fields       TEXT,
 
                 CONSTRAINT events_pk PRIMARY KEY (key)
             );"#,
@@ -92,13 +97,13 @@ impl FileStorage {
 }
 
 impl Storage for FileStorage {
-    fn get_connection(&self, at: Timestamp) -> Option<Arc<Connection>> {
+    fn get_resource(&self, at: Timestamp) -> Option<Arc<Resource>> {
         let mut stmt = self
             .connection
-            .prepare_cached("SELECT * FROM connections WHERE key = ?1")
+            .prepare_cached("SELECT * FROM resources WHERE key = ?1")
             .unwrap();
 
-        let result = stmt.query_row((at,), connection_from_row);
+        let result = stmt.query_row((at,), resource_from_row);
 
         Some(Arc::new(result.unwrap()))
     }
@@ -136,19 +141,19 @@ impl Storage for FileStorage {
         Some(Arc::new(result.unwrap()))
     }
 
-    fn get_all_connections(&self) -> Box<dyn Iterator<Item = Arc<Connection>> + '_> {
+    fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
         let mut stmt = self
             .connection
-            .prepare_cached("SELECT * FROM connections ORDER BY key")
+            .prepare_cached("SELECT * FROM resources ORDER BY key")
             .unwrap();
 
-        let connections = stmt
-            .query_map((), connection_from_row)
+        let resources = stmt
+            .query_map((), resource_from_row)
             .unwrap()
             .map(|result| result.unwrap())
             .collect::<Vec<_>>();
 
-        Box::new(connections.into_iter().map(Arc::new))
+        Box::new(resources.into_iter().map(Arc::new))
     }
 
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_> {
@@ -196,30 +201,69 @@ impl Storage for FileStorage {
         Box::new(events.into_iter().map(Arc::new))
     }
 
-    fn insert_connection(&mut self, connection: Connection) {
+    fn insert_resource(&mut self, resource: Resource) {
         let mut stmt = self
             .connection
-            .prepare_cached("INSERT INTO connections VALUES (?1, ?2, ?3, ?4)")
+            .prepare_cached("INSERT INTO resources VALUES (?1, ?2)")
             .unwrap();
 
-        stmt.execute(connection_to_params(connection)).unwrap();
+        stmt.execute(resource_to_params(resource)).unwrap();
     }
 
     fn insert_span(&mut self, span: Span) {
         let mut stmt = self
             .connection
             .prepare_cached(
-                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             )
             .unwrap();
 
-        stmt.execute(span_to_params(span)).unwrap();
+        // have to inline it since I exceeded 16 elements
+
+        let key = span.created_at;
+        let resource_key = span.resource_key;
+        let id = span.id.to_string();
+        let closed_at = span.closed_at;
+        let busy = span.busy.map(|b| b as i64);
+        let parent_id = span.parent_id.map(|id| id.to_string());
+        let parent_key = span.parent_key;
+        let follows = serde_json::to_string(&span.follows).unwrap();
+        let name = span.name;
+        let namespace = span.namespace;
+        let function = span.function;
+        let level = span.level.to_db();
+        let file_name = span.file_name;
+        let file_line = span.file_line;
+        let file_column = span.file_column;
+        let instrumentation_fields = serde_json::to_string(&span.instrumentation_fields).unwrap();
+        let fields = serde_json::to_string(&span.fields).unwrap();
+
+        stmt.execute(params![
+            key,
+            resource_key,
+            id,
+            closed_at,
+            busy,
+            parent_id,
+            parent_key,
+            follows,
+            name,
+            namespace,
+            function,
+            level,
+            file_name,
+            file_line,
+            file_column,
+            instrumentation_fields,
+            fields
+        ])
+        .unwrap();
     }
 
     fn insert_span_event(&mut self, span_event: SpanEvent) {
         let mut stmt = self
             .connection
-            .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4, ?5)")
+            .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4)")
             .unwrap();
 
         stmt.execute(span_event_to_params(span_event)).unwrap();
@@ -228,28 +272,21 @@ impl Storage for FileStorage {
     fn insert_event(&mut self, event: Event) {
         let mut stmt = self
             .connection
-            .prepare_cached("INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+            .prepare_cached(
+                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            )
             .unwrap();
 
         stmt.execute(event_to_params(event)).unwrap();
     }
 
-    fn update_connection_disconnected(&mut self, at: Timestamp, disconnected: Timestamp) {
+    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>) {
         let mut stmt = self
             .connection
-            .prepare_cached("UPDATE connections SET disconnected_at = ?2 WHERE key = ?1")
+            .prepare_cached("UPDATE spans SET closed_at = ?2, busy = ?3 WHERE key = ?1")
             .unwrap();
 
-        stmt.execute((at, disconnected)).unwrap();
-    }
-
-    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp) {
-        let mut stmt = self
-            .connection
-            .prepare_cached("UPDATE spans SET closed_at = ?2 WHERE key = ?1")
-            .unwrap();
-
-        stmt.execute((at, closed)).unwrap();
+        stmt.execute((at, closed, busy.map(|b| b as i64))).unwrap();
     }
 
     fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
@@ -300,15 +337,45 @@ impl Storage for FileStorage {
         stmt.execute((at, fields)).unwrap();
     }
 
-    fn drop_connections(&mut self, connections: &[Timestamp]) {
+    fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {
         let tx = self.connection.transaction().unwrap();
 
         let mut stmt = tx
-            .prepare_cached("DELETE FROM connections WHERE connections.key = ?1")
+            .prepare_cached("UPDATE spans SET parent_key = ?2 WHERE key = ?1")
             .unwrap();
 
-        for connection_key in connections {
-            stmt.execute((connection_key,)).unwrap();
+        for span_key in spans {
+            stmt.execute((span_key, parent_key)).unwrap();
+        }
+
+        drop(stmt);
+        tx.commit().unwrap();
+    }
+
+    fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]) {
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare_cached("UPDATE events SET parent_key = ?2 WHERE key = ?1")
+            .unwrap();
+
+        for event_key in events {
+            stmt.execute((event_key, parent_key)).unwrap();
+        }
+
+        drop(stmt);
+        tx.commit().unwrap();
+    }
+
+    fn drop_resources(&mut self, resources: &[Timestamp]) {
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare_cached("DELETE FROM resources WHERE resources.key = ?1")
+            .unwrap();
+
+        for resource_key in resources {
+            stmt.execute((resource_key,)).unwrap();
         }
 
         drop(stmt);
@@ -322,8 +389,8 @@ impl Storage for FileStorage {
             .prepare_cached("DELETE FROM spans WHERE spans.key = ?1")
             .unwrap();
 
-        for connection_key in spans {
-            stmt.execute((connection_key,)).unwrap();
+        for span_key in spans {
+            stmt.execute((span_key,)).unwrap();
         }
 
         drop(stmt);
@@ -337,8 +404,8 @@ impl Storage for FileStorage {
             .prepare_cached("DELETE FROM span_events WHERE span_events.key = ?1")
             .unwrap();
 
-        for connection_key in span_events {
-            stmt.execute((connection_key,)).unwrap();
+        for span_event_key in span_events {
+            stmt.execute((span_event_key,)).unwrap();
         }
 
         drop(stmt);
@@ -352,8 +419,8 @@ impl Storage for FileStorage {
             .prepare_cached("DELETE FROM events WHERE events.key = ?1")
             .unwrap();
 
-        for connection_key in events {
-            stmt.execute((connection_key,)).unwrap();
+        for event_key in events {
+            stmt.execute((event_key,)).unwrap();
         }
 
         drop(stmt);
@@ -361,76 +428,63 @@ impl Storage for FileStorage {
     }
 }
 
-fn connection_to_params(connection: Connection) -> impl Params {
-    let key = connection.key();
-    let id = connection.id;
-    let disconnected_at = connection.disconnected_at;
-    let fields = serde_json::to_string(&connection.fields).unwrap();
+fn resource_to_params(resource: Resource) -> impl Params {
+    let key = resource.key();
+    let fields = serde_json::to_string(&resource.fields).unwrap();
 
-    (key, id as i64, disconnected_at, fields)
+    (key, fields)
 }
 
-fn connection_from_row(row: &Row<'_>) -> Result<Connection, DbError> {
-    let key = row.get(0)?;
-    let id: i64 = row.get(1)?;
-    let disconnected_at = row.get(2)?;
-    let fields: String = row.get(3)?;
+fn resource_from_row(row: &Row<'_>) -> Result<Resource, DbError> {
+    let key: i64 = row.get(0)?;
+    let fields: String = row.get(1)?;
     let fields = serde_json::from_str(&fields).unwrap();
 
-    Ok(Connection {
-        id: id as u64,
-        connected_at: key,
-        disconnected_at,
+    Ok(Resource {
+        created_at: ResourceKey::new(key as u64).unwrap(),
         fields,
     })
 }
 
-#[rustfmt::skip]
-fn span_to_params(span: Span) -> impl Params {
-    let key = span.created_at;
-    let connection_key = span.connection_key;
-    let id = span.id.get() as i64;
-    let closed_at = span.closed_at;
-    let parent_id = span.parent_key;
-    let follows = serde_json::to_string(&span.follows).unwrap();
-    let target = span.target;
-    let name = span.name;
-    let level = span.level as i32;
-    let file_name = span.file_name;
-    let file_line = span.file_line;
-    let fields = serde_json::to_string(&span.fields).unwrap();
-
-    (key, connection_key, id, closed_at, parent_id, follows, target, name, level, file_name, file_line, fields)
-}
-
 fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
     let key = row.get(0)?;
-    let connection_key = row.get(1)?;
-    let id: i64 = row.get(2)?;
+    let resource_key = row.get(1)?;
+    let id: String = row.get(2)?;
     let closed_at = row.get(3)?;
-    let parent_key = row.get(4)?;
-    let follows: String = row.get(5)?;
+    let busy: Option<i64> = row.get(4)?;
+    let parent_id: Option<String> = row.get(5)?;
+    let parent_key = row.get(6)?;
+    let follows: String = row.get(7)?;
     let follows = serde_json::from_str(&follows).unwrap();
-    let target = row.get(6)?;
-    let name = row.get(7)?;
-    let level: i32 = row.get(8)?;
-    let file_name = row.get(9)?;
-    let file_line = row.get(10)?;
-    let fields: String = row.get(11)?;
+    let name = row.get(8)?;
+    let namespace = row.get(9)?;
+    let function = row.get(10)?;
+    let level: i32 = row.get(11)?;
+    let file_name = row.get(12)?;
+    let file_line = row.get(13)?;
+    let file_column = row.get(14)?;
+    let instrumentation_fields: String = row.get(15)?;
+    let instrumentation_fields = serde_json::from_str(&instrumentation_fields).unwrap();
+    let fields: String = row.get(16)?;
     let fields = serde_json::from_str(&fields).unwrap();
 
     Ok(Span {
         created_at: key,
-        connection_key,
-        id: SpanId::new(id as u64).unwrap(),
+        resource_key,
+        id: id.parse().unwrap(),
         closed_at,
+        busy: busy.map(|b| b as u64),
+        parent_id: parent_id.map(|id| id.parse().unwrap()),
         parent_key,
         follows,
-        target,
         name,
-        level: level.try_into().unwrap(),
+        namespace,
+        function,
+        level: Level::from_db(level).unwrap(),
         file_name,
         file_line,
+        file_column,
+        instrumentation_fields,
         fields,
     })
 }
@@ -439,70 +493,63 @@ fn span_event_to_params(span_event: SpanEvent) -> impl Params {
     match span_event.kind {
         SpanEventKind::Create(create_span_event) => {
             let key = span_event.timestamp;
-            let connection_key = span_event.connection_key;
             let span_key = span_event.span_key;
             let kind = "create";
             let data = serde_json::to_string(&create_span_event).unwrap();
 
-            (key, connection_key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data))
         }
         SpanEventKind::Update(update_span_event) => {
             let key = span_event.timestamp;
-            let connection_key = span_event.connection_key;
             let span_key = span_event.span_key;
             let kind = "update";
             let data = serde_json::to_string(&update_span_event).unwrap();
 
-            (key, connection_key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data))
         }
         SpanEventKind::Follows(follows_span_event) => {
             let key = span_event.timestamp;
-            let connection_key = span_event.connection_key;
             let span_key = span_event.span_key;
             let kind = "follows";
             let data = serde_json::to_string(&follows_span_event).unwrap();
 
-            (key, connection_key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data))
         }
         SpanEventKind::Enter(enter_span_event) => {
             let key = span_event.timestamp;
-            let connection_key = span_event.connection_key;
             let span_key = span_event.span_key;
             let kind = "enter";
             let data = serde_json::to_string(&enter_span_event).unwrap();
 
-            (key, connection_key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data))
         }
         SpanEventKind::Exit => {
             let key = span_event.timestamp;
-            let connection_key = span_event.connection_key;
             let span_key = span_event.span_key;
             let kind = "exit";
 
-            (key, connection_key, span_key, kind, None)
+            (key, span_key, kind, None)
         }
-        SpanEventKind::Close => {
+        SpanEventKind::Close(close_span_event) => {
             let key = span_event.timestamp;
-            let connection_key = span_event.connection_key;
             let span_key = span_event.span_key;
             let kind = "close";
+            let data = serde_json::to_string(&close_span_event).unwrap();
 
-            (key, connection_key, span_key, kind, None)
+            (key, span_key, kind, Some(data))
         }
     }
 }
 
 fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
     let key = row.get(0)?;
-    let connection_key = row.get(1)?;
-    let span_key = row.get(2)?;
-    let kind: String = row.get(3)?;
-    let data: Option<String> = row.get(4)?;
+    let span_key = row.get(1)?;
+    let kind: String = row.get(2)?;
+    let data: Option<String> = row.get(3)?;
     match kind.as_str() {
         "create" => {
             let create_span_event = serde_json::from_str(&data.unwrap()).unwrap();
             Ok(SpanEvent {
-                connection_key,
                 timestamp: key,
                 span_key,
                 kind: SpanEventKind::Create(create_span_event),
@@ -511,7 +558,6 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
         "update" => {
             let update_span_event = serde_json::from_str(&data.unwrap()).unwrap();
             Ok(SpanEvent {
-                connection_key,
                 timestamp: key,
                 span_key,
                 kind: SpanEventKind::Update(update_span_event),
@@ -520,7 +566,6 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
         "follows" => {
             let follows_span_event = serde_json::from_str(&data.unwrap()).unwrap();
             Ok(SpanEvent {
-                connection_key,
                 timestamp: key,
                 span_key,
                 kind: SpanEventKind::Follows(follows_span_event),
@@ -529,24 +574,24 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
         "enter" => {
             let enter_span_event = serde_json::from_str(&data.unwrap()).unwrap();
             Ok(SpanEvent {
-                connection_key,
                 timestamp: key,
                 span_key,
                 kind: SpanEventKind::Enter(enter_span_event),
             })
         }
         "exit" => Ok(SpanEvent {
-            connection_key,
             timestamp: key,
             span_key,
             kind: SpanEventKind::Exit,
         }),
-        "close" => Ok(SpanEvent {
-            connection_key,
-            timestamp: key,
-            span_key,
-            kind: SpanEventKind::Close,
-        }),
+        "close" => {
+            let close_span_event = serde_json::from_str(&data.unwrap()).unwrap();
+            Ok(SpanEvent {
+                timestamp: key,
+                span_key,
+                kind: SpanEventKind::Close(close_span_event),
+            })
+        }
         _ => panic!("unknown span event kind"),
     }
 }
@@ -554,39 +599,49 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
 #[rustfmt::skip]
 fn event_to_params(event: Event) -> impl Params {
     let key = event.timestamp;
-    let connection_key = event.connection_key;
-    let span_key = event.span_key;
-    let target = event.target;
-    let name = event.name;
-    let level = event.level as i32;
+    let resource_key = event.resource_key;
+    let parent_id = event.parent_id.map(|id| id.to_string());
+    let parent_key = event.parent_key;
+    let content = serde_json::to_string(&event.content).unwrap();
+    let namespace = event.namespace;
+    let function = event.function;
+    let level = event.level.to_db();
     let file_name = event.file_name;
     let file_line = event.file_line;
+    let file_column = event.file_column;
     let fields = serde_json::to_string(&event.fields).unwrap();
 
-    (key, connection_key, span_key, target, name, level, file_name, file_line, fields)
+    (key, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, fields)
 }
 
 fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
     let key = row.get(0)?;
-    let connection_key = row.get(1)?;
-    let span_key = row.get(2)?;
-    let target = row.get(3)?;
-    let name = row.get(4)?;
-    let level: i32 = row.get(5)?;
-    let file_name = row.get(6)?;
-    let file_line = row.get(7)?;
-    let fields: String = row.get(8)?;
+    let resource_key = row.get(1)?;
+    let parent_id: Option<String> = row.get(2)?;
+    let parent_key = row.get(3)?;
+    let content: String = row.get(4)?;
+    let content = serde_json::from_str(&content).unwrap();
+    let namespace = row.get(5)?;
+    let function = row.get(6)?;
+    let level: i32 = row.get(7)?;
+    let file_name = row.get(8)?;
+    let file_line = row.get(9)?;
+    let file_column = row.get(10)?;
+    let fields: String = row.get(11)?;
     let fields = serde_json::from_str(&fields).unwrap();
 
     Ok(Event {
         timestamp: key,
-        connection_key,
-        span_key,
-        target,
-        name,
-        level: level.try_into().unwrap(),
+        resource_key,
+        parent_id: parent_id.map(|id| id.parse().unwrap()),
+        parent_key,
+        content,
+        namespace,
+        function,
+        level: Level::from_db(level).unwrap(),
         file_name,
         file_line,
+        file_column,
         fields,
     })
 }

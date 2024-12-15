@@ -97,3 +97,7 @@
 .trace-graph-bar.level-4 {
     background-color: var(--level-4-bar-color);
 }
+
+.trace-graph-bar.level-5 {
+    background-color: var(--level-5-bar-color);
+}

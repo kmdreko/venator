@@ -6,8 +6,7 @@ mod cached;
 mod file;
 mod transient;
 
-use crate::models::{Connection, Event, Span, SpanEvent, Timestamp, Value};
-use crate::SpanKey;
+use crate::models::{Event, EventKey, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 
 pub use cached::CachedStorage;
 #[cfg(feature = "persist")]
@@ -22,27 +21,28 @@ pub use transient::TransientStorage;
 ///
 /// The *get all* methods are used to load on startup, and backfill new indexes.
 pub trait Storage {
-    fn get_connection(&self, at: Timestamp) -> Option<Arc<Connection>>;
+    fn get_resource(&self, at: Timestamp) -> Option<Arc<Resource>>;
     fn get_span(&self, at: Timestamp) -> Option<Arc<Span>>;
     fn get_span_event(&self, at: Timestamp) -> Option<Arc<SpanEvent>>;
     fn get_event(&self, at: Timestamp) -> Option<Arc<Event>>;
 
-    fn get_all_connections(&self) -> Box<dyn Iterator<Item = Arc<Connection>> + '_>;
+    fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_>;
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_>;
     fn get_all_span_events(&self) -> Box<dyn Iterator<Item = Arc<SpanEvent>> + '_>;
     fn get_all_events(&self) -> Box<dyn Iterator<Item = Arc<Event>> + '_>;
 
-    fn insert_connection(&mut self, connection: Connection);
+    fn insert_resource(&mut self, resource: Resource);
     fn insert_span(&mut self, span: Span);
     fn insert_span_event(&mut self, span_event: SpanEvent);
     fn insert_event(&mut self, event: Event);
 
-    fn update_connection_disconnected(&mut self, at: Timestamp, disconnected: Timestamp);
-    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp);
+    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>);
     fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>);
     fn update_span_follows(&mut self, at: Timestamp, follows: SpanKey);
+    fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]);
+    fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]);
 
-    fn drop_connections(&mut self, connections: &[Timestamp]);
+    fn drop_resources(&mut self, resources: &[Timestamp]);
     fn drop_spans(&mut self, spans: &[Timestamp]);
     fn drop_span_events(&mut self, span_events: &[Timestamp]);
     fn drop_events(&mut self, events: &[Timestamp]);

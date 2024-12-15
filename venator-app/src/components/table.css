@@ -99,7 +99,8 @@
 #table .data .level-1,
 #table .data .level-2,
 #table .data .level-3,
-#table .data .level-4 {
+#table .data .level-4,
+#table .data .level-5 {
     margin-top: 3px;
     width: 7px;
     height: 14px;
@@ -133,6 +134,10 @@
 
 #table .data .level-4 {
     background-color: var(--level-4-bg-color);
+}
+
+#table .data .level-5 {
+    background-color: var(--level-5-bg-color);
 }
 
 #table .data .time-bar {
@@ -198,6 +203,15 @@
             transparent 76% 100%);
 }
 
+#table .data .time-bar-span.time-bar-5 {
+    border-color: var(--level-5-bar-color);
+    background-image: linear-gradient(transparent 0 24%,
+            var(--level-5-bar-color) 24% 30%,
+            var(--level-5-bg-color) 30% 70%,
+            var(--level-5-bar-color) 70% 76%,
+            transparent 76% 100%);
+}
+
 #table .data .time-bar-event.time-bar-0 {
     background-color: var(--level-0-bg-color);
     outline: 1px solid var(--level-0-bar-color);
@@ -221,6 +235,11 @@
 #table .data .time-bar-event.time-bar-4 {
     background-color: var(--level-4-bg-color);
     outline: 1px solid var(--level-4-bar-color);
+}
+
+#table .data .time-bar-event.time-bar-5 {
+    background-color: var(--level-5-bg-color);
+    outline: 1px solid var(--level-5-bar-color);
 }
 
 #table .data.collapser {

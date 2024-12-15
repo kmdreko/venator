@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use lru::LruCache;
 
-use crate::{Connection, Event, Span, SpanEvent, SpanKey, Timestamp, Value};
+use crate::{Event, EventKey, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 
 use super::Storage;
 
 /// This storage wraps another storage implementation to keep some in memory.
 pub struct CachedStorage<S> {
-    connections: RefCell<LruCache<Timestamp, Arc<Connection>>>,
+    resources: RefCell<LruCache<Timestamp, Arc<Resource>>>,
     spans: RefCell<LruCache<Timestamp, Arc<Span>>>,
     // span_events: RefCell<LruCache<Timestamp, Arc<SpanEvent>>>,
     events: RefCell<LruCache<Timestamp, Arc<Event>>>,
@@ -23,7 +23,7 @@ impl<S> CachedStorage<S> {
         let capacity = NonZeroUsize::new(capacity).unwrap();
 
         CachedStorage {
-            connections: RefCell::new(LruCache::new(capacity)),
+            resources: RefCell::new(LruCache::new(capacity)),
             spans: RefCell::new(LruCache::new(capacity)),
             events: RefCell::new(LruCache::new(capacity)),
             inner: storage,
@@ -35,14 +35,14 @@ impl<S> Storage for CachedStorage<S>
 where
     S: Storage,
 {
-    fn get_connection(&self, at: Timestamp) -> Option<Arc<Connection>> {
-        if let Some(connection) = self.connections.borrow_mut().get(&at) {
-            return Some(connection.clone());
+    fn get_resource(&self, at: Timestamp) -> Option<Arc<Resource>> {
+        if let Some(resource) = self.resources.borrow_mut().get(&at) {
+            return Some(resource.clone());
         }
 
-        if let Some(connection) = self.inner.get_connection(at) {
-            self.connections.borrow_mut().put(at, connection.clone());
-            return Some(connection);
+        if let Some(resource) = self.inner.get_resource(at) {
+            self.resources.borrow_mut().put(at, resource.clone());
+            return Some(resource);
         }
 
         None
@@ -78,8 +78,8 @@ where
         None
     }
 
-    fn get_all_connections(&self) -> Box<dyn Iterator<Item = Arc<Connection>> + '_> {
-        self.inner.get_all_connections()
+    fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
+        self.inner.get_all_resources()
     }
 
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_> {
@@ -94,8 +94,8 @@ where
         self.inner.get_all_events()
     }
 
-    fn insert_connection(&mut self, connection: Connection) {
-        self.inner.insert_connection(connection)
+    fn insert_resource(&mut self, resource: Resource) {
+        self.inner.insert_resource(resource)
     }
 
     fn insert_span(&mut self, span: Span) {
@@ -110,14 +110,9 @@ where
         self.inner.insert_event(event)
     }
 
-    fn update_connection_disconnected(&mut self, at: Timestamp, disconnected: Timestamp) {
-        self.connections.borrow_mut().pop(&at);
-        self.inner.update_connection_disconnected(at, disconnected);
-    }
-
-    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp) {
+    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>) {
         self.spans.borrow_mut().pop(&at);
-        self.inner.update_span_closed(at, closed);
+        self.inner.update_span_closed(at, closed, busy);
     }
 
     fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
@@ -130,12 +125,30 @@ where
         self.inner.update_span_follows(at, follows);
     }
 
-    fn drop_connections(&mut self, connections: &[Timestamp]) {
-        for c in connections {
-            self.connections.borrow_mut().pop(c);
+    fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {
+        let mut cached_spans = self.spans.borrow_mut();
+        for span in spans {
+            cached_spans.pop(span);
+        }
+        drop(cached_spans);
+        self.inner.update_span_parents(parent_key, spans);
+    }
+
+    fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]) {
+        let mut cached_events = self.events.borrow_mut();
+        for event in events {
+            cached_events.pop(event);
+        }
+        drop(cached_events);
+        self.inner.update_event_parents(parent_key, events);
+    }
+
+    fn drop_resources(&mut self, resources: &[Timestamp]) {
+        for c in resources {
+            self.resources.borrow_mut().pop(c);
         }
 
-        self.inner.drop_connections(connections);
+        self.inner.drop_resources(resources);
     }
 
     fn drop_spans(&mut self, spans: &[Timestamp]) {

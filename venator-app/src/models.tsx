@@ -1,8 +1,8 @@
 import { Span, Timestamp, Event, FullSpanId, Level } from "./invoke";
 
-export type ScreenKind = "events" | "spans" | "connections" | "trace";
+export type ScreenKind = "events" | "spans" | "trace";
 
-export type Counts = [number, number, number, number, number];
+export type Counts = [number, number, number, number, number, number];
 export type Timespan = [Timestamp, Timestamp];
 
 export type PartialFilter = {

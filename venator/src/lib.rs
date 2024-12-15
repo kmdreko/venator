@@ -2,6 +2,7 @@
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
@@ -23,6 +24,7 @@ use messaging::{Handshake, Message};
 /// This is a builder for configuring a [`Venator`] layer. Use [`.build()`](VenatorBuilder::build)
 /// to finalize.
 pub struct VenatorBuilder {
+    id: u128,
     host: Option<String>,
     fields: BTreeMap<String, OwnedValue>,
 }
@@ -32,7 +34,7 @@ impl VenatorBuilder {
     /// the Venator app.
     ///
     /// Setting the host again will overwrite the previous value. The default is
-    /// `"localhost:8362"` which is the default for the Venator app.
+    /// `"127.0.0.1:8362"`.
     ///
     /// # Examples
     ///
@@ -102,7 +104,7 @@ impl VenatorBuilder {
     ///     .init();
     /// ```
     pub fn build(self) -> Venator {
-        let connection = Connection::new(self.host, self.fields);
+        let connection = Connection::new(self.id, self.host, self.fields);
 
         Venator {
             connection: Mutex::new(connection),
@@ -123,7 +125,12 @@ impl Venator {
     /// This creates a builder for a `Venator` layer for configuring the host
     /// and/or attributes.
     pub fn builder() -> VenatorBuilder {
+        let s = RandomState::new();
+        let a = s.hash_one(0x0f0f0f0f0f0f0f0fu64);
+        let b = s.hash_one(0x5555555555555555u64);
+
         VenatorBuilder {
+            id: a as u128 + ((b as u128) << 64),
             host: None,
             fields: BTreeMap::new(),
         }
@@ -149,18 +156,25 @@ impl Venator {
     fn send(&self, message: &Message) {
         // this persists the space used for encoding the message in a thread
         // local to reduce per-call allocation costs
-        thread_local! { static SCRATCH: Cell<Vec<u8>> = const { Cell::new(Vec::new()) }; }
+        thread_local! { static SCRATCH_MESSAGE_BUFFER: Cell<Vec<u8>> = const { Cell::new(Vec::new()) }; }
+        thread_local! { static SCRATCH_CHUNK_BUFFER: Cell<Vec<u8>> = const { Cell::new(Vec::new()) }; }
 
-        let mut buffer = SCRATCH.with(|b| b.take());
-
-        if let Err(err) = messaging::encode(&mut buffer, &message) {
+        let mut message_buffer = SCRATCH_MESSAGE_BUFFER.with(|b| b.take());
+        if let Err(err) = messaging::encode_message(&mut message_buffer, &message) {
             error!(parent: None, "failed to encode message: {err:?}");
             return;
         };
 
-        self.connection.lock().unwrap().send(&buffer);
+        let mut chunk_buffer = SCRATCH_CHUNK_BUFFER.with(|b| b.take());
+        if let Err(err) = messaging::encode_chunk(&mut chunk_buffer, &message_buffer) {
+            error!(parent: None, "failed to encode message chunk: {err:?}");
+            return;
+        };
 
-        SCRATCH.with(|b| b.set(buffer));
+        self.connection.lock().unwrap().send(&chunk_buffer);
+
+        SCRATCH_MESSAGE_BUFFER.with(|b| b.set(message_buffer));
+        SCRATCH_CHUNK_BUFFER.with(|b| b.set(chunk_buffer));
     }
 }
 
@@ -263,6 +277,7 @@ where
 }
 
 struct Connection {
+    id: u128,
     host: Option<String>,
     fields: BTreeMap<String, OwnedValue>,
     stream: Option<TcpStream>,
@@ -270,8 +285,9 @@ struct Connection {
 }
 
 impl Connection {
-    fn new(host: Option<String>, fields: BTreeMap<String, OwnedValue>) -> Connection {
+    fn new(id: u128, host: Option<String>, fields: BTreeMap<String, OwnedValue>) -> Connection {
         Connection {
+            id,
             host,
             fields,
             stream: None,
@@ -282,7 +298,8 @@ impl Connection {
     fn connect(&mut self) {
         self.last_connect_attempt = Instant::now();
 
-        let host = self.host.as_deref().unwrap_or("localhost:8362");
+        let host = self.host.as_deref().unwrap_or("127.0.0.1:8362");
+        let id = self.id;
 
         let mut addrs = match host.to_socket_addrs() {
             Ok(addrs) => addrs,
@@ -311,18 +328,27 @@ impl Connection {
 
         debug!(parent: None, "connected");
 
+        #[rustfmt::skip]
+        write!(stream, "POST /tracing/v1 HTTP/1.1\r\nHost: {host}\r\nTransfer-Encoding: chunked\r\nInstance-Id: {id:032x}\r\n\r\n")
+            .unwrap();
+
         let handshake = Handshake {
             fields: self.fields.clone(),
         };
 
-        let mut buffer = vec![];
-
-        if let Err(err) = messaging::encode(&mut buffer, &handshake) {
-            error!(parent: None, "failed to encode handshake: {err:?}");
+        let mut message_buffer = vec![];
+        if let Err(err) = messaging::encode_message(&mut message_buffer, &handshake) {
+            error!(parent: None, "failed to encode handshake message: {err:?}");
             return;
         };
 
-        if let Err(err) = stream.write_all(&buffer) {
+        let mut chunk_buffer = vec![];
+        if let Err(err) = messaging::encode_chunk(&mut chunk_buffer, &message_buffer) {
+            error!(parent: None, "failed to encode handshake chunk: {err:?}");
+            return;
+        }
+
+        if let Err(err) = stream.write_all(&chunk_buffer) {
             error!(parent: None, "failed to send handshake: {err:?}");
             return;
         }

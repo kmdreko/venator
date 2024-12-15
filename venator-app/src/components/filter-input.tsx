@@ -242,6 +242,8 @@ export function FilterInputLevelPredicate(props: { predicate: { predicate: Filte
                 updateValue("WARN");
             } else if (props.predicate.predicate.value[1] == "WARN") {
                 updateValue("ERROR");
+            } else if (props.predicate.predicate.value[1] == "ERROR") {
+                updateValue("FATAL");
             }
         } else if (e.deltaY > 0.0) {
             if (props.predicate.predicate.value[1] == "DEBUG") {
@@ -252,6 +254,8 @@ export function FilterInputLevelPredicate(props: { predicate: { predicate: Filte
                 updateValue("INFO");
             } else if (props.predicate.predicate.value[1] == "ERROR") {
                 updateValue("WARN");
+            } else if (props.predicate.predicate.value[1] == "FATAL") {
+                updateValue("ERROR");
             }
         }
     }
@@ -279,6 +283,7 @@ export function FilterInputLevelPredicate(props: { predicate: { predicate: Filte
                 { text: 'INFO', enabled: value != 'INFO', action: () => updateValue('INFO') },
                 { text: 'DEBUG', enabled: value != 'DEBUG', action: () => updateValue('DEBUG') },
                 { text: 'TRACE', enabled: value != 'TRACE', action: () => updateValue('TRACE') },
+                { text: 'FATAL', enabled: value != 'FATAL', action: () => updateValue('FATAL') },
             ]
         });
         await menu.popup(new LogicalPosition(e.clientX, e.clientY));
@@ -307,6 +312,11 @@ export function FilterInputLevelPredicate(props: { predicate: { predicate: Filte
         </Match>
         <Match when={props.predicate.predicate.value[1] == "ERROR"}>
             <span class="predicate level-predicate-4" onauxclick={onclick} onclick={onclick} onwheel={wheel} oncontextmenu={showContextMenu}>
+                {props.predicate.predicate.text}
+            </span>
+        </Match>
+        <Match when={props.predicate.predicate.value[1] == "FATAL"}>
+            <span class="predicate level-predicate-5" onauxclick={onclick} onclick={onclick} onwheel={wheel} oncontextmenu={showContextMenu}>
                 {props.predicate.predicate.text}
             </span>
         </Match>

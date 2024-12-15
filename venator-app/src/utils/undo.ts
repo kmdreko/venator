@@ -1,5 +1,5 @@
 import { ColumnDef } from "../components/table";
-import { Input, Connection, Event, Span } from "../invoke";
+import { Input, Event, Span } from "../invoke";
 import { Timespan } from "../models";
 
 const UNDO_DEBOUNCE_PERIOD_MS = 2000;
@@ -9,7 +9,7 @@ export type UndoDataKind = 'root' | 'timespan' | 'filter' | 'columns';
 export type UndoData = {
     timespan: Timespan,
     raw_filter: Input[],
-    columns: ColumnDef<Span | Event | Connection>[],
+    columns: ColumnDef<Span | Event>[],
     columnWidths: string[],
 };
 
@@ -87,7 +87,7 @@ export class UndoHistory {
         this.current += 1;
     }
 
-    updateWithColumnData(columns: ColumnDef<Span | Event | Connection>[], columnWidths: string[]) {
+    updateWithColumnData(columns: ColumnDef<Span | Event>[], columnWidths: string[]) {
         let now = Date.now();
         let current = this.data[this.current];
 

@@ -1,9 +1,10 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 export type Timestamp = number;
-export type ConnectionId = string;
+export type InstanceId = string;
 export type FullSpanId = string;
-export type Level = 0 | 1 | 2 | 3 | 4;
+export type TraceRoot = string;
+export type Level = 0 | 1 | 2 | 3 | 4 | 5;
 
 export type Stats = {
     start?: Timestamp;
@@ -37,22 +38,6 @@ export type FilterPredicateSingle = {
     property: string,
 } & ValuePredicate;
 
-export type ConnectionFilter = {
-    filter: FilterPredicate[];
-    order: 'asc' | 'desc';
-    limit?: number;
-    start: Timestamp | null;
-    end: Timestamp | null;
-    previous?: Timestamp;
-};
-
-export type Connection = {
-    id: ConnectionId,
-    connected_at: Timestamp;
-    disconnected_at: Timestamp | null;
-    attributes: Attribute[];
-};
-
 export type EventFilter = {
     filter: FilterPredicate[];
     order: 'asc' | 'desc';
@@ -69,11 +54,11 @@ export type CountFilter = {
 };
 
 export type Event = {
-    connection_id: ConnectionId;
     ancestors: Ancestor[];
     timestamp: Timestamp;
-    target: string;
-    name: string;
+    content: string;
+    namespace: string | null;
+    function: string | null;
     level: Level;
     file?: string;
     attributes: Attribute[];
@@ -93,8 +78,10 @@ export type Span = {
     ancestors: Ancestor[];
     created_at: Timestamp;
     closed_at: Timestamp | null;
-    target: string;
+    busy: number | null;
     name: string;
+    namespace: string | null;
+    function: string | null;
     level: Level;
     file?: string;
     attributes: Attribute[];
@@ -109,7 +96,7 @@ export type Attribute = {
     name: string;
     value: string;
     type: 'f64' | 'i64' | 'u64' | 'i128' | 'u128' | 'bool' | 'string';
-} & ({ source: 'connection', connection_id: ConnectionId }
+} & ({ source: 'resource' }
     | { source: 'span', span_id: FullSpanId }
     | { source: 'inherent' });
 
@@ -123,26 +110,10 @@ export type AppStatus = {
 };
 
 export type DeleteMetrics = {
-    connections: number;
     spans: number;
     span_events: number;
     events: number;
 };
-
-export async function getConnections(filter: ConnectionFilter): Promise<Connection[]> {
-    console.debug("invoking 'get_connections'");
-    return await invoke<Connection[]>("get_connections", filter);
-}
-
-export async function getConnectionCount(filter: CountFilter): Promise<number> {
-    console.debug("invoking 'get_connection_count'");
-    return await invoke<number>("get_connection_count", filter);
-}
-
-export async function parseConnectionFilter(filter: string): Promise<Input[]> {
-    console.debug("invoking 'parse_connection_filter'");
-    return await invoke<Input[]>("parse_connection_filter", { filter });
-}
 
 export async function getStats(): Promise<Stats> {
     console.debug("invoking 'get_stats'");

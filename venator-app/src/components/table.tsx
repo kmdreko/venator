@@ -1,7 +1,7 @@
 import { batch, createEffect, createSignal, For, JSX, Show, useContext } from "solid-js";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { PartialFilter, Timespan } from "../models";
-import { Event, Connection, Span, Timestamp } from "../invoke";
+import { Event, Span, Timestamp } from "../invoke";
 
 import './table.css';
 import { CollapsableContext } from "../context/collapsable";
@@ -155,25 +155,8 @@ export const CLOSED: ColumnDef<Span> = {
     dataText: (span) => span.closed_at ? formatTimestamp(span.closed_at) : '',
 };
 
-export const CONNECTED: ColumnDef<Connection> = {
-    defaultWidth: "176px",
-    header: (props) => {
-        return (<div class="header" style={`z-index: ${props.n}`}>
-            <div class="header-text">#connected</div>
-            <button onclick={props.orderToggle}>{props.order == 'asc' ? "▼" : "▲"}</button>
-        </div>);
-    },
-    headerText: "#connected",
-    data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
-            {formatTimestamp(props.entry.connected_at)}
-        </div>;
-    },
-    dataText: (connection) => formatTimestamp(connection.connected_at),
-};
-
-export const DISCONNECTED: ColumnDef<Connection> = {
-    defaultWidth: "176px",
+export const CONTENT: ColumnDef<Event> = {
+    defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
             let menu = await Menu.new({
@@ -191,21 +174,63 @@ export const DISCONNECTED: ColumnDef<Connection> = {
 
         return (<ResizeableHeader n={props.n} enabled={!props.last} onchange={props.setWidth} onremove={props.delColumn} oncontextmenu={showContextMenu}>
             <EditableHeaderText onchange={props.setProperty}>
-                #closed
+                #content
             </EditableHeaderText>
             <button onclick={props.addColumn}>+</button>
         </ResizeableHeader>);
     },
-    headerText: "#disconnected",
+    headerText: "#content",
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
-            {props.entry.disconnected_at ? formatTimestamp(props.entry.disconnected_at) : '---'}
+        let value = props.entry.content;
+
+        async function showContextMenu(e: MouseEvent) {
+            let shortValue = value ? value.length > 16 ? value.slice(0, 14) + ".." : value : '';
+
+            function escape(s: string): string {
+                return s.replace(/"/g, '\\"');
+            }
+
+            function include() {
+                let predicate = `#content:"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            function includeAll() {
+                let predicate = `#content:*`;
+                props.addToFilter(predicate);
+            }
+
+            function exclude() {
+                let predicate = `#content:!"${escape(value!)}"`;
+                props.addToFilter(predicate);
+            }
+
+            function excludeAll() {
+                let predicate = `#content:!*`;
+                props.addToFilter(predicate);
+            }
+
+            let menu = await Menu.new({
+                items: [
+                    { text: "copy value", action: () => writeText(value ?? '') },
+                    { item: 'Separator' },
+                    { text: `include #content:${shortValue} in filter`, enabled: value != null, action: include },
+                    { text: `include all #content in filter`, action: includeAll },
+                    { text: `exclude #content:${shortValue} from filter`, enabled: value != null, action: exclude },
+                    { text: `exclude all #content from filter`, action: excludeAll },
+                ]
+            });
+            await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+        }
+
+        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
+            {value}
         </div>;
     },
-    dataText: (connection) => connection.disconnected_at ? formatTimestamp(connection.disconnected_at) : '',
+    dataText: (entity) => entity.content,
 };
 
-export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Connection> => ({
+export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -281,7 +306,7 @@ export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span | Connectio
     dataText: (entity) => entity.attributes.find(a => a.name == attribute)?.value ?? '',
 });
 
-export const INHERENT = (inherent: string): ColumnDef<Event | Span | Connection> => ({
+export const INHERENT = (inherent: string): ColumnDef<Event | Span> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -425,9 +450,9 @@ export const PARENT: ColumnDef<Event | Span> = {
     dataText: (entity) => renderedParent(entity) ?? '',
 };
 
-function renderedDuration(e: Span | Connection) {
-    let start: number = (e as any).created_at ?? (e as any).connected_at;
-    let end: number | null = (e as any).closed_at ?? (e as any).disconnected_at;
+function renderedDuration(span: Span) {
+    let start: number = span.created_at;
+    let end: number | null = span.closed_at;
     if (end == null) {
         return null;
     }
@@ -452,7 +477,7 @@ function renderedDuration(e: Span | Connection) {
         return `${(duration / MILLISECOND).toPrecision(3)}ms`;
 }
 
-export const DURATION: ColumnDef<Span | Connection> = {
+export const DURATION: ColumnDef<Span> = {
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -494,7 +519,7 @@ export const DURATION: ColumnDef<Span | Connection> = {
     dataText: (entity) => renderedDuration(entity) ?? '',
 };
 
-export const UNKNOWN = (property: string): ColumnDef<Event | Span | Connection> => ({
+export const UNKNOWN = (property: string): ColumnDef<Event | Span> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -654,7 +679,7 @@ function formatTimestamp(timestamp: number): string {
 }
 
 export function parseEventColumn(property: string): ColumnDef<Event> {
-    // if (property == 'connection' || property == '#connection') {
+    // if (property == 'instance' || property == '#instance') {
     //     return INSTANCE;
     // }
     if (property == 'parent' || property == '#parent') {
@@ -679,7 +704,7 @@ export function parseEventColumn(property: string): ColumnDef<Event> {
 }
 
 export function parseSpanColumn(property: string): ColumnDef<Span> {
-    // if (property == 'connection' || property == '#connection') {
+    // if (property == 'instance' || property == '#instance') {
     //     return INSTANCE;
     // }
     // if (property == 'created' || property == '#created') {
@@ -702,31 +727,6 @@ export function parseSpanColumn(property: string): ColumnDef<Span> {
     }
     if (property == 'file' || property == '#file') {
         return INHERENT('file');
-    }
-
-    if (property.startsWith('#')) {
-        return UNKNOWN(property);
-    }
-
-    if (property.startsWith('@')) {
-        return ATTRIBUTE(property.slice(1));
-    }
-
-    return ATTRIBUTE(property);
-}
-
-export function parseConnectionColumn(property: string): ColumnDef<Connection> {
-    if (property == 'id' || property == '#id') {
-        return INHERENT('id');
-    }
-    // if (property == 'connected' || property == '#connected') {
-    //     return CONNECTED;
-    // }
-    if (property == 'disconnected' || property == '#disconnected') {
-        return DISCONNECTED;
-    }
-    if (property == 'duration' || property == '#duration') {
-        return DURATION as any;
     }
 
     if (property.startsWith('#')) {
@@ -786,7 +786,7 @@ export type TableProps<T> = {
     addToFilter: (filter: string) => void,
 };
 
-export function Table<T extends Event | Span | Connection>(props: TableProps<T>) {
+export function Table<T extends Event | Span>(props: TableProps<T>) {
     const [entries, setEntries] = createSignal([] as T[]);
     const [status, setStatus] = createSignal('loading' as 'partial' | 'loading' | 'done');
     const [order, setOrder] = createSignal('asc' as 'asc' | 'desc');

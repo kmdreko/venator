@@ -26,6 +26,25 @@ impl ValueStringComparison {
             ValueStringComparison::All => true,
         }
     }
+
+    pub fn matches_opt(&self, lhs: Option<&str>) -> bool {
+        match self {
+            ValueStringComparison::None => false,
+            ValueStringComparison::Compare(op, rhs) => match lhs {
+                Some(lhs) => op.compare(lhs, rhs),
+                None => false,
+            },
+            ValueStringComparison::Wildcard(wildcard) => match lhs {
+                Some(lhs) => wildcard.is_match(lhs.as_bytes()),
+                None => false,
+            },
+            ValueStringComparison::Regex(regex) => match lhs {
+                Some(lhs) => regex.is_match(lhs),
+                None => false,
+            },
+            ValueStringComparison::All => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +69,7 @@ impl<T> ValueComparison<T> {
 
 #[derive(Clone)]
 pub struct ValueFilter {
+    pub nulls: bool,
     pub f64s: ValueComparison<f64>,
     pub i64s: ValueComparison<i64>,
     pub u64s: ValueComparison<u64>,
@@ -57,13 +77,16 @@ pub struct ValueFilter {
     pub u128s: ValueComparison<u128>,
     pub bools: ValueComparison<bool>,
     pub strings: ValueStringComparison,
+    pub bytes: bool,
+    pub arrays: bool,
+    pub objects: bool,
 }
 
 impl ValueFilter {
     pub fn from_input(operator: ValueOperator, value: &str) -> ValueFilter {
-        // TODO: check if value is a regex
-
         let strings = ValueStringComparison::Compare(operator, value.to_owned());
+
+        let nulls = value == "null";
 
         let f64s = if let Ok(f64_value) = f64::from_str(value) {
             ValueComparison::Compare(operator, f64_value)
@@ -264,6 +287,7 @@ impl ValueFilter {
         };
 
         ValueFilter {
+            nulls,
             f64s,
             i64s,
             u64s,
@@ -271,12 +295,16 @@ impl ValueFilter {
             u128s,
             bools,
             strings,
+            bytes: false,
+            arrays: false,
+            objects: false,
         }
     }
 
     pub fn from_wildcard(wildcard: String) -> Result<ValueFilter, InputError> {
         if wildcard == "*" {
             return Ok(ValueFilter {
+                nulls: true,
                 f64s: ValueComparison::All,
                 i64s: ValueComparison::All,
                 u64s: ValueComparison::All,
@@ -284,6 +312,9 @@ impl ValueFilter {
                 u128s: ValueComparison::All,
                 bools: ValueComparison::All,
                 strings: ValueStringComparison::All,
+                bytes: true,
+                arrays: true,
+                objects: true,
             });
         }
 
@@ -293,6 +324,7 @@ impl ValueFilter {
             .map_err(|_| InputError::InvalidWildcardValue)?;
 
         Ok(ValueFilter {
+            nulls: false,
             f64s: ValueComparison::None,
             i64s: ValueComparison::None,
             u64s: ValueComparison::None,
@@ -300,6 +332,9 @@ impl ValueFilter {
             u128s: ValueComparison::None,
             bools: ValueComparison::None,
             strings: ValueStringComparison::Wildcard(wildcard),
+            bytes: false,
+            arrays: false,
+            objects: false,
         })
     }
 
@@ -307,6 +342,7 @@ impl ValueFilter {
         let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
 
         Ok(ValueFilter {
+            nulls: false,
             f64s: ValueComparison::None,
             i64s: ValueComparison::None,
             u64s: ValueComparison::None,
@@ -314,11 +350,15 @@ impl ValueFilter {
             u128s: ValueComparison::None,
             bools: ValueComparison::None,
             strings: ValueStringComparison::Regex(regex),
+            bytes: false,
+            arrays: false,
+            objects: false,
         })
     }
 
     pub fn matches(&self, value: &Value) -> bool {
         match value {
+            Value::Null => self.nulls,
             Value::F64(value) => self.f64s.matches(value),
             Value::I64(value) => self.i64s.matches(value),
             Value::U64(value) => self.u64s.matches(value),
@@ -326,6 +366,9 @@ impl ValueFilter {
             Value::U128(value) => self.u128s.matches(value),
             Value::Bool(value) => self.bools.matches(value),
             Value::Str(value) => self.strings.matches(value),
+            Value::Bytes(_) => self.bytes,
+            Value::Array(_) => self.arrays,
+            Value::Object(_) => self.objects,
         }
     }
 }

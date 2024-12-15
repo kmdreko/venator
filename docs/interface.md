@@ -84,10 +84,10 @@ Options in the table or details panel can add predicates to the filter.
 ### Graph
 
 The graph can take a few different forms based on the type of main screen. For
-events it will show bars of aggregated counts by log level. For connections and
-spans it will show them individually spread across their timeframe stacked on
-top of eachother (up to 10 high). For traces it will show all spans and events
-stacked on top of eachother (squished to accomodate them all).
+events it will show bars of aggregated counts by log level. For spans it will 
+show them individually spread across their timeframe stacked on top of eachother
+(up to 10 high). For traces it will show all spans and events stacked on top of
+eachother (squished to accomodate them all).
 
 Hovering your cursor over the graph will show the hovered timestamp in the top.
 Clicking and dragging will highlight a timeframe and zoom to it when released.
@@ -97,11 +97,11 @@ allow you to pan the timeframe left and right.
 
 ### Table
 
-The table shows the actual events, spans, or connections being queried by the
-filter and timeframe. By default it will show columns for the level, when it
-occurred (`#timestamp` for events, `#created_at` for spans, `#connected_at` for
-connections) and a default column (`@message` for events, `#name` for spans).
-The timing column also includes a toggle for controlling the sort order.
+The table shows the actual events or spans being queried by the filter and
+timeframe. By default it will show columns for the level, when it occurred
+(`#timestamp` for events, `#created_at` for spans) and a default column
+(`@message` for events, `#name` for spans). The timing column also includes a
+toggle for controlling the sort order.
 
 Each of the non-fixed columns have a `+` button in the header to create a new
 column. The column header can be edited to change the property which uses the
@@ -126,9 +126,9 @@ events and `#name` for spans).
 
 The bottom shows all the attributes and their values. The far left icon will
 indicate where that value came from (a missing icon means it is directly on the
-entity, a span icon means it came from a parent span, and a connection icon
-means it was provided by the connection). You can hover over this icon for
-details or the right-click will include a `copy * id` option when available. The
+entity, a span icon means it came from a parent span, and a resource icon means
+it was provided by the root resource). You can hover over this icon for details
+or the right-click will include a `copy * id` option when available. The
 right-click menu shows many options for adding to the filter or even adding a
 column to the table. An attribute value that is too long will be cut off, but
 you can toggle the `-` after the attribute name to expand it.

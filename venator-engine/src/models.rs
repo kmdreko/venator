@@ -1,18 +1,19 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::num::NonZeroU64;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
 pub type Timestamp = NonZeroU64;
 
-/// This is the internal type used to identify connections. The value is the
-/// unique timestamp from when the connection was created.
-pub type ConnectionKey = NonZeroU64;
+/// This is the internal type used to identify resources. The value is the
+/// unique timestamp from when the resource was created.
+pub type ResourceKey = NonZeroU64;
 
-/// This is the external type used to identity an connection. This is generated
-/// client-side and should be random to make it unique.
-pub type ConnectionId = u64;
+/// This is the external type used to identity a tracing instance. This is
+/// generated client-side and should be random to make it unique.
+pub type InstanceId = u128;
 
 /// This is the internal type used to identify spans. The value is the unique
 /// timestamp from when the span was created.
@@ -28,91 +29,258 @@ pub type SpanEventKey = NonZeroU64;
 pub type EventKey = NonZeroU64;
 
 /// This is the external type used to identity a span. This is generated client-
-/// side and is unique but only within that connection.
-pub type SpanId = NonZeroU64;
+/// side and is either unique within that instance (for tracing data) or unique
+/// within that trace (for opentelemetry data).
+pub type SpanId = u64;
 
-pub type ConnectionIdView = String;
+pub type TraceId = u128;
+
 pub type FullSpanIdView = String;
-
-pub type FullSpanId = (ConnectionId, SpanId);
 
 pub type SubscriptionId = usize;
 
-pub fn parse_full_span_id(s: &str) -> Option<FullSpanId> {
-    let (connection_id, span_id) = s.split_once('-')?;
-    let connection_id: ConnectionId = connection_id.parse().ok()?;
-    let span_id: SpanId = span_id.parse().ok()?;
+#[derive(Debug)]
+pub struct FullSpanIdParseError;
 
-    Some((connection_id, span_id))
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum FullSpanId {
+    Tracing(InstanceId, SpanId),
+    Opentelemetry(TraceId, SpanId),
 }
+
+impl FromStr for FullSpanId {
+    type Err = FullSpanIdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut iter = s.split('-');
+        let kind = iter.next().ok_or(FullSpanIdParseError)?;
+        let first = iter.next().ok_or(FullSpanIdParseError)?;
+        let second = iter.next().ok_or(FullSpanIdParseError)?;
+
+        match kind {
+            "tracing" => {
+                let instance = u128::from_str_radix(first, 16).map_err(|_| FullSpanIdParseError)?;
+                let span = u64::from_str_radix(second, 16).map_err(|_| FullSpanIdParseError)?;
+                Ok(FullSpanId::Tracing(instance, span))
+            }
+            "otel" => {
+                let trace = u128::from_str_radix(first, 16).map_err(|_| FullSpanIdParseError)?;
+                let span = u64::from_str_radix(second, 16).map_err(|_| FullSpanIdParseError)?;
+                Ok(FullSpanId::Opentelemetry(trace, span))
+            }
+            _ => Err(FullSpanIdParseError),
+        }
+    }
+}
+
+impl Display for FullSpanId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            FullSpanId::Tracing(instance, span) => write!(f, "tracing-{instance:032x}-{span:016x}"),
+            FullSpanId::Opentelemetry(trace, span) => write!(f, "otel-{trace:032x}-{span:016x}"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TraceRootParseError;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TraceRoot {
+    Tracing(InstanceId, SpanId),
+    Opentelemetry(TraceId),
+}
+
+impl TraceRoot {
+    /// creates a trace root from a span id which is reliable if the span was a
+    /// root
+    pub fn from_root_span_id(id: FullSpanId) -> TraceRoot {
+        match id {
+            FullSpanId::Tracing(instance, span) => TraceRoot::Tracing(instance, span),
+            FullSpanId::Opentelemetry(trace, _) => TraceRoot::Opentelemetry(trace),
+        }
+    }
+}
+
+impl FromStr for TraceRoot {
+    type Err = TraceRootParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (kind, rest) = s.split_once('-').ok_or(TraceRootParseError)?;
+
+        match kind {
+            "tracing" => {
+                let (instance, span) = rest.split_once('-').ok_or(TraceRootParseError)?;
+                let instance =
+                    u128::from_str_radix(instance, 16).map_err(|_| TraceRootParseError)?;
+                let span = u64::from_str_radix(span, 16).map_err(|_| TraceRootParseError)?;
+                Ok(TraceRoot::Tracing(instance, span))
+            }
+            "otel" => {
+                let trace = u128::from_str_radix(rest, 16).map_err(|_| TraceRootParseError)?;
+                Ok(TraceRoot::Opentelemetry(trace))
+            }
+            _ => Err(TraceRootParseError),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct LevelConvertError;
 
 #[derive(
     Debug, Copy, Clone, PartialEq, Eq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
 )]
 #[repr(i32)]
 pub enum Level {
-    Trace = 0,
-    Debug = 1,
-    Info = 2,
-    Warn = 3,
-    Error = 4,
+    Trace = 1,
+    Trace2 = 2,
+    Trace3 = 3,
+    Trace4 = 4,
+    Debug = 5,
+    Debug2 = 6,
+    Debug3 = 7,
+    Debug4 = 8,
+    Info = 9,
+    Info2 = 10,
+    Info3 = 11,
+    Info4 = 12,
+    Warn = 13,
+    Warn2 = 14,
+    Warn3 = 15,
+    Warn4 = 16,
+    Error = 17,
+    Error2 = 18,
+    Error3 = 19,
+    Error4 = 20,
+    Fatal = 21,
+    Fatal2 = 22,
+    Fatal3 = 23,
+    Fatal4 = 24,
 }
 
-impl TryFrom<i32> for Level {
-    type Error = ();
+impl Level {
+    pub(crate) fn to_db(self) -> i32 {
+        self as i32
+    }
 
-    fn try_from(value: i32) -> Result<Self, ()> {
-        match value {
+    pub(crate) fn from_db(value: i32) -> Result<Level, LevelConvertError> {
+        Self::from_otel_severity(value)
+    }
+
+    pub fn from_tracing_level(level: i32) -> Result<Level, LevelConvertError> {
+        match level {
             0 => Ok(Level::Trace),
             1 => Ok(Level::Debug),
             2 => Ok(Level::Info),
             3 => Ok(Level::Warn),
             4 => Ok(Level::Error),
-            _ => Err(()),
+            _ => Err(LevelConvertError),
+        }
+    }
+
+    pub fn from_otel_severity(severity: i32) -> Result<Level, LevelConvertError> {
+        match severity {
+            1 => Ok(Level::Trace),
+            2 => Ok(Level::Trace2),
+            3 => Ok(Level::Trace3),
+            4 => Ok(Level::Trace4),
+            5 => Ok(Level::Debug),
+            6 => Ok(Level::Debug2),
+            7 => Ok(Level::Debug3),
+            8 => Ok(Level::Debug4),
+            9 => Ok(Level::Info),
+            10 => Ok(Level::Info2),
+            11 => Ok(Level::Info3),
+            12 => Ok(Level::Info4),
+            13 => Ok(Level::Warn),
+            14 => Ok(Level::Warn2),
+            15 => Ok(Level::Warn3),
+            16 => Ok(Level::Warn4),
+            17 => Ok(Level::Error),
+            18 => Ok(Level::Error2),
+            19 => Ok(Level::Error3),
+            20 => Ok(Level::Error4),
+            21 => Ok(Level::Fatal),
+            22 => Ok(Level::Fatal2),
+            23 => Ok(Level::Fatal3),
+            24 => Ok(Level::Fatal4),
+            _ => Err(LevelConvertError),
+        }
+    }
+
+    pub fn into_simple_level(self) -> SimpleLevel {
+        match self {
+            Level::Trace => SimpleLevel::Trace,
+            Level::Trace2 => SimpleLevel::Trace,
+            Level::Trace3 => SimpleLevel::Trace,
+            Level::Trace4 => SimpleLevel::Trace,
+            Level::Debug => SimpleLevel::Debug,
+            Level::Debug2 => SimpleLevel::Debug,
+            Level::Debug3 => SimpleLevel::Debug,
+            Level::Debug4 => SimpleLevel::Debug,
+            Level::Info => SimpleLevel::Info,
+            Level::Info2 => SimpleLevel::Info,
+            Level::Info3 => SimpleLevel::Info,
+            Level::Info4 => SimpleLevel::Info,
+            Level::Warn => SimpleLevel::Warn,
+            Level::Warn2 => SimpleLevel::Warn,
+            Level::Warn3 => SimpleLevel::Warn,
+            Level::Warn4 => SimpleLevel::Warn,
+            Level::Error => SimpleLevel::Error,
+            Level::Error2 => SimpleLevel::Error,
+            Level::Error3 => SimpleLevel::Error,
+            Level::Error4 => SimpleLevel::Error,
+            Level::Fatal => SimpleLevel::Fatal,
+            Level::Fatal2 => SimpleLevel::Fatal,
+            Level::Fatal3 => SimpleLevel::Fatal,
+            Level::Fatal4 => SimpleLevel::Fatal,
         }
     }
 }
 
-pub struct NewConnection {
-    pub id: ConnectionId,
-    pub fields: BTreeMap<String, Value>,
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
+#[repr(usize)]
+pub enum SimpleLevel {
+    Trace = 0,
+    Debug = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4,
+    Fatal = 5,
 }
 
-#[derive(Clone)]
-pub struct Connection {
-    pub id: ConnectionId,
-    pub connected_at: Timestamp,
-    pub disconnected_at: Option<Timestamp>,
-    pub fields: BTreeMap<String, Value>,
-}
+impl SimpleLevel {
+    pub fn iter_gte(self) -> impl Iterator<Item = SimpleLevel> {
+        use SimpleLevel::*;
 
-impl Connection {
-    pub fn key(&self) -> ConnectionKey {
-        self.connected_at
-    }
-
-    // gets the duration of the span in microseconds if disconnected
-    pub fn duration(&self) -> Option<u64> {
-        self.disconnected_at.map(|disconnected_at| {
-            disconnected_at
-                .get()
-                .saturating_sub(self.connected_at.get())
-        })
+        [Trace, Debug, Info, Warn, Error, Fatal]
+            .into_iter()
+            .skip(self as usize)
     }
 }
 
-#[derive(Serialize)]
-pub struct ConnectionView {
-    pub id: ConnectionIdView,
-    pub connected_at: Timestamp,
-    pub disconnected_at: Option<Timestamp>,
-    pub attributes: Vec<AttributeView>,
+pub struct NewResource {
+    pub fields: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct Resource {
+    pub created_at: Timestamp,
+    pub fields: BTreeMap<String, Value>,
+}
+
+impl Resource {
+    pub fn key(&self) -> ResourceKey {
+        self.created_at
+    }
 }
 
 pub struct NewSpanEvent {
-    pub connection_key: ConnectionKey,
     pub timestamp: Timestamp,
-    pub span_id: SpanId,
+    pub span_id: FullSpanId,
     pub kind: NewSpanEventKind,
 }
 
@@ -122,12 +290,11 @@ pub enum NewSpanEventKind {
     Follows(NewFollowsSpanEvent),
     Enter(NewEnterSpanEvent),
     Exit,
-    Close,
+    Close(NewCloseSpanEvent),
 }
 
 #[derive(Clone)]
 pub struct SpanEvent {
-    pub connection_key: ConnectionKey,
     pub timestamp: Timestamp,
     pub span_key: SpanKey,
     pub kind: SpanEventKind,
@@ -140,27 +307,35 @@ pub enum SpanEventKind {
     Follows(FollowsSpanEvent),
     Enter(EnterSpanEvent),
     Exit,
-    Close,
+    Close(CloseSpanEvent),
 }
 
 pub struct NewCreateSpanEvent {
-    pub parent_id: Option<SpanId>,
-    pub target: String,
+    pub resource_key: ResourceKey,
+    pub parent_id: Option<FullSpanId>,
     pub name: String,
-    pub level: i32,
+    pub namespace: Option<String>,
+    pub function: Option<String>,
+    pub level: Level,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
+    pub file_column: Option<u32>,
+    pub instrumentation_fields: BTreeMap<String, Value>,
     pub fields: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CreateSpanEvent {
+    pub resource_key: ResourceKey,
     pub parent_key: Option<SpanKey>,
-    pub target: String,
     pub name: String,
+    pub namespace: Option<String>,
+    pub function: Option<String>,
     pub level: Level,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
+    pub file_column: Option<u32>,
+    pub instrumentation_fields: BTreeMap<String, Value>,
     pub fields: BTreeMap<String, Value>,
 }
 
@@ -181,6 +356,10 @@ pub struct NewEnterSpanEvent {
     pub thread_id: u64,
 }
 
+pub struct NewCloseSpanEvent {
+    pub busy: Option<u64>,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct FollowsSpanEvent {
     pub follows: SpanKey,
@@ -191,28 +370,38 @@ pub struct EnterSpanEvent {
     pub thread_id: u64,
 }
 
-pub struct NewEvent {
-    pub connection_key: ConnectionKey,
-    pub timestamp: Timestamp,
-    pub span_id: Option<SpanId>,
-    pub name: String,
-    pub target: String,
-    pub level: i32,
-    pub file_name: Option<String>,
-    pub file_line: Option<u32>,
-    pub fields: BTreeMap<String, Value>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CloseSpanEvent {
+    pub busy: Option<u64>,
 }
 
-#[derive(Clone, Serialize)]
-pub struct Event {
-    pub connection_key: ConnectionKey,
+pub struct NewEvent {
+    pub resource_key: ResourceKey,
     pub timestamp: Timestamp,
-    pub span_key: Option<SpanKey>,
-    pub name: String,
-    pub target: String,
+    pub span_id: Option<FullSpanId>,
+    pub content: Value,
+    pub namespace: Option<String>,
+    pub function: Option<String>,
     pub level: Level,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
+    pub file_column: Option<u32>,
+    pub fields: BTreeMap<String, Value>,
+}
+
+#[derive(Clone)]
+pub struct Event {
+    pub resource_key: ResourceKey,
+    pub timestamp: Timestamp,
+    pub parent_id: Option<FullSpanId>,
+    pub parent_key: Option<SpanKey>,
+    pub content: Value,
+    pub namespace: Option<String>,
+    pub function: Option<String>,
+    pub level: Level,
+    pub file_name: Option<String>,
+    pub file_line: Option<u32>,
+    pub file_column: Option<u32>,
     pub fields: BTreeMap<String, Value>,
 }
 
@@ -224,29 +413,34 @@ impl Event {
 
 #[derive(Clone, Serialize)]
 pub struct EventView {
-    pub connection_id: ConnectionIdView,
     pub ancestors: Vec<AncestorView>, // in root-first order
     pub timestamp: Timestamp,
-    pub target: String,
-    pub name: String,
-    pub level: i32,
+    pub content: String,
+    pub namespace: Option<String>,
+    pub function: Option<String>,
+    pub level: SimpleLevel,
     pub file: Option<String>,
     pub attributes: Vec<AttributeView>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Span {
-    pub connection_key: ConnectionKey,
-    pub id: SpanId,
+    pub resource_key: ResourceKey,
+    pub id: FullSpanId,
     pub created_at: Timestamp,
     pub closed_at: Option<Timestamp>,
+    pub busy: Option<u64>,
+    pub parent_id: Option<FullSpanId>,
     pub parent_key: Option<SpanKey>,
     pub follows: Vec<SpanKey>,
-    pub target: String,
     pub name: String,
+    pub namespace: Option<String>,
+    pub function: Option<String>,
     pub level: Level,
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
+    pub file_column: Option<u32>,
+    pub instrumentation_fields: BTreeMap<String, Value>,
     pub fields: BTreeMap<String, Value>,
 }
 
@@ -262,9 +456,11 @@ pub struct SpanView {
     pub ancestors: Vec<AncestorView>, // in root-first order
     pub created_at: Timestamp,
     pub closed_at: Option<Timestamp>,
-    pub target: String,
+    pub busy: Option<u64>,
     pub name: String,
-    pub level: i32,
+    pub namespace: Option<String>,
+    pub function: Option<String>,
+    pub level: SimpleLevel,
     pub file: Option<String>,
     pub attributes: Vec<AttributeView>,
 }
@@ -277,6 +473,7 @@ pub struct AncestorView {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum Value {
+    Null,
     F64(f64),
     I64(i64),
     U64(u64),
@@ -284,11 +481,15 @@ pub enum Value {
     U128(u128),
     Bool(bool),
     Str(String),
+    Bytes(Vec<u8>),
+    Array(Vec<Value>),
+    Object(BTreeMap<String, Value>),
 }
 
 impl Value {
     pub fn to_type_view(&self) -> AttributeTypeView {
         match self {
+            Value::Null => AttributeTypeView::Null,
             Value::F64(_) => AttributeTypeView::F64,
             Value::I64(_) => AttributeTypeView::I64,
             Value::U64(_) => AttributeTypeView::U64,
@@ -296,6 +497,9 @@ impl Value {
             Value::U128(_) => AttributeTypeView::U128,
             Value::Bool(_) => AttributeTypeView::Bool,
             Value::Str(_) => AttributeTypeView::String,
+            Value::Bytes(_) => AttributeTypeView::Bytes,
+            Value::Array(_) => AttributeTypeView::Array,
+            Value::Object(_) => AttributeTypeView::Object,
         }
     }
 }
@@ -303,6 +507,7 @@ impl Value {
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         match self {
+            Value::Null => write!(f, "NULL"),
             Value::F64(value) => write!(f, "{value}"),
             Value::I64(value) => write!(f, "{value}"),
             Value::U64(value) => write!(f, "{value}"),
@@ -310,6 +515,9 @@ impl Display for Value {
             Value::U128(value) => write!(f, "{value}"),
             Value::Bool(value) => write!(f, "{value}"),
             Value::Str(value) => write!(f, "{value}"),
+            Value::Bytes(_) => Ok(()),
+            Value::Array(_) => Ok(()),
+            Value::Object(_) => Ok(()),
         }
     }
 }
@@ -348,6 +556,7 @@ pub struct AttributeView {
 #[derive(Copy, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttributeTypeView {
+    Null,
     F64,
     I64,
     U64,
@@ -355,12 +564,15 @@ pub enum AttributeTypeView {
     U128,
     Bool,
     String,
+    Bytes,
+    Array,
+    Object,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "snake_case", tag = "source")]
 pub enum AttributeSourceView {
-    Connection { connection_id: ConnectionIdView },
+    Resource,
     Span { span_id: FullSpanIdView },
     Inherent,
 }

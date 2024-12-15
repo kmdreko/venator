@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
 use crate::filter::BoundSearch;
-use crate::models::{EventKey, Timestamp, Value};
-use crate::{ConnectionKey, EventContext, SpanContext, SpanKey, Storage};
+use crate::models::{EventKey, FullSpanId, Timestamp, TraceRoot, Value};
+use crate::{EventContext, InstanceId, ResourceKey, SpanContext, SpanKey, Storage};
 
 mod attribute;
 mod util;
@@ -13,26 +13,40 @@ pub(crate) use util::IndexExt;
 
 pub struct EventIndexes {
     pub all: Vec<Timestamp>,
-    pub levels: [Vec<Timestamp>; 5],
-    pub connections: BTreeMap<ConnectionKey, Vec<Timestamp>>,
-    pub targets: BTreeMap<String, Vec<Timestamp>>,
+    pub levels: [Vec<Timestamp>; 6],
+    pub resources: BTreeMap<ResourceKey, Vec<Timestamp>>,
+    pub namespaces: BTreeMap<String, Vec<Timestamp>>,
     pub filenames: BTreeMap<String, Vec<Timestamp>>,
-    pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
     pub roots: Vec<Timestamp>,
+    pub traces: HashMap<TraceRoot, Vec<Timestamp>>,
+    pub contents: AttributeIndex,
     pub attributes: BTreeMap<String, AttributeIndex>,
+
+    // events whose `parent_id` has not been seen yet
+    pub orphanage: HashMap<FullSpanId, Vec<Timestamp>>,
 }
 
 impl EventIndexes {
     pub fn new() -> EventIndexes {
         EventIndexes {
             all: vec![],
-            levels: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()],
-            connections: BTreeMap::new(),
-            targets: BTreeMap::new(),
+            levels: [
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ],
+            resources: BTreeMap::new(),
+            namespaces: BTreeMap::new(),
             filenames: BTreeMap::new(),
-            descendents: HashMap::new(),
             roots: Vec::new(),
+            traces: HashMap::new(),
+            contents: AttributeIndex::new(),
             attributes: BTreeMap::new(),
+
+            orphanage: HashMap::new(),
         }
     }
 
@@ -43,17 +57,20 @@ impl EventIndexes {
         let idx = self.all.upper_bound_via_expansion(&event_key);
         self.all.insert(idx, event_key);
 
-        let level_index = &mut self.levels[event.level as usize];
+        let level_index = &mut self.levels[event.level.into_simple_level() as usize];
         let idx = level_index.upper_bound_via_expansion(&event_key);
         level_index.insert(idx, event_key);
 
-        let connection_index = self.connections.entry(event.connection_key).or_default();
-        let idx = connection_index.upper_bound_via_expansion(&event_key);
-        connection_index.insert(idx, event_key);
+        // TODO: do I need a per-resource index?
+        let resource_index = self.resources.entry(event.resource_key).or_default();
+        let idx = resource_index.upper_bound_via_expansion(&event_key);
+        resource_index.insert(idx, event_key);
 
-        let target_index = self.targets.entry(event.target.clone()).or_default();
-        let idx = target_index.upper_bound_via_expansion(&event_key);
-        target_index.insert(idx, event_key);
+        if let Some(namespace) = event.namespace.clone() {
+            let namespace_index = self.namespaces.entry(namespace).or_default();
+            let idx = namespace_index.upper_bound_via_expansion(&event_key);
+            namespace_index.insert(idx, event_key);
+        }
 
         if let Some(filename) = &event.file_name {
             let filename_index = self.filenames.entry(filename.clone()).or_default();
@@ -61,16 +78,24 @@ impl EventIndexes {
             filename_index.insert(idx, event_key);
         }
 
-        for parent in context.parents() {
-            let descendent_index = self.descendents.entry(parent.key()).or_default();
-            let idx = descendent_index.upper_bound_via_expansion(&event_key);
-            descendent_index.insert(idx, event_key);
+        if let Some(trace) = context.trace_root() {
+            let trace_index = self.traces.entry(trace).or_default();
+            let idx = trace_index.upper_bound_via_expansion(&event_key);
+            trace_index.insert(idx, event_key);
         }
 
-        if event.span_key.is_none() {
+        if event.parent_id.is_none() {
             let idx = self.roots.upper_bound_via_expansion(&event_key);
             self.roots.insert(idx, event_key);
         }
+
+        if let (Some(parent_id), None) = (event.parent_id, event.parent_key) {
+            let orphan_index = self.orphanage.entry(parent_id).or_default();
+            let idx = orphan_index.upper_bound_via_expansion(&event_key);
+            orphan_index.insert(idx, event_key);
+        }
+
+        self.contents.add_entry(event_key, &event.content);
 
         for (attribute, value) in context.attributes() {
             let index = self
@@ -80,6 +105,15 @@ impl EventIndexes {
 
             index.add_entry(event_key, value);
         }
+    }
+
+    pub fn update_with_new_span<S: Storage>(
+        &mut self,
+        context: &SpanContext<'_, S>,
+    ) -> Vec<EventKey> {
+        self.orphanage
+            .remove(&context.span().id)
+            .unwrap_or_default()
     }
 
     pub fn update_with_new_field_on_parent<S: Storage>(
@@ -113,22 +147,17 @@ impl EventIndexes {
             level_index.remove_list_sorted(events);
         }
 
-        for connection_index in self.connections.values_mut() {
-            connection_index.remove_list_sorted(events);
+        for resource_index in self.resources.values_mut() {
+            resource_index.remove_list_sorted(events);
         }
 
-        for target_index in self.targets.values_mut() {
+        for target_index in self.namespaces.values_mut() {
             target_index.remove_list_sorted(events);
         }
 
         for filename_index in self.filenames.values_mut() {
             filename_index.remove_list_sorted(events);
         }
-
-        for descendent_index in self.descendents.values_mut() {
-            descendent_index.remove_list_sorted(events);
-        }
-
         self.roots.remove_list_sorted(events);
 
         for attribute_index in self.attributes.values_mut() {
@@ -136,56 +165,62 @@ impl EventIndexes {
         }
     }
 
-    pub fn remove_spans(&mut self, spans: &[SpanKey]) {
-        for span_key in spans {
-            self.descendents.remove(span_key);
-        }
-    }
-
-    pub fn remove_connections(&mut self, connections: &[ConnectionKey]) {
-        for connection_key in connections {
-            self.connections.remove(connection_key);
-        }
-    }
+    pub fn remove_spans(&mut self, _spans: &[SpanKey]) {}
 }
 
 pub struct SpanIndexes {
     pub all: Vec<Timestamp>,
-    pub levels: [Vec<Timestamp>; 5],
+    pub levels: [Vec<Timestamp>; 6],
     pub durations: SpanDurationIndex,
-    pub connections: BTreeMap<ConnectionKey, Vec<Timestamp>>,
-    pub names: BTreeMap<String, Vec<Timestamp>>,
-    pub targets: BTreeMap<String, Vec<Timestamp>>,
+    pub instances: BTreeMap<InstanceId, Vec<Timestamp>>,
+    pub resources: BTreeMap<ResourceKey, Vec<Timestamp>>,
+    pub functions: BTreeMap<String, Vec<Timestamp>>,
+    pub namespaces: BTreeMap<String, Vec<Timestamp>>,
     pub filenames: BTreeMap<String, Vec<Timestamp>>,
-    pub descendents: HashMap<Timestamp, Vec<Timestamp>>,
     pub roots: Vec<Timestamp>,
+    pub traces: HashMap<TraceRoot, Vec<Timestamp>>,
     pub attributes: BTreeMap<String, AttributeIndex>,
+
+    // spans whose `parent_id` has not been seen yet
+    pub orphanage: HashMap<FullSpanId, Vec<Timestamp>>,
 }
 
 impl SpanIndexes {
     pub fn new() -> SpanIndexes {
         SpanIndexes {
             all: vec![],
-            levels: [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            levels: [
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ],
             durations: SpanDurationIndex::new(),
-            connections: BTreeMap::new(),
-            names: BTreeMap::new(),
-            targets: BTreeMap::new(),
+            instances: BTreeMap::new(),
+            resources: BTreeMap::new(),
+            functions: BTreeMap::new(),
+            namespaces: BTreeMap::new(),
             filenames: BTreeMap::new(),
-            descendents: HashMap::new(),
             roots: Vec::new(),
+            traces: HashMap::new(),
             attributes: BTreeMap::new(),
+            orphanage: HashMap::new(),
         }
     }
 
-    pub fn update_with_new_span<S: Storage>(&mut self, context: &SpanContext<'_, S>) {
+    pub fn update_with_new_span<S: Storage>(
+        &mut self,
+        context: &SpanContext<'_, S>,
+    ) -> Vec<SpanKey> {
         let span = context.span();
         let span_key = span.created_at;
 
         let idx = self.all.upper_bound_via_expansion(&span_key);
         self.all.insert(idx, span_key);
 
-        let level_index = &mut self.levels[span.level as usize];
+        let level_index = &mut self.levels[span.level.into_simple_level() as usize];
         let idx = level_index.upper_bound_via_expansion(&span_key);
         level_index.insert(idx, span_key);
 
@@ -204,17 +239,28 @@ impl SpanIndexes {
         let idx = duration_index.upper_bound_via_expansion(&span_key);
         duration_index.insert(idx, span_key);
 
-        let connection_index = self.connections.entry(span.connection_key).or_default();
-        let idx = connection_index.upper_bound_via_expansion(&span_key);
-        connection_index.insert(idx, span_key);
+        if let FullSpanId::Tracing(instance_id, _) = span.id {
+            let instance_index = self.instances.entry(instance_id).or_default();
+            let idx = instance_index.upper_bound_via_expansion(&span_key);
+            instance_index.insert(idx, span_key);
+        }
 
-        let name_index = self.names.entry(span.name.clone()).or_default();
-        let idx = name_index.upper_bound_via_expansion(&span_key);
-        name_index.insert(idx, span_key);
+        // TODO: do I need a per-resource index?
+        let resource_index = self.resources.entry(span.resource_key).or_default();
+        let idx = resource_index.upper_bound_via_expansion(&span_key);
+        resource_index.insert(idx, span_key);
 
-        let target_index = self.targets.entry(span.target.clone()).or_default();
-        let idx = target_index.upper_bound_via_expansion(&span_key);
-        target_index.insert(idx, span_key);
+        if let Some(function) = span.function.clone() {
+            let function_index = self.functions.entry(function).or_default();
+            let idx = function_index.upper_bound_via_expansion(&span_key);
+            function_index.insert(idx, span_key);
+        }
+
+        if let Some(namespace) = span.namespace.clone() {
+            let namespace_index = self.namespaces.entry(namespace).or_default();
+            let idx = namespace_index.upper_bound_via_expansion(&span_key);
+            namespace_index.insert(idx, span_key);
+        }
 
         if let Some(filename) = &span.file_name {
             let filename_index = self.filenames.entry(filename.clone()).or_default();
@@ -222,16 +268,19 @@ impl SpanIndexes {
             filename_index.insert(idx, span_key);
         }
 
-        self.descendents.insert(span_key, vec![span_key]);
-        for parent in context.parents() {
-            let descendent_index = self.descendents.entry(parent.key()).or_default();
-            let idx = descendent_index.upper_bound_via_expansion(&span_key);
-            descendent_index.insert(idx, span_key);
-        }
+        let trace_index = self.traces.entry(context.trace_root()).or_default();
+        let idx = trace_index.upper_bound_via_expansion(&span_key);
+        trace_index.insert(idx, span_key);
 
-        if span.parent_key.is_none() {
+        if span.parent_id.is_none() {
             let idx = self.roots.upper_bound_via_expansion(&span_key);
             self.roots.insert(idx, span_key);
+        }
+
+        if let (Some(parent_id), None) = (span.parent_id, span.parent_key) {
+            let orphan_index = self.orphanage.entry(parent_id).or_default();
+            let idx = orphan_index.upper_bound_via_expansion(&span_key);
+            orphan_index.insert(idx, span_key);
         }
 
         for (attribute, value) in context.attributes() {
@@ -242,6 +291,8 @@ impl SpanIndexes {
 
             index.add_entry(span_key, value);
         }
+
+        self.orphanage.remove(&span.id).unwrap_or_default()
     }
 
     pub fn update_with_new_field_on_parent<S: Storage>(
@@ -300,15 +351,15 @@ impl SpanIndexes {
 
         self.durations.remove_spans(spans);
 
-        for connection_index in self.connections.values_mut() {
-            connection_index.remove_list_sorted(spans);
+        for resource_index in self.resources.values_mut() {
+            resource_index.remove_list_sorted(spans);
         }
 
-        for name_index in self.names.values_mut() {
+        for name_index in self.functions.values_mut() {
             name_index.remove_list_sorted(spans);
         }
 
-        for target_index in self.targets.values_mut() {
+        for target_index in self.namespaces.values_mut() {
             target_index.remove_list_sorted(spans);
         }
 
@@ -316,20 +367,10 @@ impl SpanIndexes {
             filename_index.remove_list_sorted(spans);
         }
 
-        for descendent_index in self.descendents.values_mut() {
-            descendent_index.remove_list_sorted(spans);
-        }
-
         self.roots.remove_list_sorted(spans);
 
         for attribute_index in self.attributes.values_mut() {
             attribute_index.remove_entries(spans);
-        }
-    }
-
-    pub fn remove_connections(&mut self, connections: &[ConnectionKey]) {
-        for connection_key in connections {
-            self.connections.remove(connection_key);
         }
     }
 }

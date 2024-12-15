@@ -5,7 +5,7 @@ import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { parseSpanFilter, Span, Event, Input, parseEventFilter, FilterPredicateSingle } from '../invoke';
 import { PaginationFilter, Timespan } from "../models";
-import { ATTRIBUTE, ColumnDef, COMBINED, INHERENT, parseTraceColumn, Table } from "../components/table";
+import { ColumnDef, COMBINED, CONTENT, INHERENT, parseTraceColumn, Table } from "../components/table";
 import { TraceGraph } from "../components/trace-graph";
 
 import './trace-screen.css';
@@ -163,7 +163,7 @@ export function TraceScreen(props: TraceScreenProps) {
                         columnMove={props.columnMove}
                         columnInsert={props.columnInsert}
                         columnRemove={props.columnRemove}
-                        columnDefault={COMBINED(INHERENT('name'), ATTRIBUTE('message'))}
+                        columnDefault={COMBINED(INHERENT('name'), CONTENT)}
                         columnMin={3}
                         selectedRow={props.selected}
                         setSelectedRow={props.setSelected}

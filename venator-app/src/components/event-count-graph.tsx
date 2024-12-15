@@ -353,6 +353,7 @@ export function EventCountGraph(props: EventCountGraphProps) {
                             <Show when={bar[2] != 0}><div class="event-count-graph-bar-level-2" style={{ height: `${bar[2] / barHeightMax() * 100}%` }}></div></Show>
                             <Show when={bar[3] != 0}><div class="event-count-graph-bar-level-3" style={{ height: `${bar[3] / barHeightMax() * 100}%` }}></div></Show>
                             <Show when={bar[4] != 0}><div class="event-count-graph-bar-level-4" style={{ height: `${bar[4] / barHeightMax() * 100}%` }}></div></Show>
+                            <Show when={bar[5] != 0}><div class="event-count-graph-bar-level-5" style={{ height: `${bar[5] / barHeightMax() * 100}%` }}></div></Show>
                         </span>;
                     }
                 }}

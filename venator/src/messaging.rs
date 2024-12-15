@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::Error as IoError;
 use std::num::NonZeroU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,7 +26,10 @@ fn now() -> NonZeroU64 {
     NonZeroU64::new(microseconds as u64).unwrap()
 }
 
-pub(crate) fn encode<T: Serialize>(buffer: &mut Vec<u8>, payload: &T) -> Result<(), BincodeError> {
+pub(crate) fn encode_message<T: Serialize>(
+    buffer: &mut Vec<u8>,
+    payload: &T,
+) -> Result<(), BincodeError> {
     // this uses a two-byte length prefix followed by the bincode-ed payload
 
     buffer.resize(2, 0);
@@ -40,6 +44,17 @@ pub(crate) fn encode<T: Serialize>(buffer: &mut Vec<u8>, payload: &T) -> Result<
     let payload_size_bytes = (payload_size as u16).to_be_bytes();
 
     buffer[0..2].copy_from_slice(&payload_size_bytes);
+
+    Ok(())
+}
+
+pub(crate) fn encode_chunk(buffer: &mut Vec<u8>, payload: &[u8]) -> Result<(), IoError> {
+    use std::io::Write;
+
+    buffer.clear();
+    write!(buffer, "{:x}\r\n", payload.len())?;
+    buffer.extend_from_slice(payload);
+    write!(buffer, "\r\n")?;
 
     Ok(())
 }
@@ -88,13 +103,7 @@ impl Message<'_, '_> {
                 parent_id: parent_id.map(|id| id.0),
                 target: metadata.target(),
                 name: metadata.name(),
-                level: match *metadata.level() {
-                    Level::TRACE => 0,
-                    Level::DEBUG => 1,
-                    Level::INFO => 2,
-                    Level::WARN => 3,
-                    Level::ERROR => 4,
-                },
+                level: level_to_number(*metadata.level()),
                 file_name: metadata.file(),
                 file_line: metadata.line(),
                 fields: attrs,
