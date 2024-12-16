@@ -1276,7 +1276,7 @@ impl IndexedSpanFilter<'_> {
                 ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
                 ValueStringComparison::Compare(ValueOperator::Eq, value) => {
                     let name_index = span_indexes
-                        .functions
+                        .names
                         .get(&value)
                         .map(Vec::as_slice)
                         .unwrap_or_default();

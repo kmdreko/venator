@@ -174,6 +174,7 @@ pub struct SpanIndexes {
     pub durations: SpanDurationIndex,
     pub instances: BTreeMap<InstanceId, Vec<Timestamp>>,
     pub resources: BTreeMap<ResourceKey, Vec<Timestamp>>,
+    pub names: BTreeMap<String, Vec<Timestamp>>,
     pub functions: BTreeMap<String, Vec<Timestamp>>,
     pub namespaces: BTreeMap<String, Vec<Timestamp>>,
     pub filenames: BTreeMap<String, Vec<Timestamp>>,
@@ -200,6 +201,7 @@ impl SpanIndexes {
             durations: SpanDurationIndex::new(),
             instances: BTreeMap::new(),
             resources: BTreeMap::new(),
+            names: BTreeMap::new(),
             functions: BTreeMap::new(),
             namespaces: BTreeMap::new(),
             filenames: BTreeMap::new(),
@@ -249,6 +251,10 @@ impl SpanIndexes {
         let resource_index = self.resources.entry(span.resource_key).or_default();
         let idx = resource_index.upper_bound_via_expansion(&span_key);
         resource_index.insert(idx, span_key);
+
+        let name_index = self.names.entry(span.name.clone()).or_default();
+        let idx = name_index.upper_bound_via_expansion(&span_key);
+        name_index.insert(idx, span_key);
 
         if let Some(function) = span.function.clone() {
             let function_index = self.functions.entry(function).or_default();
