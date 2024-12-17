@@ -25,6 +25,30 @@ impl FileStorage {
 
         let _ = connection.execute(
             r#"
+            CREATE TABLE meta (
+                id      INT  NOT NULL,
+                version TEXT NOT NULL,
+
+                CONSTRAINT meta_pk PRIMARY KEY (id)
+            );
+            "#,
+            (),
+        );
+
+        let _ = connection.execute(r#"INSERT INTO meta VALUES (1, '0.3');"#, ());
+
+        let version: String = connection
+            .query_row("SELECT version FROM meta WHERE id = 1", (), |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        if version != "0.3" {
+            panic!("cannot load database with incompatible version");
+        }
+
+        let _ = connection.execute(
+            r#"
             CREATE TABLE resources (
                 key             INT8 NOT NULL,
                 fields          TEXT,
