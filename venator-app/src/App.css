@@ -82,7 +82,7 @@ body {
     color-scheme: dark;
 
     --bg-tab-color: #141414;
-    --bg-screen-color: #2b2b2b;
+    --bg-screen-color: #262626;
     --bg-secondary-color: #333333;
     --bg-highlight-color: #141414;
 
@@ -91,7 +91,7 @@ body {
     --border-light-color: #494949;
     --border-error: red;
 
-    --text-normal: #cacaca;
+    --text-normal: #b4b4b4;
     --text-light: #aaaaaa;
     --text-warn: #c16c00;
     --text-error: #d13200;
