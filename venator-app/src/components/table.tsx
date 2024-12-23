@@ -71,6 +71,8 @@ function levelText(entity: Event | Span) {
             return 'WARN';
         case 4:
             return 'ERROR';
+        case 5:
+            return 'FATAL';
     }
 }
 
@@ -560,7 +562,7 @@ export const TIMESPAN: ColumnDef<Event | Span> = {
             <button onclick={props.orderToggle}>{props.order == 'asc' ? "▼" : "▲"}</button>
         </ResizeableHeader>);
     },
-    headerText: "timespan",
+    headerText: "#timespan",
     data: (props) => {
         function position(entry: Event | Span): { left: string, right?: string } {
             let current_timespan = props.timespan;
@@ -600,7 +602,7 @@ export const COLLAPSABLE: ColumnDef<Event | Span> = {
     header: (props) => {
         return <div class="header collapsable" style={`z-index: ${props.n}`}></div>;
     },
-    headerText: "",
+    headerText: "#collapsable",
     data: (props) => {
         let context = useContext(CollapsableContext);
 
@@ -678,12 +680,22 @@ function formatTimestamp(timestamp: number): string {
         datetime.getMilliseconds().toString().padStart(3, '0');
 }
 
-export function parseEventColumn(property: string): ColumnDef<Event> {
+export function parseEventColumn(property: string, internal: boolean = false): ColumnDef<Event> {
     // if (property == 'instance' || property == '#instance') {
     //     return INSTANCE;
     // }
+    if ((property == 'level' || property == '#level') && internal) {
+        return LEVEL;
+    }
+    if ((property == 'timestamp' || property == '#timestamp') && internal) {
+        return TIMESTAMP;
+    }
+
     if (property == 'parent' || property == '#parent') {
         return PARENT;
+    }
+    if (property == 'content' || property == '#content') {
+        return CONTENT;
     }
     if (property == 'target' || property == '#target') {
         return INHERENT('target');
@@ -703,13 +715,17 @@ export function parseEventColumn(property: string): ColumnDef<Event> {
     return ATTRIBUTE(property);
 }
 
-export function parseSpanColumn(property: string): ColumnDef<Span> {
+export function parseSpanColumn(property: string, internal: boolean = false): ColumnDef<Span> {
     // if (property == 'instance' || property == '#instance') {
     //     return INSTANCE;
     // }
-    // if (property == 'created' || property == '#created') {
-    //     return CREATED;
-    // }
+    if ((property == 'level' || property == '#level') && internal) {
+        return LEVEL;
+    }
+    if ((property == 'created' || property == '#created') && internal) {
+        return CREATED;
+    }
+
     if (property == 'closed' || property == '#closed') {
         return CLOSED;
     }
@@ -740,19 +756,26 @@ export function parseSpanColumn(property: string): ColumnDef<Span> {
     return ATTRIBUTE(property);
 }
 
-export function parseTraceColumn(property: string): ColumnDef<Event | Span> {
+export function parseTraceColumn(property: string, internal: boolean = false): ColumnDef<Event | Span> {
+    if ((property == 'collapsable' || property == '#collapsable') && internal) {
+        return COLLAPSABLE;
+    }
+    if ((property == 'timespan' || property == '#timespan') && internal) {
+        return TIMESPAN;
+    }
+
     if (property.includes('/')) {
         let idx = property.indexOf('/');
         let span_property = property.slice(0, idx).trim();
         let event_property = property.slice(idx + 1).trim();
         return COMBINED(
-            parseSpanColumn(span_property),
-            parseEventColumn(event_property),
+            parseSpanColumn(span_property, internal),
+            parseEventColumn(event_property, internal),
         );
     }
 
-    let span_def = parseSpanColumn(property);
-    let event_def = parseEventColumn(property);
+    let span_def = parseSpanColumn(property, internal);
+    let event_def = parseEventColumn(property, internal);
     if (span_def.headerText == event_def.headerText) {
         return span_def as ColumnDef<Event | Span>;
     } else {

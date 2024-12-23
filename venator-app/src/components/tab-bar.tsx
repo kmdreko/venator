@@ -32,51 +32,6 @@ export function TabBar(props: TabBarProps) {
         }
     }
 
-    function stringifyFilter(filter: Input[]): string {
-        let s = "";
-        for (let predicate of filter) {
-            s += ` ${stringifyNestedFilter(predicate)}`
-        }
-        return s;
-    }
-
-    function stringifyNestedFilter(predicate: Input): string {
-        let s = "";
-        switch (predicate.input) {
-            case 'invalid':
-                s += ` ${predicate.text}`;
-                break;
-            case "valid":
-                switch (predicate.predicate_kind) {
-                    case "single":
-                        s += ` ${predicate.predicate.text}`;
-                        break;
-                    case "and":
-                        s += ` (`;
-                        for (let i = 0; i < predicate.predicate.length; i++) {
-                            if (i != 0) {
-                                s += " AND ";
-                            }
-                            s += stringifyNestedFilter(predicate.predicate[i]);
-                        }
-                        s += ")";
-                        break;
-                    case "or":
-                        s += ` (`;
-                        for (let i = 0; i < predicate.predicate.length; i++) {
-                            if (i != 0) {
-                                s += " OR ";
-                            }
-                            s += stringifyNestedFilter(predicate.predicate[i]);
-                        }
-                        s += ")";
-                        break;
-                }
-                break;
-        }
-        return s;
-    }
-
     function getTabHovertext(screen: ScreenData): string {
         return getTabPrefix(screen) + ':' + stringifyFilter(screen.filter);
     }
@@ -267,4 +222,49 @@ export function TabBar(props: TabBarProps) {
             <img src={spansAddIcon} />
         </button>
     </div>)
+}
+
+export function stringifyFilter(filter: Input[]): string {
+    let s = "";
+    for (let predicate of filter) {
+        s += ` ${stringifyNestedFilter(predicate)}`
+    }
+    return s;
+}
+
+function stringifyNestedFilter(predicate: Input): string {
+    let s = "";
+    switch (predicate.input) {
+        case 'invalid':
+            s += ` ${predicate.text}`;
+            break;
+        case "valid":
+            switch (predicate.predicate_kind) {
+                case "single":
+                    s += ` ${predicate.predicate.text}`;
+                    break;
+                case "and":
+                    s += ` (`;
+                    for (let i = 0; i < predicate.predicate.length; i++) {
+                        if (i != 0) {
+                            s += " AND ";
+                        }
+                        s += stringifyNestedFilter(predicate.predicate[i]);
+                    }
+                    s += ")";
+                    break;
+                case "or":
+                    s += ` (`;
+                    for (let i = 0; i < predicate.predicate.length; i++) {
+                        if (i != 0) {
+                            s += " OR ";
+                        }
+                        s += stringifyNestedFilter(predicate.predicate[i]);
+                    }
+                    s += ")";
+                    break;
+            }
+            break;
+    }
+    return s;
 }

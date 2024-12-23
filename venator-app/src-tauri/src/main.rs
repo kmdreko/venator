@@ -1,11 +1,13 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
@@ -204,6 +206,33 @@ async fn unsubscribe_from_events(
 }
 
 #[tauri::command]
+async fn load_session(persist_session: State<'_, SessionPersistence>) -> Result<Session, String> {
+    if let SessionPersistence(Some(session_path)) = &*persist_session {
+        let session_file = File::open(session_path).map_err(|err| err.to_string())?;
+        let session_file = BufReader::new(session_file);
+        let session = serde_json::from_reader(session_file).map_err(|err| err.to_string())?;
+        Ok(session)
+    } else {
+        Ok(Session::default())
+    }
+}
+
+#[tauri::command]
+async fn save_session(
+    persistence: State<'_, SessionPersistence>,
+    session: Session,
+) -> Result<(), String> {
+    if let SessionPersistence(Some(session_path)) = &*persistence {
+        let session_file = File::create(session_path).map_err(|err| err.to_string())?;
+        let session_file = BufWriter::new(session_file);
+        serde_json::to_writer(session_file, &session).map_err(|err| err.to_string())?;
+        Ok(())
+    } else {
+        Ok(())
+    }
+}
+
+#[tauri::command]
 async fn get_status(
     engine: State<'_, Engine>,
     dataset: State<'_, DatasetConfig>,
@@ -256,16 +285,22 @@ impl DatasetConfig {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// The file (or :memory:) that holds captured traces
+    /// The file (or :memory:) that holds captured telemetry
     #[arg(short, long)]
     dataset: Option<String>,
 
     /// The bind address to accept traces from
     #[arg(short, long)]
     bind: Option<String>,
+
+    /// Controls whether the user session is saved (use `no-` to negate)
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false)]
+    persist_session: bool,
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = false, conflicts_with = "persist_session", hide = true)]
+    no_persist_session: bool,
 }
 
 impl Args {
@@ -303,12 +338,46 @@ impl Args {
             Some("0.0.0.0:8362")
         }
     }
+
+    fn persist_session(&self) -> Option<PathBuf> {
+        if self.persist_session {
+            return match self.dataset() {
+                DatasetConfig::Default(mut path) | DatasetConfig::File(mut path) => {
+                    path.set_extension("user");
+                    Some(path)
+                }
+                DatasetConfig::Memory => {
+                    // TODO: warn that session cannot be persisted
+                    None
+                }
+            };
+        } else if self.no_persist_session {
+            return None;
+        }
+
+        match self.dataset() {
+            DatasetConfig::Default(mut path) => {
+                path.set_extension("user");
+                Some(path)
+            }
+            DatasetConfig::File(mut path) => {
+                path.set_extension("user");
+                if let Ok(true) = std::fs::exists(&path) {
+                    Some(path)
+                } else {
+                    None
+                }
+            }
+            DatasetConfig::Memory => None,
+        }
+    }
 }
 
 fn main() {
     let args = Args::parse();
     let dataset = args.dataset();
     let bind = args.bind();
+    let persist_session = args.persist_session();
 
     dataset.prepare();
     let engine = match &dataset {
@@ -611,6 +680,7 @@ fn main() {
         .manage(engine)
         .manage(dataset)
         .manage(ingress)
+        .manage(SessionPersistence(persist_session))
         .invoke_handler(tauri::generate_handler![
             get_events,
             get_event_count,
@@ -623,6 +693,8 @@ fn main() {
             subscribe_to_events,
             unsubscribe_from_events,
             get_status,
+            save_session,
+            load_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -726,4 +798,20 @@ impl From<DeleteMetrics> for DeleteMetricsView {
             events: metrics.events,
         }
     }
+}
+
+struct SessionPersistence(Option<PathBuf>);
+
+#[derive(Default, Serialize, Deserialize)]
+struct Session {
+    tabs: Vec<SessionTab>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SessionTab {
+    kind: String,
+    start: Timestamp,
+    end: Timestamp,
+    filter: String,
+    columns: Vec<String>,
 }

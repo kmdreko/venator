@@ -55,77 +55,6 @@ export function TraceScreen(props: TraceScreenProps) {
         setCount([(await entries).length, true]);
     });
 
-    async function parseTraceFilter(f: string): Promise<Input[]> {
-        let eventFilter = await parseEventFilter(f);
-        let spanFilter = await parseSpanFilter(f);
-
-        function mergeFilters(a: Input[], b: Input[]): Input[] {
-            // - prioritize errors
-            // - if they have different property types (attribute vs inherent) then
-            //   convert to error
-            // - if they are completely different for some reason, 
-            // - recurse as needed
-
-            let merged: Input[] = [];
-            for (let e of a.map((a, i) => [a, b[i]])) {
-                let [a, b] = e;
-
-                if (a.input == 'invalid') {
-                    merged.push(a);
-                    continue;
-                }
-                if (b.input == 'invalid') {
-                    merged.push(b);
-                    continue;
-                }
-
-                if (a.predicate_kind != b.predicate_kind) {
-                    // this should never happen under normal circumstances
-                    merged.push({
-                        input: 'invalid',
-                        error: 'Conflict',
-                        text: 'conflict',
-                    });
-                    continue;
-                }
-
-                switch (a.predicate_kind) {
-                    case "single":
-                        let a_single = a.predicate;
-                        let b_single = b.predicate as FilterPredicateSingle;
-
-                        if (a_single.property_kind != b_single.property_kind) {
-                            merged.push({
-                                input: 'invalid',
-                                error: 'Conflict',
-                                text: a_single.text.slice(1),
-                            });
-                        } else {
-                            merged.push(a);
-                        }
-
-                        continue;
-                    case "or":
-                        merged.push({
-                            ...a,
-                            predicate: mergeFilters(a.predicate, b.predicate as Input[]),
-                        });
-                        continue;
-                    case "and":
-                        merged.push({
-                            ...a,
-                            predicate: mergeFilters(a.predicate, b.predicate as Input[]),
-                        });
-                        continue;
-                }
-            }
-
-            return merged;
-        }
-
-        return mergeFilters(eventFilter, spanFilter);
-    }
-
     return (<div class="trace-screen">
         <ScreenHeader
             screenKind="trace"
@@ -197,4 +126,75 @@ export function TraceScreen(props: TraceScreenProps) {
             </Show>
         </div>
     </div>);
+}
+
+export async function parseTraceFilter(f: string): Promise<Input[]> {
+    let eventFilter = await parseEventFilter(f);
+    let spanFilter = await parseSpanFilter(f);
+
+    function mergeFilters(a: Input[], b: Input[]): Input[] {
+        // - prioritize errors
+        // - if they have different property types (attribute vs inherent) then
+        //   convert to error
+        // - if they are completely different for some reason, 
+        // - recurse as needed
+
+        let merged: Input[] = [];
+        for (let e of a.map((a, i) => [a, b[i]])) {
+            let [a, b] = e;
+
+            if (a.input == 'invalid') {
+                merged.push(a);
+                continue;
+            }
+            if (b.input == 'invalid') {
+                merged.push(b);
+                continue;
+            }
+
+            if (a.predicate_kind != b.predicate_kind) {
+                // this should never happen under normal circumstances
+                merged.push({
+                    input: 'invalid',
+                    error: 'Conflict',
+                    text: 'conflict',
+                });
+                continue;
+            }
+
+            switch (a.predicate_kind) {
+                case "single":
+                    let a_single = a.predicate;
+                    let b_single = b.predicate as FilterPredicateSingle;
+
+                    if (a_single.property_kind != b_single.property_kind) {
+                        merged.push({
+                            input: 'invalid',
+                            error: 'Conflict',
+                            text: a_single.text.slice(1),
+                        });
+                    } else {
+                        merged.push(a);
+                    }
+
+                    continue;
+                case "or":
+                    merged.push({
+                        ...a,
+                        predicate: mergeFilters(a.predicate, b.predicate as Input[]),
+                    });
+                    continue;
+                case "and":
+                    merged.push({
+                        ...a,
+                        predicate: mergeFilters(a.predicate, b.predicate as Input[]),
+                    });
+                    continue;
+            }
+        }
+
+        return merged;
+    }
+
+    return mergeFilters(eventFilter, spanFilter);
 }

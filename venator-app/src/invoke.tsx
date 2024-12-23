@@ -118,6 +118,18 @@ export type DeleteMetrics = {
     events: number;
 };
 
+export type Session = {
+    tabs: SessionTab[];
+};
+
+export type SessionTab = {
+    kind: 'events' | 'spans' | 'trace';
+    start: Timestamp;
+    end: Timestamp;
+    filter: string;
+    columns: string[];
+};
+
 export async function getStats(): Promise<Stats> {
     console.debug("invoking 'get_stats'");
     return await invoke<Stats>("get_stats", {});
@@ -181,4 +193,14 @@ export async function removeAttributeIndex(name: string): Promise<void> {
 export async function getStatus(): Promise<AppStatus> {
     console.debug("invoking 'get_status'");
     return await invoke<AppStatus>("get_status");
+}
+
+export async function loadSession(): Promise<Session> {
+    console.debug("invoking 'load_session'");
+    return await invoke<Session>("load_session");
+}
+
+export async function saveSession(session: Session): Promise<void> {
+    console.debug("invoking 'save_session'");
+    return await invoke<void>("save_session", { session });
 }

@@ -2,16 +2,16 @@ import { listen } from '@tauri-apps/api/event';
 import { ask, message, save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { EventsScreen } from "./screens/events-screen";
-import { AppStatus, deleteEntities, Event, getEvents, getSpans, getStats, getStatus, Input, Span, Timestamp, ValidFilterPredicate } from "./invoke";
+import { AppStatus, deleteEntities, Event, getEvents, getSpans, getStats, getStatus, Input, loadSession, parseEventFilter, parseSpanFilter, saveSession, Session, SessionTab, Span, Timestamp, ValidFilterPredicate } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
 import { EventDataLayer, SpanDataLayer, TraceDataLayer } from "./utils/datalayer";
 import { NavigationContext } from "./context/navigation";
-import { TraceScreen } from "./screens/trace-screen";
-import { ColumnDef, CONTENT, CREATED, INHERENT, LEVEL, TIMESTAMP } from "./components/table";
-import { TabBar } from "./components/tab-bar";
-import { UndoHistory } from './utils/undo';
+import { parseTraceFilter, TraceScreen } from "./screens/trace-screen";
+import { ColumnDef, CONTENT, CREATED, INHERENT, LEVEL, parseEventColumn, parseSpanColumn, parseTraceColumn, TIMESTAMP } from "./components/table";
+import { stringifyFilter, TabBar } from "./components/tab-bar";
+import { UndoData, UndoHistory } from './utils/undo';
 
 import "./App.css";
 
@@ -213,7 +213,117 @@ function App() {
     let root_element = document.querySelector('#root')!;
 
     onMount(async () => {
-        createTab(...await defaultEventsScreen(), true);
+
+        let session;
+        try {
+            session = await loadSession();
+        } catch {
+            session = { tabs: [] }
+        }
+
+        if (session.tabs.length == 0) {
+            createTab(...await defaultEventsScreen(), true);
+            return;
+        }
+
+        let screens = [];
+        let rawFilters = [];
+        let selectedRows = [];
+        let columnDatas = [];
+        let undoData = [];
+
+        for (let tab of session.tabs) {
+            switch (tab.kind) {
+                case 'events': {
+                    let input = await parseEventFilter(tab.filter);
+                    input[0].editable = false;
+                    let columns = tab.columns.map(c => parseEventColumn(c, true));
+                    screens.push({
+                        kind: 'events',
+                        filter: input,
+                        timespan: [tab.start, tab.end],
+                        live: false,
+                        store: new EventDataLayer(input),
+                    } satisfies EventsScreenData);
+                    rawFilters.push(input);
+                    selectedRows.push(null);
+                    columnDatas.push({
+                        columns: columns as ColumnDef<Event | Span>[],
+                        columnWidths: columns.map(def => def.defaultWidth),
+                    } satisfies ColumnData);
+                    undoData.push({
+                        timespan: [tab.start, tab.end],
+                        raw_filter: input,
+                        columns: columns as ColumnDef<Event | Span>[],
+                        columnWidths: columns.map(def => def.defaultWidth),
+                    } satisfies UndoData);
+                    break;
+                }
+                case 'spans': {
+                    let input = await parseSpanFilter(tab.filter);
+                    input[0].editable = false;
+                    let columns = tab.columns.map(c => parseSpanColumn(c, true));
+                    screens.push({
+                        kind: 'spans',
+                        filter: input,
+                        timespan: [tab.start, tab.end],
+                        live: false,
+                        store: new SpanDataLayer(input),
+                    } satisfies SpansScreenData);
+                    rawFilters.push(input);
+                    selectedRows.push(null);
+                    columnDatas.push({
+                        columns: columns as ColumnDef<Event | Span>[],
+                        columnWidths: columns.map(def => def.defaultWidth),
+                    });
+                    undoData.push({
+                        timespan: [tab.start, tab.end],
+                        raw_filter: input,
+                        columns: columns as ColumnDef<Event | Span>[],
+                        columnWidths: columns.map(def => def.defaultWidth),
+                    } satisfies UndoData);
+                    break;
+                }
+                case 'trace': {
+                    let input = await parseTraceFilter(tab.filter);
+                    input[0].editable = false;
+                    input[1].editable = false;
+                    let columns = tab.columns.map(c => parseTraceColumn(c, true));
+                    screens.push({
+                        kind: 'trace',
+                        filter: input,
+                        timespan: [tab.start, tab.end],
+                        live: false,
+                        collapsed: {},
+                        store: new TraceDataLayer(input),
+                    } satisfies TraceScreenData);
+                    rawFilters.push(input);
+                    selectedRows.push(null);
+                    columnDatas.push({
+                        columns: columns,
+                        columnWidths: columns.map(def => def.defaultWidth),
+                    });
+                    undoData.push({
+                        timespan: [tab.start, tab.end],
+                        raw_filter: input,
+                        columns: columns as ColumnDef<Event | Span>[],
+                        columnWidths: columns.map(def => def.defaultWidth),
+                    } satisfies UndoData);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        batch(() => {
+            undoHistories = undoData.map(data => new UndoHistory(data));
+            setScreens(screens);
+            setRawFilters(rawFilters);
+            setSelectedRows(selectedRows);
+            setColumnDatas(columnDatas);
+            setSelectedScreen(0);
+        });
     });
 
     onMount(async () => {
@@ -444,6 +554,33 @@ function App() {
         }
     })
 
+    let sessionSaveTimer: number | undefined;
+    function sessionChanged() {
+        if (sessionSaveTimer != undefined) {
+            clearTimeout(sessionSaveTimer);
+        }
+
+        sessionSaveTimer = setTimeout(async () => {
+            let screensToSave = screens();
+            let filtersToSave = rawFilters();
+            let columnsToSave = columnDatas();
+
+            let session = {
+                tabs: screensToSave.map((screen, i) => ({
+                    kind: screen.kind,
+                    start: screen.timespan![0],
+                    end: screen.timespan![1],
+                    filter: stringifyFilter(filtersToSave[i]),
+                    columns: columnsToSave[i].columns.map(def => def.headerText),
+                } satisfies SessionTab))
+            } satisfies Session;
+
+            await saveSession(session);
+
+            sessionSaveTimer = undefined;
+        }, 2000);
+    }
+
     async function getAndCacheEvents(screen: EventsScreenData, filter: PartialFilter): Promise<Event[]> {
         return await screen.store.getEvents(filter);
     }
@@ -600,6 +737,7 @@ function App() {
             updated_raw_filters[current_selected_screen] = filter;
             undoHistories[current_selected_screen].updateWithFilter(filter);
             setRawFilters(updated_raw_filters);
+            sessionChanged();
         } else {
             // valid filter did change
 
@@ -622,6 +760,7 @@ function App() {
                 undoHistories[current_selected_screen].updateWithFilter(filter);
                 setRawFilters(updated_raw_filters);
                 setScreens(updated_screens);
+                sessionChanged();
             })
         }
 
@@ -676,6 +815,7 @@ function App() {
 
         undoHistories[current_selected_screen].updateWithTimespan(normalizedTimespan);
         setScreens(updated_screens);
+        sessionChanged();
     }
 
     function setScreenLive(live: boolean) {
@@ -771,6 +911,7 @@ function App() {
             setSelectedRows(updated_rows);
             setColumnDatas(updated_column_datas);
             setSelectedScreen(updated_selected_screen);
+            sessionChanged();
         })
     }
 
@@ -789,6 +930,7 @@ function App() {
             setSelectedRows([selected_selected_row]);
             setColumnDatas([selected_column_data]);
             setSelectedScreen(0);
+            sessionChanged();
         })
     }
 
@@ -837,6 +979,7 @@ function App() {
             setSelectedRows(updated_selected_rows);
             setColumnDatas(updated_column_datas);
             setSelectedScreen(updated_selected_screen);
+            sessionChanged();
         })
     }
 
@@ -875,6 +1018,7 @@ function App() {
             if (navigate) {
                 setSelectedScreen(updated_screens.length - 1);
             }
+            sessionChanged();
         })
     }
 
@@ -895,6 +1039,7 @@ function App() {
 
         undoHistories[current_selected_screen].updateWithColumnData(current_columns, widths);
         setColumnDatas(updated_column_datas);
+        sessionChanged();
     }
 
     function moveColumn(fromIdx: number, toIdx: number) {
@@ -917,6 +1062,7 @@ function App() {
 
         undoHistories[current_selected_screen].updateWithColumnData(updated_columns, current_columns_widths);
         setColumnDatas(updated_column_datas);
+        sessionChanged();
     }
 
     function setColumnDef<T>(i: number, def: ColumnDef<T>) {
@@ -936,6 +1082,7 @@ function App() {
 
         undoHistories[current_selected_screen].updateWithColumnData(defs, current_columns_widths);
         setColumnDatas(updated_column_datas);
+        sessionChanged();
     }
 
     function addColumnAfter<T>(i: number, def: ColumnDef<T>) {
@@ -963,6 +1110,7 @@ function App() {
 
         undoHistories[current_selected_screen].updateWithColumnData(updatedColumns, updatedColumnWidths);
         setColumnDatas(updated_column_datas);
+        sessionChanged();
     }
 
     function removeColumn(i: number) {
@@ -991,6 +1139,7 @@ function App() {
 
         undoHistories[current_selected_screen].updateWithColumnData(updatedColumns, updatedColumnWidths);
         setColumnDatas(updated_column_datas);
+        sessionChanged();
     }
 
     function performUndo() {
@@ -1032,6 +1181,7 @@ function App() {
             setScreens(updated_screens);
             setRawFilters(updated_raw_filters);
             setColumnDatas(updated_column_datas);
+            sessionChanged();
         });
     }
 
@@ -1074,6 +1224,7 @@ function App() {
             setScreens(updated_screens);
             setRawFilters(updated_raw_filters);
             setColumnDatas(updated_column_datas);
+            sessionChanged();
         });
     }
 
