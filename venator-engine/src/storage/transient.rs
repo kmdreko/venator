@@ -43,6 +43,10 @@ impl Storage for TransientStorage {
         self.events.get(&at).cloned()
     }
 
+    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
+        None
+    }
+
     fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
         Box::new(self.resources.values().cloned())
     }

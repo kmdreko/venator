@@ -79,6 +79,10 @@ where
         None
     }
 
+    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
+        self.inner.get_indexes()
+    }
+
     fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
         self.inner.get_all_resources()
     }

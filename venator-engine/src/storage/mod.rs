@@ -27,6 +27,7 @@ pub trait Storage {
     fn get_span(&self, at: Timestamp) -> Option<Arc<Span>>;
     fn get_span_event(&self, at: Timestamp) -> Option<Arc<SpanEvent>>;
     fn get_event(&self, at: Timestamp) -> Option<Arc<Event>>;
+    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)>;
 
     fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_>;
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_>;

@@ -412,29 +412,33 @@ impl<S: Storage> RawEngine<S> {
             engine.insert_resource_bookeeping(&resource);
         }
 
-        let spans = engine.storage.get_all_spans().collect::<Vec<_>>();
+        if let Some(indexes) = engine.storage.get_indexes() {
+            let (span_indexes, span_event_indexes, event_indexes) = indexes;
 
-        let mut spans_not_closed = vec![];
-        for span in spans {
-            if span.closed_at.is_none() {
-                spans_not_closed.push(span.key());
+            engine.span_indexes = span_indexes;
+            engine.span_event_indexes = span_event_indexes;
+            engine.event_indexes = event_indexes;
+        } else {
+            let spans = engine.storage.get_all_spans().collect::<Vec<_>>();
+
+            for span in spans {
+                engine.insert_span_bookeeping(&span);
             }
-            engine.insert_span_bookeeping(&span);
+
+            let span_events = engine.storage.get_all_span_events().collect::<Vec<_>>();
+
+            for span_event in span_events {
+                engine.insert_span_event_bookeeping(&span_event);
+            }
+
+            let events = engine.storage.get_all_events().collect::<Vec<_>>();
+
+            for event in events {
+                engine.insert_event_bookeeping(&event);
+            }
         }
 
-        let span_events = engine.storage.get_all_span_events().collect::<Vec<_>>();
-
-        for span_event in span_events {
-            engine.insert_span_event_bookeeping(&span_event);
-        }
-
-        let events = engine.storage.get_all_events().collect::<Vec<_>>();
-
-        for event in events {
-            engine.insert_event_bookeeping(&event);
-        }
-
-        if !spans_not_closed.is_empty() {
+        if !engine.span_indexes.durations.open.is_empty() {
             let last_event = engine.event_indexes.all.last();
             let last_span_event = engine.span_event_indexes.all.last();
             let last_at = match (last_event, last_span_event) {
@@ -446,7 +450,7 @@ impl<S: Storage> RawEngine<S> {
 
             let at = last_at.saturating_add(1);
 
-            for span_key in spans_not_closed {
+            for span_key in engine.span_indexes.durations.open.clone() {
                 engine.span_indexes.update_with_closed(span_key, at);
                 engine.storage.update_span_closed(span_key, at, None);
             }

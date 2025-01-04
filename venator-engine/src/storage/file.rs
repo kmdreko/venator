@@ -13,8 +13,15 @@ use crate::{
 
 use super::Storage;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum IndexState {
+    Stale,
+    Fresh,
+}
+
 pub struct FileStorage {
     connection: DbConnection,
+    index_state: IndexState,
 }
 
 impl FileStorage {
@@ -40,21 +47,29 @@ impl FileStorage {
 
         let _ = connection.execute(r#"INSERT INTO meta VALUES (1, '0.3', 'STALE');"#, ());
 
-        let version: String = connection
-            .query_row("SELECT version FROM meta WHERE id = 1", (), |row| {
-                row.get(0)
-            })
+        let (version, index_state): (String, String) = connection
+            .query_row(
+                "SELECT version, indexes FROM meta WHERE id = 1",
+                (),
+                |row| row.get(0).and_then(|a| row.get(1).map(|b| (a, b))),
+            )
             .unwrap();
 
         if version != "0.3" {
             panic!("cannot load database with incompatible version");
         }
 
+        let index_state = match &*index_state {
+            "STALE" => IndexState::Stale,
+            "FRESH" => IndexState::Fresh,
+            _ => IndexState::Stale,
+        };
+
         let _ = connection.execute(
             r#"
             CREATE TABLE indexes (
                 kind TEXT NOT NULL,
-                data TEXT NOT NULL,
+                data BLOB NOT NULL,
 
                 CONSTRAINT indexes_pk PRIMARY KEY (kind)
             );
@@ -62,14 +77,11 @@ impl FileStorage {
             (),
         );
 
-        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('spans', 'DUMMY');"#, ());
+        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('spans', x'');"#, ());
 
-        let _ = connection.execute(
-            r#"INSERT INTO indexes VALUES ('span_events', 'DUMMY');"#,
-            (),
-        );
+        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('span_events', x'');"#, ());
 
-        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('events', 'DUMMY');"#, ());
+        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('events', x'');"#, ());
 
         let _ = connection.execute(
             r#"
@@ -144,7 +156,20 @@ impl FileStorage {
             (),
         );
 
-        FileStorage { connection }
+        FileStorage {
+            connection,
+            index_state,
+        }
+    }
+
+    fn invalidate_indexes(&mut self) {
+        if self.index_state == IndexState::Fresh {
+            self.connection
+                .execute("UPDATE meta SET indexes = 'STALE' WHERE id = 1", ())
+                .unwrap();
+
+            self.index_state = IndexState::Stale;
+        }
     }
 }
 
@@ -191,6 +216,47 @@ impl Storage for FileStorage {
         let result = stmt.query_row((at,), event_from_row);
 
         Some(Arc::new(result.unwrap()))
+    }
+
+    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
+        use bincode::DefaultOptions;
+
+        if self.index_state == IndexState::Stale {
+            return None;
+        }
+
+        let span_index_data: Vec<u8> = self
+            .connection
+            .query_row("SELECT data FROM indexes WHERE kind = 'spans'", (), |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        let span_event_index_data: Vec<u8> = self
+            .connection
+            .query_row(
+                "SELECT data FROM indexes WHERE kind = 'span_events'",
+                (),
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let event_index_data: Vec<u8> = self
+            .connection
+            .query_row(
+                "SELECT data FROM indexes WHERE kind = 'events'",
+                (),
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let bincode_options = DefaultOptions::new().with_fixint_encoding();
+
+        let span_indexes = bincode_options.deserialize(&span_index_data).unwrap();
+        let span_event_indexes = bincode_options.deserialize(&span_event_index_data).unwrap();
+        let event_indexes = bincode_options.deserialize(&event_index_data).unwrap();
+
+        Some((span_indexes, span_event_indexes, event_indexes))
     }
 
     fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
@@ -263,6 +329,8 @@ impl Storage for FileStorage {
     }
 
     fn insert_span(&mut self, span: Span) {
+        self.invalidate_indexes();
+
         let mut stmt = self
             .connection
             .prepare_cached(
@@ -315,6 +383,8 @@ impl Storage for FileStorage {
     }
 
     fn insert_span_event(&mut self, span_event: SpanEvent) {
+        self.invalidate_indexes();
+
         let mut stmt = self
             .connection
             .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4)")
@@ -324,6 +394,8 @@ impl Storage for FileStorage {
     }
 
     fn insert_event(&mut self, event: Event) {
+        self.invalidate_indexes();
+
         let mut stmt = self
             .connection
             .prepare_cached(
@@ -335,6 +407,8 @@ impl Storage for FileStorage {
     }
 
     fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>) {
+        self.invalidate_indexes();
+
         let mut stmt = self
             .connection
             .prepare_cached("UPDATE spans SET closed_at = ?2, busy = ?3 WHERE key = ?1")
@@ -344,6 +418,8 @@ impl Storage for FileStorage {
     }
 
     fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
+        self.invalidate_indexes();
+
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
@@ -373,6 +449,8 @@ impl Storage for FileStorage {
         link: FullSpanId,
         fields: BTreeMap<String, Value>,
     ) {
+        self.invalidate_indexes();
+
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
@@ -397,6 +475,8 @@ impl Storage for FileStorage {
     }
 
     fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {
+        self.invalidate_indexes();
+
         let tx = self.connection.transaction().unwrap();
 
         let mut stmt = tx
@@ -412,6 +492,8 @@ impl Storage for FileStorage {
     }
 
     fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]) {
+        self.invalidate_indexes();
+
         let tx = self.connection.transaction().unwrap();
 
         let mut stmt = tx
@@ -443,7 +525,7 @@ impl Storage for FileStorage {
         let tx = self.connection.transaction().unwrap();
 
         let mut stmt = tx
-            .prepare("UPDATE indexes SET data = $2 WHERE kind = $1")
+            .prepare("UPDATE indexes SET data = ?2 WHERE kind = ?1")
             .unwrap();
         stmt.execute(("spans", span_index_data)).unwrap();
         stmt.execute(("span_events", span_event_index_data))
