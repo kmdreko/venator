@@ -5282,6 +5282,7 @@ dependencies = [
 name = "venator-engine"
 version = "0.2.1"
 dependencies = [
+ "bincode",
  "futures",
  "ghost-cell",
  "lru",

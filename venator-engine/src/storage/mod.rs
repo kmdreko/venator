@@ -6,6 +6,7 @@ mod cached;
 mod file;
 mod transient;
 
+use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{Event, EventKey, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 use crate::FullSpanId;
 
@@ -47,6 +48,12 @@ pub trait Storage {
     );
     fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]);
     fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]);
+    fn update_indexes(
+        &mut self,
+        span_indexes: &SpanIndexes,
+        span_event_indexes: &SpanEventIndexes,
+        event_indexes: &EventIndexes,
+    );
 
     fn drop_resources(&mut self, resources: &[Timestamp]);
     fn drop_spans(&mut self, spans: &[Timestamp]);

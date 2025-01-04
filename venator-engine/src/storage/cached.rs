@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use lru::LruCache;
 
+use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::{Event, EventKey, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 
 use super::Storage;
@@ -146,6 +147,16 @@ where
         }
         drop(cached_events);
         self.inner.update_event_parents(parent_key, events);
+    }
+
+    fn update_indexes(
+        &mut self,
+        span_indexes: &SpanIndexes,
+        span_event_indexes: &SpanEventIndexes,
+        event_indexes: &EventIndexes,
+    ) {
+        self.inner
+            .update_indexes(span_indexes, span_event_indexes, event_indexes);
     }
 
     fn drop_resources(&mut self, resources: &[Timestamp]) {

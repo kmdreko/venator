@@ -1,3 +1,7 @@
+// TODO: refactor to remove these
+#![allow(private_interfaces)]
+#![allow(clippy::new_without_default)]
+
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
@@ -11,8 +15,10 @@ mod attribute;
 mod util;
 
 pub(crate) use attribute::AttributeIndex;
+use serde::{Deserialize, Serialize};
 pub(crate) use util::IndexExt;
 
+#[derive(Serialize, Deserialize)]
 pub struct EventIndexes {
     pub all: Vec<Timestamp>,
     pub levels: [Vec<Timestamp>; 6],
@@ -170,6 +176,7 @@ impl EventIndexes {
     pub fn remove_spans(&mut self, _spans: &[SpanKey]) {}
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct SpanIndexes {
     pub all: Vec<Timestamp>,
     pub ids: HashMap<FullSpanId, SpanKey>,
@@ -389,6 +396,7 @@ impl SpanIndexes {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct SpanDurationIndex {
     closed_4_ms: Vec<Timestamp>,   // span ids with durations shorter than 4ms
     closed_16_ms: Vec<Timestamp>,  // span ids with durations between [4ms and 16ms)
@@ -447,6 +455,7 @@ impl SpanDurationIndex {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct SpanEventIndexes {
     pub all: Vec<Timestamp>,
     pub spans: HashMap<SpanKey, Vec<Timestamp>>,

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::Storage;
+use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{EventKey, Value};
 use crate::{Event, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp};
 
@@ -126,6 +127,15 @@ impl Storage for TransientStorage {
                 self.events.insert(event.key(), Arc::new(event));
             }
         }
+    }
+
+    fn update_indexes(
+        &mut self,
+        _span_indexes: &SpanIndexes,
+        _span_event_indexes: &SpanEventIndexes,
+        _event_indexes: &EventIndexes,
+    ) {
+        // do nothing
     }
 
     fn drop_resources(&mut self, resources: &[Timestamp]) {

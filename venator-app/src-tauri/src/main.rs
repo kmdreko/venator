@@ -11,7 +11,7 @@ use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use venator_engine::{
     BasicEventFilter, BasicSpanFilter, CachedStorage, DeleteFilter, DeleteMetrics, Engine,
@@ -677,7 +677,13 @@ fn main() {
             });
             Ok(())
         })
-        .manage(engine)
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { .. } = event {
+                let engine = window.state::<Engine>();
+                shutdown(&engine);
+            }
+        })
+        .manage(engine.clone())
         .manage(dataset)
         .manage(ingress)
         .manage(SessionPersistence(persist_session))
@@ -698,6 +704,11 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn shutdown(engine: &Engine) {
+    engine.save().await;
 }
 
 #[derive(Clone, Serialize, Deserialize)]

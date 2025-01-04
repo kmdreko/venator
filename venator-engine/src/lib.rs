@@ -171,6 +171,10 @@ impl Engine {
                             load: load.min(1.0) * 100.0,
                         });
                     }
+                    EngineCommand::Save(sender) => {
+                        engine.save();
+                        let _ = sender.send(());
+                    }
                 }
                 let cmd_elapsed = cmd_start.elapsed().as_millis();
                 computed_ms_since_last_check += cmd_elapsed;
@@ -319,6 +323,12 @@ impl Engine {
         let _ = self.query_sender.send(EngineCommand::GetStatus(sender));
         async move { receiver.await.unwrap() }
     }
+
+    pub fn save(&self) -> impl Future<Output = ()> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self.insert_sender.send(EngineCommand::Save(sender));
+        async move { receiver.await.unwrap() }
+    }
 }
 
 enum EngineCommand {
@@ -348,6 +358,8 @@ enum EngineCommand {
 
     CopyDataset(Box<dyn Storage + Send>, OneshotSender<()>),
     GetStatus(OneshotSender<EngineStatusView>),
+
+    Save(OneshotSender<()>),
 }
 
 pub struct EngineStatusView {
@@ -995,10 +1007,6 @@ impl<S: Storage> RawEngine<S> {
             .span_indexes
             .update_with_new_span(&SpanContext::with_span(span, &self.storage));
 
-        // TODO: this kinda relies on the first descendent being itself. I need
-        // to double-check that we reject any case where a child is somehow
-        // before its parent.
-
         let trace = SpanContext::with_span(span, &self.storage).trace_root();
 
         let descendent_spans = self
@@ -1314,6 +1322,14 @@ impl<S: Storage> RawEngine<S> {
 
     pub fn unsubscribe_from_events(&mut self, id: SubscriptionId) {
         self.event_subscribers.remove(&id);
+    }
+
+    pub fn save(&mut self) {
+        self.storage.update_indexes(
+            &self.span_indexes,
+            &self.span_event_indexes,
+            &self.event_indexes,
+        );
     }
 }
 

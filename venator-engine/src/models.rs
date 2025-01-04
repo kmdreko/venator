@@ -106,7 +106,7 @@ impl<'d> Deserialize<'d> for FullSpanId {
 #[derive(Debug)]
 pub struct TraceRootParseError;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TraceRoot {
     Tracing(InstanceId, SpanId),
     Opentelemetry(TraceId),

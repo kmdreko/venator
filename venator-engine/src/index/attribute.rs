@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::filter::attribute::{ValueComparison, ValueFilter, ValueStringComparison};
 use crate::filter::BoundSearch;
 use crate::models::ValueOperator;
@@ -12,6 +14,7 @@ use super::util::IndexExt;
 // Since the values of an attribute can be varied, this keeps separate typed
 // indexes. It is unlikely that an attribute has values with multiple types, but
 // it needs to be accounted for regardless.
+#[derive(Serialize, Deserialize)]
 pub(crate) struct AttributeIndex {
     nulls: Vec<Timestamp>,
     f64s: AttributeF64Index,
@@ -264,6 +267,7 @@ impl AttributeIndex {
 // This is a sub-index for string values of an attribute index. It keeps a
 // "total" list as well for queries on strings but can't reasonably use the
 // invididual values.
+#[derive(Serialize, Deserialize)]
 struct AttributeStringIndex {
     total: Vec<Timestamp>,
     value_indexes: BTreeMap<String, Vec<Timestamp>>,
@@ -292,6 +296,7 @@ impl AttributeStringIndex {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeF64Index {
     // TODO: figure out how best to do categorical & numerical indexing
     index: Vec<Timestamp>,
@@ -307,6 +312,7 @@ impl AttributeF64Index {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeI64Index {
     // TODO: figure out how best to do categorical & numerical indexing
     index: Vec<Timestamp>,
@@ -322,6 +328,7 @@ impl AttributeI64Index {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeU64Index {
     // TODO: figure out how best to do categorical & numerical indexing
     index: Vec<Timestamp>,
@@ -337,6 +344,7 @@ impl AttributeU64Index {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeI128Index {
     // TODO: figure out how best to do categorical & numerical indexing
     index: Vec<Timestamp>,
@@ -352,6 +360,7 @@ impl AttributeI128Index {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeU128Index {
     // TODO: figure out how best to do categorical & numerical indexing
     index: Vec<Timestamp>,
@@ -367,6 +376,7 @@ impl AttributeU128Index {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeBoolIndex {
     trues: Vec<Timestamp>,
     falses: Vec<Timestamp>,
@@ -386,6 +396,7 @@ impl AttributeBoolIndex {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeByteIndex {
     // TODO: figure out how best to do indexing
     index: Vec<Timestamp>,
@@ -401,6 +412,7 @@ impl AttributeByteIndex {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeArrayIndex {
     // TODO: figure out how best to do indexing
     index: Vec<Timestamp>,
@@ -416,6 +428,7 @@ impl AttributeArrayIndex {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct AttributeObjectIndex {
     // TODO: figure out how best to do indexing
     index: Vec<Timestamp>,

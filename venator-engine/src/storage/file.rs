@@ -2,8 +2,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use bincode::Options;
 use rusqlite::{params, Connection as DbConnection, Error as DbError, Params, Row};
 
+use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{EventKey, Level, SourceKind, Value};
 use crate::{
     Event, FullSpanId, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp,
@@ -28,6 +30,7 @@ impl FileStorage {
             CREATE TABLE meta (
                 id      INT  NOT NULL,
                 version TEXT NOT NULL,
+                indexes TEXT NOT NULL,
 
                 CONSTRAINT meta_pk PRIMARY KEY (id)
             );
@@ -35,7 +38,7 @@ impl FileStorage {
             (),
         );
 
-        let _ = connection.execute(r#"INSERT INTO meta VALUES (1, '0.3');"#, ());
+        let _ = connection.execute(r#"INSERT INTO meta VALUES (1, '0.3', 'STALE');"#, ());
 
         let version: String = connection
             .query_row("SELECT version FROM meta WHERE id = 1", (), |row| {
@@ -46,6 +49,27 @@ impl FileStorage {
         if version != "0.3" {
             panic!("cannot load database with incompatible version");
         }
+
+        let _ = connection.execute(
+            r#"
+            CREATE TABLE indexes (
+                kind TEXT NOT NULL,
+                data TEXT NOT NULL,
+
+                CONSTRAINT indexes_pk PRIMARY KEY (kind)
+            );
+            "#,
+            (),
+        );
+
+        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('spans', 'DUMMY');"#, ());
+
+        let _ = connection.execute(
+            r#"INSERT INTO indexes VALUES ('span_events', 'DUMMY');"#,
+            (),
+        );
+
+        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('events', 'DUMMY');"#, ());
 
         let _ = connection.execute(
             r#"
@@ -399,6 +423,37 @@ impl Storage for FileStorage {
         }
 
         drop(stmt);
+        tx.commit().unwrap();
+    }
+
+    fn update_indexes(
+        &mut self,
+        span_indexes: &SpanIndexes,
+        span_event_indexes: &SpanEventIndexes,
+        event_indexes: &EventIndexes,
+    ) {
+        use bincode::DefaultOptions;
+
+        let bincode_options = DefaultOptions::new().with_fixint_encoding();
+
+        let span_index_data = bincode_options.serialize(span_indexes).unwrap();
+        let span_event_index_data = bincode_options.serialize(span_event_indexes).unwrap();
+        let event_index_data = bincode_options.serialize(event_indexes).unwrap();
+
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare("UPDATE indexes SET data = $2 WHERE kind = $1")
+            .unwrap();
+        stmt.execute(("spans", span_index_data)).unwrap();
+        stmt.execute(("span_events", span_event_index_data))
+            .unwrap();
+        stmt.execute(("events", event_index_data)).unwrap();
+        drop(stmt);
+
+        tx.execute("UPDATE meta SET indexes = 'FRESH' WHERE id = 1", ())
+            .unwrap();
+
         tx.commit().unwrap();
     }
 
