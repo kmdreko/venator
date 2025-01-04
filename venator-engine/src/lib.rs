@@ -21,10 +21,9 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
 
 use filter::{
-    BoundSearch, IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter,
-    IndexedSpanFilterIterator,
+    IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator,
 };
-use index::{EventIndexes, IndexExt, SpanIndexes};
+use index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 
 pub use filter::input::{
     FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate,
@@ -372,11 +371,9 @@ struct RawEngine<S> {
     storage: S,
     keys: KeyCache,
     resources: HashMap<ResourceKey, Resource>,
-    span_key_map: HashMap<FullSpanId, SpanKey>,
-    span_id_map: HashMap<SpanKey, FullSpanId>,
+
     span_indexes: SpanIndexes,
-    span_event_ids: Vec<Timestamp>,
-    span_events_by_span: HashMap<SpanKey, Vec<Timestamp>>,
+    span_event_indexes: SpanEventIndexes,
     event_indexes: EventIndexes,
 
     next_subscriber_id: usize,
@@ -389,11 +386,8 @@ impl<S: Storage> RawEngine<S> {
             storage,
             keys: KeyCache::new(),
             resources: HashMap::new(),
-            span_key_map: HashMap::new(),
-            span_id_map: HashMap::new(),
             span_indexes: SpanIndexes::new(),
-            span_event_ids: vec![],
-            span_events_by_span: HashMap::new(),
+            span_event_indexes: SpanEventIndexes::new(),
             event_indexes: EventIndexes::new(),
 
             next_subscriber_id: 0,
@@ -430,7 +424,7 @@ impl<S: Storage> RawEngine<S> {
 
         if !spans_not_closed.is_empty() {
             let last_event = engine.event_indexes.all.last();
-            let last_span_event = engine.span_event_ids.last();
+            let last_span_event = engine.span_event_indexes.all.last();
             let last_at = match (last_event, last_span_event) {
                 (Some(event), Some(span_event)) => Ord::max(*event, *span_event),
                 (None, Some(span_event)) => *span_event,
@@ -485,12 +479,11 @@ impl<S: Storage> RawEngine<S> {
         for parent in context.parents() {
             for (attribute, value) in &parent.fields {
                 if !attributes.contains_key(attribute) {
-                    let parent_id = *self.span_id_map.get(&parent.key()).unwrap();
                     attributes.insert(
                         attribute.to_owned(),
                         (
                             AttributeSourceView::Span {
-                                span_id: parent_id.to_string(),
+                                span_id: parent.id.to_string(),
                             },
                             value.to_string(),
                             value.to_type_view(),
@@ -584,12 +577,11 @@ impl<S: Storage> RawEngine<S> {
         for parent in context.parents() {
             for (attribute, value) in &parent.fields {
                 if !attributes.contains_key(attribute) {
-                    let parent_id = *self.span_id_map.get(&parent.key()).unwrap();
                     attributes.insert(
                         attribute.to_owned(),
                         (
                             AttributeSourceView::Span {
-                                span_id: parent_id.to_string(),
+                                span_id: parent.id.to_string(),
                             },
                             value.to_string(),
                             value.to_type_view(),
@@ -736,13 +728,13 @@ impl<S: Storage> RawEngine<S> {
 
         match new_span_event.kind {
             NewSpanEventKind::Create(new_create_event) => {
-                if self.span_key_map.contains_key(&new_span_event.span_id) {
+                if self.span_indexes.ids.contains_key(&new_span_event.span_id) {
                     return Err(EngineInsertError::DuplicateSpanId);
                 }
 
                 // parent may not yet exist, that is ok
                 let parent_id = new_create_event.parent_id;
-                let parent_key = parent_id.and_then(|id| self.span_key_map.get(&id).copied());
+                let parent_key = parent_id.and_then(|id| self.span_indexes.ids.get(&id).copied());
 
                 let span = Span {
                     kind: new_create_event.kind,
@@ -794,7 +786,8 @@ impl<S: Storage> RawEngine<S> {
             }
             NewSpanEventKind::Update(new_update_event) => {
                 let span_key = self
-                    .span_key_map
+                    .span_indexes
+                    .ids
                     .get(&new_span_event.span_id)
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
@@ -868,7 +861,8 @@ impl<S: Storage> RawEngine<S> {
             }
             NewSpanEventKind::Follows(new_follows_event) => {
                 let span_key = self
-                    .span_key_map
+                    .span_indexes
+                    .ids
                     .get(&new_span_event.span_id)
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
@@ -879,7 +873,8 @@ impl<S: Storage> RawEngine<S> {
 
                 let follows_span_id = FullSpanId::Tracing(instance_id, new_follows_event.follows);
                 let follows_span_key = self
-                    .span_key_map
+                    .span_indexes
+                    .ids
                     .get(&follows_span_id)
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
@@ -903,7 +898,8 @@ impl<S: Storage> RawEngine<S> {
             }
             NewSpanEventKind::Enter(new_enter_event) => {
                 let span_key = self
-                    .span_key_map
+                    .span_indexes
+                    .ids
                     .get(&new_span_event.span_id)
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
@@ -921,7 +917,8 @@ impl<S: Storage> RawEngine<S> {
             }
             NewSpanEventKind::Exit => {
                 let span_key = self
-                    .span_key_map
+                    .span_indexes
+                    .ids
                     .get(&new_span_event.span_id)
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
@@ -937,7 +934,8 @@ impl<S: Storage> RawEngine<S> {
             }
             NewSpanEventKind::Close(new_close_event) => {
                 let span_key = self
-                    .span_key_map
+                    .span_indexes
+                    .ids
                     .get(&new_span_event.span_id)
                     .copied()
                     .ok_or(EngineInsertError::UnknownSpanId)?;
@@ -947,7 +945,7 @@ impl<S: Storage> RawEngine<S> {
                 } else {
                     let mut busy = 0;
                     let mut last_enter = None;
-                    for span_event_key in &self.span_events_by_span[&span_key] {
+                    for span_event_key in &self.span_event_indexes.spans[&span_key] {
                         let span_event = self.storage.get_span_event(*span_event_key).unwrap();
                         match &span_event.kind {
                             SpanEventKind::Enter(_) => {
@@ -992,9 +990,6 @@ impl<S: Storage> RawEngine<S> {
 
     fn insert_span_bookeeping(&mut self, span: &Span) -> (Vec<SpanKey>, Vec<EventKey>) {
         let span_key = span.created_at;
-
-        self.span_key_map.insert(span.id, span_key);
-        self.span_id_map.insert(span_key, span.id);
 
         let spans_to_update_parent = self
             .span_indexes
@@ -1061,16 +1056,8 @@ impl<S: Storage> RawEngine<S> {
     }
 
     fn insert_span_event_bookeeping(&mut self, span_event: &SpanEvent) {
-        let timestamp = span_event.timestamp;
-        let idx = self.span_event_ids.upper_bound_via_expansion(&timestamp);
-        self.span_event_ids.insert(idx, timestamp);
-
-        let by_span_index = self
-            .span_events_by_span
-            .entry(span_event.span_key)
-            .or_default();
-        let idx = by_span_index.upper_bound_via_expansion(&timestamp);
-        by_span_index.insert(idx, timestamp);
+        self.span_event_indexes
+            .update_with_new_span_event(span_event);
     }
 
     pub fn insert_event(&mut self, mut new_event: NewEvent) -> Result<(), EngineInsertError> {
@@ -1079,7 +1066,7 @@ impl<S: Storage> RawEngine<S> {
 
         // parent may not yet exist, that is ok
         let parent_id = new_event.span_id;
-        let parent_key = parent_id.and_then(|id| self.span_key_map.get(&id).copied());
+        let parent_key = parent_id.and_then(|id| self.span_indexes.ids.get(&id).copied());
 
         let event = Event {
             kind: new_event.kind,
@@ -1158,7 +1145,8 @@ impl<S: Storage> RawEngine<S> {
         let span_events = spans_from_root_spans
             .iter()
             .flat_map(|span| {
-                self.span_events_by_span
+                self.span_event_indexes
+                    .spans
                     .get(span)
                     .map(Vec::as_slice)
                     .unwrap_or_default()
@@ -1263,26 +1251,13 @@ impl<S: Storage> RawEngine<S> {
     }
 
     fn remove_spans_bookeeping(&mut self, spans: &[SpanKey]) {
-        for span_key in spans {
-            self.span_id_map.remove(span_key);
-        }
-
-        self.span_key_map.retain(|_, key| !spans.contains(key));
-
         self.span_indexes.remove_spans(spans);
-
+        self.span_event_indexes.remove_spans(spans);
         self.event_indexes.remove_spans(spans);
-        for span_key in spans {
-            self.span_events_by_span.remove(span_key);
-        }
     }
 
     fn remove_span_events_bookeeping(&mut self, span_events: &[SpanEventKey]) {
-        self.span_event_ids.remove_list_sorted(span_events);
-
-        for span_index in self.span_events_by_span.values_mut() {
-            span_index.remove_list_sorted(span_events);
-        }
+        self.span_event_indexes.remove_span_events(span_events);
     }
 
     fn remove_events_bookeeping(&mut self, events: &[EventKey]) {
@@ -1322,7 +1297,7 @@ impl<S: Storage> RawEngine<S> {
         let mut filter = BasicEventFilter::And(
             filter
                 .into_iter()
-                .map(|p| BasicEventFilter::from_predicate(p, &self.span_key_map).unwrap())
+                .map(|p| BasicEventFilter::from_predicate(p, &self.span_indexes.ids).unwrap())
                 .collect(),
         );
         filter.simplify();

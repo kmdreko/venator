@@ -1075,7 +1075,7 @@ impl<'i, S: Storage> IndexedEventFilterIterator<'i, S> {
             query
                 .filter
                 .into_iter()
-                .map(|p| BasicEventFilter::from_predicate(p, &engine.span_key_map).unwrap())
+                .map(|p| BasicEventFilter::from_predicate(p, &engine.span_indexes.ids).unwrap())
                 .collect(),
         );
         filter.simplify();
@@ -2476,7 +2476,7 @@ impl<'i, S: Storage> IndexedSpanFilterIterator<'i, S> {
             query
                 .filter
                 .into_iter()
-                .map(|p| BasicSpanFilter::from_predicate(p, &engine.span_key_map).unwrap())
+                .map(|p| BasicSpanFilter::from_predicate(p, &engine.span_indexes.ids).unwrap())
                 .collect(),
         );
         filter.simplify();

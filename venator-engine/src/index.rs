@@ -3,7 +3,9 @@ use std::ops::Range;
 
 use crate::filter::BoundSearch;
 use crate::models::{EventKey, FullSpanId, Timestamp, TraceRoot, Value};
-use crate::{EventContext, InstanceId, ResourceKey, SpanContext, SpanKey, Storage};
+use crate::{
+    EventContext, InstanceId, ResourceKey, SpanContext, SpanEvent, SpanEventKey, SpanKey, Storage,
+};
 
 mod attribute;
 mod util;
@@ -170,6 +172,7 @@ impl EventIndexes {
 
 pub struct SpanIndexes {
     pub all: Vec<Timestamp>,
+    pub ids: HashMap<FullSpanId, SpanKey>,
     pub levels: [Vec<Timestamp>; 6],
     pub durations: SpanDurationIndex,
     pub instances: BTreeMap<InstanceId, Vec<Timestamp>>,
@@ -208,6 +211,7 @@ impl SpanIndexes {
             roots: Vec::new(),
             traces: HashMap::new(),
             attributes: BTreeMap::new(),
+            ids: HashMap::new(),
             orphanage: HashMap::new(),
         }
     }
@@ -221,6 +225,8 @@ impl SpanIndexes {
 
         let idx = self.all.upper_bound_via_expansion(&span_key);
         self.all.insert(idx, span_key);
+
+        self.ids.insert(span.id, span_key);
 
         let level_index = &mut self.levels[span.level.into_simple_level() as usize];
         let idx = level_index.upper_bound_via_expansion(&span_key);
@@ -351,6 +357,8 @@ impl SpanIndexes {
     pub fn remove_spans(&mut self, spans: &[SpanKey]) {
         self.all.remove_list_sorted(spans);
 
+        self.ids.retain(|_, key| !spans.contains(key));
+
         for level_index in &mut self.levels {
             level_index.remove_list_sorted(spans);
         }
@@ -436,5 +444,44 @@ impl SpanDurationIndex {
         self.closed_64_s.remove_list_sorted(spans);
         self.closed_long.remove_list_sorted(spans);
         self.open.remove_list_sorted(spans);
+    }
+}
+
+pub struct SpanEventIndexes {
+    pub all: Vec<Timestamp>,
+    pub spans: HashMap<SpanKey, Vec<Timestamp>>,
+}
+
+impl SpanEventIndexes {
+    pub fn new() -> SpanEventIndexes {
+        SpanEventIndexes {
+            all: Vec::new(),
+            spans: HashMap::new(),
+        }
+    }
+
+    pub fn update_with_new_span_event(&mut self, span_event: &SpanEvent) {
+        let timestamp = span_event.timestamp;
+
+        let idx = self.all.upper_bound_via_expansion(&timestamp);
+        self.all.insert(idx, timestamp);
+
+        let span_index = self.spans.entry(span_event.span_key).or_default();
+        let idx = span_index.upper_bound_via_expansion(&timestamp);
+        span_index.insert(idx, timestamp);
+    }
+
+    pub fn remove_span_events(&mut self, span_events: &[SpanEventKey]) {
+        self.all.remove_list_sorted(span_events);
+
+        for span_index in self.spans.values_mut() {
+            span_index.remove_list_sorted(span_events);
+        }
+    }
+
+    pub fn remove_spans(&mut self, spans: &[SpanKey]) {
+        for span_key in spans {
+            self.spans.remove(span_key);
+        }
     }
 }
