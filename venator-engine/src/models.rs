@@ -110,17 +110,6 @@ pub enum TraceRoot {
     Opentelemetry(TraceId),
 }
 
-impl TraceRoot {
-    /// creates a trace root from a span id which is reliable if the span was a
-    /// root
-    pub fn from_root_span_id(id: FullSpanId) -> TraceRoot {
-        match id {
-            FullSpanId::Tracing(instance, span) => TraceRoot::Tracing(instance, span),
-            FullSpanId::Opentelemetry(trace, _) => TraceRoot::Opentelemetry(trace),
-        }
-    }
-}
-
 impl FromStr for TraceRoot {
     type Err = TraceRootParseError;
 

@@ -730,6 +730,32 @@ impl<S: Storage> RawEngine<S> {
 
                 self.insert_span_event_bookeeping(&span_event);
                 self.storage.insert_span_event(span_event);
+
+                if !self.event_subscribers.is_empty() {
+                    let root = SpanContext::with_span(&span, &self.storage).trace_root();
+                    let descendent_events = self
+                        .event_indexes
+                        .traces
+                        .get(&root)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default()
+                        .iter()
+                        .copied()
+                        .filter(|key| {
+                            EventContext::new(*key, &self.storage)
+                                .parents()
+                                .any(|p| p.key() == span.key())
+                        });
+
+                    // update subscribers for events that may have been updated by
+                    // a new parent
+                    for event_key in descendent_events {
+                        let context = EventContext::new(event_key, &self.storage);
+                        for subscriber in self.event_subscribers.values_mut() {
+                            subscriber.on_event(&context);
+                        }
+                    }
+                }
             }
             NewSpanEventKind::Update(new_update_event) => {
                 let span_key = self
@@ -805,6 +831,31 @@ impl<S: Storage> RawEngine<S> {
 
                 self.insert_span_event_bookeeping(&span_event);
                 self.storage.insert_span_event(span_event);
+
+                if !self.event_subscribers.is_empty() {
+                    let descendent_events = self
+                        .event_indexes
+                        .traces
+                        .get(&trace)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default()
+                        .iter()
+                        .copied()
+                        .filter(|key| {
+                            EventContext::new(*key, &self.storage)
+                                .parents()
+                                .any(|p| p.key() == span_key)
+                        });
+
+                    // update subscribers for events that may have been updated by
+                    // an updated parent
+                    for event_key in descendent_events {
+                        let context = EventContext::new(event_key, &self.storage);
+                        for subscriber in self.event_subscribers.values_mut() {
+                            subscriber.on_event(&context);
+                        }
+                    }
+                }
             }
             NewSpanEventKind::Follows(new_follows_event) => {
                 let span_key = self
