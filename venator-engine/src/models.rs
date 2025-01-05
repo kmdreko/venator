@@ -39,8 +39,6 @@ pub type TraceId = u128;
 
 pub type FullSpanIdView = String;
 
-pub type SubscriptionId = usize;
-
 #[derive(Debug)]
 pub struct FullSpanIdParseError;
 
@@ -643,9 +641,4 @@ pub struct StatsView {
     pub end: Option<Timestamp>,
     pub total_spans: usize,
     pub total_events: usize,
-}
-
-pub enum SubscriptionResponse<T> {
-    Add(T),
-    Remove(Timestamp),
 }

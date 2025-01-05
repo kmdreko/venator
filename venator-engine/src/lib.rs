@@ -6,6 +6,7 @@ mod filter;
 mod index;
 mod models;
 mod storage;
+mod subscription;
 
 use std::cell::{Cell, OnceCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -24,6 +25,7 @@ use filter::{
     IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator,
 };
 use index::{EventIndexes, SpanEventIndexes, SpanIndexes};
+use subscription::EventSubscription;
 
 pub use filter::input::{
     FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate,
@@ -36,10 +38,11 @@ pub use models::{
     FullSpanId, InstanceId, Level, LevelConvertError, NewCloseSpanEvent, NewCreateSpanEvent,
     NewEnterSpanEvent, NewEvent, NewFollowsSpanEvent, NewResource, NewSpanEvent, NewSpanEventKind,
     NewUpdateSpanEvent, Resource, ResourceKey, SourceKind, Span, SpanEvent, SpanEventKey,
-    SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, SubscriptionResponse,
-    Timestamp, TraceId, UpdateSpanEvent, Value, ValueOperator,
+    SpanEventKind, SpanId, SpanKey, SpanView, StatsView, Timestamp, TraceId, UpdateSpanEvent,
+    Value, ValueOperator,
 };
 pub use storage::{CachedStorage, Storage, TransientStorage};
+pub use subscription::{SubscriptionId, SubscriptionResponse};
 
 #[cfg(feature = "persist")]
 pub use storage::FileStorage;
@@ -397,13 +400,7 @@ struct RawEngine<S> {
     event_indexes: EventIndexes,
 
     next_subscriber_id: usize,
-    event_subscribers: HashMap<
-        usize,
-        (
-            BasicEventFilter,
-            UnboundedSender<SubscriptionResponse<EventView>>,
-        ),
-    >,
+    event_subscribers: HashMap<usize, EventSubscription>,
 }
 
 impl<S: Storage> RawEngine<S> {
@@ -478,7 +475,7 @@ impl<S: Storage> RawEngine<S> {
         IndexedEventFilterIterator::new(query, self)
             .take(limit)
             .map(|event_key| self.storage.get_event(event_key).unwrap())
-            .map(|event| self.render_event(&event))
+            .map(|event| EventContext::with_event(&event, &self.storage).render())
             .collect()
     }
 
@@ -488,86 +485,6 @@ impl<S: Storage> RawEngine<S> {
         match event_iter.size_hint() {
             (min, Some(max)) if min == max => min,
             _ => event_iter.count(),
-        }
-    }
-
-    fn render_event(&self, event: &Event) -> EventView {
-        let context = EventContext::with_event(event, &self.storage);
-
-        let mut attributes =
-            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
-        for (attribute, value) in &context.event().fields {
-            attributes.insert(
-                attribute.to_owned(),
-                (
-                    AttributeSourceView::Inherent,
-                    value.to_string(),
-                    value.to_type_view(),
-                ),
-            );
-        }
-        for parent in context.parents() {
-            for (attribute, value) in &parent.fields {
-                if !attributes.contains_key(attribute) {
-                    attributes.insert(
-                        attribute.to_owned(),
-                        (
-                            AttributeSourceView::Span {
-                                span_id: parent.id.to_string(),
-                            },
-                            value.to_string(),
-                            value.to_type_view(),
-                        ),
-                    );
-                }
-            }
-        }
-        for (attribute, value) in &context.resource().fields {
-            if !attributes.contains_key(attribute) {
-                attributes.insert(
-                    attribute.to_owned(),
-                    (
-                        AttributeSourceView::Resource,
-                        value.to_string(),
-                        value.to_type_view(),
-                    ),
-                );
-            }
-        }
-
-        EventView {
-            kind: event.kind,
-            ancestors: {
-                let mut ancestors = context
-                    .parents()
-                    .map(|parent| AncestorView {
-                        id: parent.id.to_string(),
-                        name: parent.name.clone(),
-                    })
-                    .collect::<Vec<_>>();
-
-                ancestors.reverse();
-                ancestors
-            },
-            timestamp: event.timestamp,
-            level: event.level.into_simple_level(),
-            content: event.content.to_string(),
-            namespace: event.namespace.clone(),
-            function: event.function.clone(),
-            file: match (&event.file_name, event.file_line) {
-                (None, _) => None,
-                (Some(name), None) => Some(name.clone()),
-                (Some(name), Some(line)) => Some(format!("{name}:{line}")),
-            },
-            attributes: attributes
-                .into_iter()
-                .map(|(name, (kind, value, typ))| AttributeView {
-                    name,
-                    value,
-                    typ,
-                    source: kind,
-                })
-                .collect(),
         }
     }
 
@@ -1113,20 +1030,12 @@ impl<S: Storage> RawEngine<S> {
         self.insert_event_bookeeping(&event);
         self.storage.insert_event(event.clone());
 
-        let mut remove = vec![];
         let context = EventContext::with_event(&event, &self.storage);
-        for (id, (filter, sender)) in &self.event_subscribers {
-            if filter.matches(&context) {
-                let send_result = sender.send(SubscriptionResponse::Add(self.render_event(&event)));
-                if send_result.is_err() {
-                    remove.push(*id);
-                }
-            }
+        for subscriber in self.event_subscribers.values_mut() {
+            subscriber.on_event(&context);
         }
 
-        for id in remove {
-            self.event_subscribers.remove(&id);
-        }
+        self.event_subscribers.retain(|_, s| s.connected());
 
         Ok(())
     }
@@ -1336,7 +1245,8 @@ impl<S: Storage> RawEngine<S> {
 
         let (sender, receiver) = mpsc::unbounded_channel();
 
-        self.event_subscribers.insert(id, (filter, sender));
+        self.event_subscribers
+            .insert(id, EventSubscription::new(filter, sender));
 
         (id, receiver)
     }
@@ -1554,6 +1464,86 @@ where
         }
 
         attributes.into_iter()
+    }
+
+    fn render(&self) -> EventView {
+        let event = self.event();
+
+        let mut attributes =
+            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
+        for (attribute, value) in &self.event().fields {
+            attributes.insert(
+                attribute.to_owned(),
+                (
+                    AttributeSourceView::Inherent,
+                    value.to_string(),
+                    value.to_type_view(),
+                ),
+            );
+        }
+        for parent in self.parents() {
+            for (attribute, value) in &parent.fields {
+                if !attributes.contains_key(attribute) {
+                    attributes.insert(
+                        attribute.to_owned(),
+                        (
+                            AttributeSourceView::Span {
+                                span_id: parent.id.to_string(),
+                            },
+                            value.to_string(),
+                            value.to_type_view(),
+                        ),
+                    );
+                }
+            }
+        }
+        for (attribute, value) in &self.resource().fields {
+            if !attributes.contains_key(attribute) {
+                attributes.insert(
+                    attribute.to_owned(),
+                    (
+                        AttributeSourceView::Resource,
+                        value.to_string(),
+                        value.to_type_view(),
+                    ),
+                );
+            }
+        }
+
+        EventView {
+            kind: event.kind,
+            ancestors: {
+                let mut ancestors = self
+                    .parents()
+                    .map(|parent| AncestorView {
+                        id: parent.id.to_string(),
+                        name: parent.name.clone(),
+                    })
+                    .collect::<Vec<_>>();
+
+                ancestors.reverse();
+                ancestors
+            },
+            timestamp: event.timestamp,
+            level: event.level.into_simple_level(),
+            content: event.content.to_string(),
+            namespace: event.namespace.clone(),
+            function: event.function.clone(),
+            file: match (&event.file_name, event.file_line) {
+                (None, _) => None,
+                (Some(name), None) => Some(name.clone()),
+                (Some(name), Some(line)) => Some(format!("{name}:{line}")),
+            },
+            attributes: attributes
+                .into_iter()
+                .map(|(name, (kind, value, typ))| AttributeView {
+                    name,
+                    value,
+                    typ,
+                    source: kind,
+                })
+                .collect(),
+        }
     }
 }
 
