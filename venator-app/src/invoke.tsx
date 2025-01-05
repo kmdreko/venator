@@ -130,6 +130,14 @@ export type SessionTab = {
     columns: string[];
 };
 
+export type SubscriptionResponse<T> = {
+    kind: 'add';
+    entity: T;
+} | {
+    kind: 'remove';
+    entity: Timestamp;
+};
+
 export async function getStats(): Promise<Stats> {
     console.debug("invoking 'get_stats'");
     return await invoke<Stats>("get_stats", {});
@@ -170,7 +178,7 @@ export async function deleteEntities(start: Timestamp | null, end: Timestamp | n
     return await invoke<DeleteMetrics>("delete_entities", { start, end, inside, dryRun });
 }
 
-export async function subscribeToEvents(filter: FilterPredicate[], channel: Channel<Event>): Promise<number> {
+export async function subscribeToEvents(filter: FilterPredicate[], channel: Channel<SubscriptionResponse<Event>>): Promise<number> {
     console.debug("invoking 'subscribe_to_events'");
     return await invoke<number>("subscribe_to_events", { filter, channel });
 }

@@ -644,3 +644,8 @@ pub struct StatsView {
     pub total_spans: usize,
     pub total_events: usize,
 }
+
+pub enum SubscriptionResponse<T> {
+    Add(T),
+    Remove(Timestamp),
+}

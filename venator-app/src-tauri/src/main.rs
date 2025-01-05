@@ -16,8 +16,8 @@ use tauri_plugin_dialog::DialogExt;
 use venator_engine::{
     BasicEventFilter, BasicSpanFilter, CachedStorage, DeleteFilter, DeleteMetrics, Engine,
     EventView, FallibleFilterPredicate, FileStorage, FilterPredicate, FilterPredicateSingle,
-    FilterPropertyKind, InputError, Order, Query, SpanView, StatsView, SubscriptionId, Timestamp,
-    TransientStorage, ValuePredicate,
+    FilterPropertyKind, InputError, Order, Query, SpanView, StatsView, SubscriptionId,
+    SubscriptionResponse, Timestamp, TransientStorage, ValuePredicate,
 };
 
 mod ingress;
@@ -182,13 +182,19 @@ async fn get_stats(engine: State<'_, Engine>) -> Result<StatsView, ()> {
 async fn subscribe_to_events(
     engine: State<'_, Engine>,
     filter: Vec<FilterPredicate>,
-    channel: Channel<EventView>,
+    channel: Channel<SubscriptionResponseView<EventView>>,
 ) -> Result<SubscriptionId, String> {
     let (id, mut receiver) = engine.subscribe_to_events(filter).await;
 
     tokio::spawn(async move {
-        while let Some(event) = receiver.recv().await {
-            let _ = channel.send(event);
+        while let Some(response) = receiver.recv().await {
+            let response = match response {
+                SubscriptionResponse::Add(event) => SubscriptionResponseView::Add(event),
+                SubscriptionResponse::Remove(event_key) => {
+                    SubscriptionResponseView::Remove(event_key)
+                }
+            };
+            let _ = channel.send(response);
         }
     });
 
@@ -825,4 +831,11 @@ struct SessionTab {
     end: Timestamp,
     filter: String,
     columns: Vec<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "kind", content = "entity")]
+enum SubscriptionResponseView<T> {
+    Add(T),
+    Remove(Timestamp),
 }

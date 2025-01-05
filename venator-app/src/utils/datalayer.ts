@@ -1,4 +1,4 @@
-import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getSpans, Input, Span, SpanFilter, subscribeToEvents, Timestamp, unsubscribeFromEvents } from "../invoke";
+import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getSpans, Input, Span, SpanFilter, subscribeToEvents, SubscriptionResponse, Timestamp, unsubscribeFromEvents } from "../invoke";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedSpan, Timespan } from "../models";
 import { Channel } from "@tauri-apps/api/core";
 
@@ -40,8 +40,14 @@ export class EventDataLayer {
         }
 
         this.#subscription = (async () => {
-            let channel = new Channel<Event>();
-            channel.onmessage = e => this.#insertEvent(e);
+            let channel = new Channel<SubscriptionResponse<Event>>();
+            channel.onmessage = r => {
+                if (r.kind == 'add') {
+                    this.#insertEvent(r.entity);
+                } else {
+                    this.#removeEvent(r.entity);
+                }
+            };
             return await subscribeToEvents(this.#filter, channel);
         })();
     }
@@ -312,7 +318,16 @@ export class EventDataLayer {
 
     #insertEvent = (event: Event) => {
         let insertIdx = partitionPointEventsLower(this.#events, event.timestamp);
-        this.#events.splice(insertIdx, 0, event);
+        if (insertIdx < this.#events.length && this.#events[insertIdx].timestamp != event.timestamp) {
+            this.#events.splice(insertIdx, 0, event);
+        }
+    }
+
+    #removeEvent = (event_key: Timestamp) => {
+        let insertIdx = partitionPointEventsLower(this.#events, event_key);
+        if (insertIdx < this.#events.length && this.#events[insertIdx].timestamp == event_key) {
+            this.#events.splice(insertIdx, 1);
+        }
     }
 
     #expandStart = (duration: number): Promise<void> => {

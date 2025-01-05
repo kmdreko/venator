@@ -36,8 +36,8 @@ pub use models::{
     FullSpanId, InstanceId, Level, LevelConvertError, NewCloseSpanEvent, NewCreateSpanEvent,
     NewEnterSpanEvent, NewEvent, NewFollowsSpanEvent, NewResource, NewSpanEvent, NewSpanEventKind,
     NewUpdateSpanEvent, Resource, ResourceKey, SourceKind, Span, SpanEvent, SpanEventKey,
-    SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp, TraceId,
-    UpdateSpanEvent, Value, ValueOperator,
+    SpanEventKind, SpanId, SpanKey, SpanView, StatsView, SubscriptionId, SubscriptionResponse,
+    Timestamp, TraceId, UpdateSpanEvent, Value, ValueOperator,
 };
 pub use storage::{CachedStorage, Storage, TransientStorage};
 
@@ -294,7 +294,12 @@ impl Engine {
     pub fn subscribe_to_events(
         &self,
         filter: Vec<FilterPredicate>,
-    ) -> impl Future<Output = (SubscriptionId, UnboundedReceiver<EventView>)> {
+    ) -> impl Future<
+        Output = (
+            SubscriptionId,
+            UnboundedReceiver<SubscriptionResponse<EventView>>,
+        ),
+    > {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -352,7 +357,10 @@ enum EngineCommand {
 
     EventSubscribe(
         Vec<FilterPredicate>,
-        OneshotSender<(SubscriptionId, UnboundedReceiver<EventView>)>,
+        OneshotSender<(
+            SubscriptionId,
+            UnboundedReceiver<SubscriptionResponse<EventView>>,
+        )>,
     ),
     EventUnsubscribe(SubscriptionId, OneshotSender<()>),
 
@@ -389,7 +397,13 @@ struct RawEngine<S> {
     event_indexes: EventIndexes,
 
     next_subscriber_id: usize,
-    event_subscribers: HashMap<usize, (BasicEventFilter, UnboundedSender<EventView>)>,
+    event_subscribers: HashMap<
+        usize,
+        (
+            BasicEventFilter,
+            UnboundedSender<SubscriptionResponse<EventView>>,
+        ),
+    >,
 }
 
 impl<S: Storage> RawEngine<S> {
@@ -1103,7 +1117,7 @@ impl<S: Storage> RawEngine<S> {
         let context = EventContext::with_event(&event, &self.storage);
         for (id, (filter, sender)) in &self.event_subscribers {
             if filter.matches(&context) {
-                let send_result = sender.send(self.render_event(&event));
+                let send_result = sender.send(SubscriptionResponse::Add(self.render_event(&event)));
                 if send_result.is_err() {
                     remove.push(*id);
                 }
@@ -1305,7 +1319,10 @@ impl<S: Storage> RawEngine<S> {
     pub fn subscribe_to_events(
         &mut self,
         filter: Vec<FilterPredicate>,
-    ) -> (SubscriptionId, UnboundedReceiver<EventView>) {
+    ) -> (
+        SubscriptionId,
+        UnboundedReceiver<SubscriptionResponse<EventView>>,
+    ) {
         let mut filter = BasicEventFilter::And(
             filter
                 .into_iter()
