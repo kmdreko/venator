@@ -178,6 +178,16 @@ export async function deleteEntities(start: Timestamp | null, end: Timestamp | n
     return await invoke<DeleteMetrics>("delete_entities", { start, end, inside, dryRun });
 }
 
+export async function subscribeToSpans(filter: FilterPredicate[], channel: Channel<SubscriptionResponse<Span>>): Promise<number> {
+    console.debug("invoking 'subscribe_to_spans'");
+    return await invoke<number>("subscribe_to_spans", { filter, channel });
+}
+
+export async function unsubscribeFromSpans(id: number): Promise<number> {
+    console.debug("invoking 'unsubscribe_from_spans'");
+    return await invoke<number>("unsubscribe_from_spans", { id });
+}
+
 export async function subscribeToEvents(filter: FilterPredicate[], channel: Channel<SubscriptionResponse<Event>>): Promise<number> {
     console.debug("invoking 'subscribe_to_events'");
     return await invoke<number>("subscribe_to_events", { filter, channel });

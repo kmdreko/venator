@@ -29,6 +29,9 @@ export type SpansScreenProps = {
     getSpans: (filter: PartialFilter, wait?: boolean) => Promise<Span[] | null>,
     getPositionedSpans: (filter: PartialFilter, wait?: boolean) => Promise<PositionedSpan[] | null>,
 
+    live: boolean,
+    setLive: (live: boolean) => void,
+
     selected: Span | null,
     setSelected: (e: Span | null) => void,
 };
@@ -82,8 +85,8 @@ export function SpansScreen(props: SpansScreenProps) {
             count={count()}
             countThresholds={[1000, 5000]}
             timeControlsEnabled={true}
-            live={false}
-            setLive={() => { }}
+            live={props.live}
+            setLive={props.setLive}
             getTimestampBefore={getTimestampBefore}
             getTimestampAfter={getTimestampAfter}
         />

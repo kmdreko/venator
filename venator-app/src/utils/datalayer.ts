@@ -1,4 +1,4 @@
-import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getSpans, Input, Span, SpanFilter, subscribeToEvents, SubscriptionResponse, Timestamp, unsubscribeFromEvents } from "../invoke";
+import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getSpans, Input, Span, SpanFilter, subscribeToEvents, subscribeToSpans, SubscriptionResponse, Timestamp, unsubscribeFromEvents, unsubscribeFromSpans } from "../invoke";
 import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedSpan, Timespan } from "../models";
 import { Channel } from "@tauri-apps/api/core";
 
@@ -318,8 +318,11 @@ export class EventDataLayer {
 
     #insertEvent = (event: Event) => {
         let insertIdx = partitionPointEventsLower(this.#events, event.timestamp);
-        if (insertIdx < this.#events.length && this.#events[insertIdx].timestamp != event.timestamp) {
+        if (insertIdx >= this.#events.length || this.#events[insertIdx].timestamp != event.timestamp) {
             this.#events.splice(insertIdx, 0, event);
+            if (event.timestamp > this.#range[1]) {
+                this.#range = [this.#range[0], event.timestamp];
+            }
         }
     }
 
@@ -419,6 +422,8 @@ export class SpanDataLayer {
     #expandStartTask: Promise<void> | null;
     #expandEndTask: Promise<void> | null;
 
+    #subscription: Promise<number> | null;
+
     constructor(filter: Input[]) {
         this.#filter = filter.filter(f => f.input == 'valid');
         this.#range = [0, 0];
@@ -427,11 +432,38 @@ export class SpanDataLayer {
         this.#slotmap = {};
         this.#expandStartTask = null;
         this.#expandEndTask = null;
+        this.#subscription = null;
     }
 
-    subscribe = () => { }
+    subscribe = () => {
+        if (this.#subscription != null) {
+            return;
+        }
 
-    unsubscribe = async () => { }
+        this.#subscription = (async () => {
+            let channel = new Channel<SubscriptionResponse<Span>>();
+            channel.onmessage = r => {
+                if (r.kind == 'add') {
+                    this.#insertSpan(r.entity);
+                } else {
+                    this.#removeSpan(r.entity);
+                }
+            };
+            return await subscribeToSpans(this.#filter, channel);
+        })();
+    }
+
+    unsubscribe = async () => {
+        if (this.#subscription == null) {
+            return;
+        }
+
+        let subscription = this.#subscription;
+        this.#subscription = null;
+
+        let id = await subscription;
+        await unsubscribeFromSpans(id);
+    }
 
     getPositionedSpans = async (filter: PartialFilter, wait?: boolean): Promise<PositionedSpan[] | null> => {
         let spans = await this.getSpans(filter, wait);
@@ -795,6 +827,20 @@ export class SpanDataLayer {
 
             this.#slotmap[span.id] = this.#slots.length;
             this.#slots.push([[span.created_at, span.closed_at ?? Infinity]]);
+        }
+    }
+
+    #insertSpan = (span: Span) => {
+        let insertIdx = partitionPointSpansLower(this.#spans, span.created_at);
+        if (insertIdx >= this.#spans.length || this.#spans[insertIdx].created_at != span.created_at) {
+            this.#spans.splice(insertIdx, 0, span);
+        }
+    }
+
+    #removeSpan = (span_key: Timestamp) => {
+        let insertIdx = partitionPointSpansLower(this.#spans, span_key);
+        if (insertIdx < this.#spans.length && this.#spans[insertIdx].created_at == span_key) {
+            this.#spans.splice(insertIdx, 1);
         }
     }
 

@@ -1827,7 +1827,7 @@ pub enum BasicSpanFilter {
 }
 
 impl BasicSpanFilter {
-    fn simplify(&mut self) {
+    pub fn simplify(&mut self) {
         match self {
             BasicSpanFilter::Level(_) => {}
             BasicSpanFilter::Duration(_) => {}
@@ -1863,6 +1863,37 @@ impl BasicSpanFilter {
                     *self = filter;
                 }
             }
+        }
+    }
+
+    pub(crate) fn matches<S: Storage>(&self, context: &SpanContext<'_, S>) -> bool {
+        let span = context.span();
+        match self {
+            BasicSpanFilter::Level(level) => span.level.into_simple_level() == *level,
+            BasicSpanFilter::Duration(filter) => filter.matches(span.duration()),
+            BasicSpanFilter::Created(op, value) => op.compare(span.created_at, *value),
+            BasicSpanFilter::Closed(op, value) => {
+                let Some(closed_at) = span.closed_at else {
+                    return false; // never match an open span
+                };
+
+                op.compare(closed_at, *value)
+            }
+            BasicSpanFilter::Name(filter) => filter.matches(&span.name),
+            BasicSpanFilter::Namespace(filter) => filter.matches_opt(span.namespace.as_deref()),
+            BasicSpanFilter::File(filter) => {
+                filter.matches(span.file_name.as_deref(), span.file_line)
+            }
+            BasicSpanFilter::Root => span.parent_key.is_none(),
+            BasicSpanFilter::Trace(trace) => context.trace_root() == *trace,
+            BasicSpanFilter::Parent(parent_key) => span.parent_key == Some(*parent_key),
+            BasicSpanFilter::Attribute(attribute, value_filter) => context
+                .attribute(attribute)
+                .map(|v| value_filter.matches(v))
+                .unwrap_or(false),
+            BasicSpanFilter::Not(inner_filter) => !inner_filter.matches(context),
+            BasicSpanFilter::And(filters) => filters.iter().all(|f| f.matches(context)),
+            BasicSpanFilter::Or(filters) => filters.iter().any(|f| f.matches(context)),
         }
     }
 

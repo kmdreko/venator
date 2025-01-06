@@ -25,7 +25,7 @@ use filter::{
     IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator,
 };
 use index::{EventIndexes, SpanEventIndexes, SpanIndexes};
-use subscription::EventSubscription;
+use subscription::{EventSubscription, SpanSubscription};
 
 pub use filter::input::{
     FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate,
@@ -148,6 +148,14 @@ impl Engine {
                     EngineCommand::Delete(filter, sender) => {
                         let metrics = engine.delete(filter);
                         let _ = sender.send(metrics);
+                    }
+                    EngineCommand::SpanSubscribe(filter, sender) => {
+                        let res = engine.subscribe_to_spans(filter);
+                        let _ = sender.send(res);
+                    }
+                    EngineCommand::SpanUnsubscribe(id, sender) => {
+                        engine.unsubscribe_from_spans(id);
+                        let _ = sender.send(());
                     }
                     EngineCommand::EventSubscribe(filter, sender) => {
                         let res = engine.subscribe_to_events(filter);
@@ -294,6 +302,30 @@ impl Engine {
         async move { receiver.await.unwrap() }
     }
 
+    pub fn subscribe_to_spans(
+        &self,
+        filter: Vec<FilterPredicate>,
+    ) -> impl Future<
+        Output = (
+            SubscriptionId,
+            UnboundedReceiver<SubscriptionResponse<SpanView>>,
+        ),
+    > {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .query_sender
+            .send(EngineCommand::SpanSubscribe(filter, sender));
+        async move { receiver.await.unwrap() }
+    }
+
+    pub fn unsubscribe_from_spans(&self, id: SubscriptionId) -> impl Future<Output = ()> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self
+            .query_sender
+            .send(EngineCommand::SpanUnsubscribe(id, sender));
+        async move { receiver.await.unwrap() }
+    }
+
     pub fn subscribe_to_events(
         &self,
         filter: Vec<FilterPredicate>,
@@ -358,6 +390,14 @@ enum EngineCommand {
     InsertEvent(NewEvent, OneshotSender<Result<(), EngineInsertError>>),
     Delete(DeleteFilter, OneshotSender<DeleteMetrics>),
 
+    SpanSubscribe(
+        Vec<FilterPredicate>,
+        OneshotSender<(
+            SubscriptionId,
+            UnboundedReceiver<SubscriptionResponse<SpanView>>,
+        )>,
+    ),
+    SpanUnsubscribe(SubscriptionId, OneshotSender<()>),
     EventSubscribe(
         Vec<FilterPredicate>,
         OneshotSender<(
@@ -400,6 +440,7 @@ struct RawEngine<S> {
     event_indexes: EventIndexes,
 
     next_subscriber_id: usize,
+    span_subscribers: HashMap<usize, SpanSubscription>,
     event_subscribers: HashMap<usize, EventSubscription>,
 }
 
@@ -414,6 +455,7 @@ impl<S: Storage> RawEngine<S> {
             event_indexes: EventIndexes::new(),
 
             next_subscriber_id: 0,
+            span_subscribers: HashMap::new(),
             event_subscribers: HashMap::new(),
         };
 
@@ -493,7 +535,7 @@ impl<S: Storage> RawEngine<S> {
         IndexedSpanFilterIterator::new(query, self)
             .take(limit)
             .map(|span_key| self.storage.get_span(span_key).unwrap())
-            .map(|span| self.render_span(&span))
+            .map(|span| SpanContext::with_span(&span, &self.storage).render())
             .collect()
     }
 
@@ -503,90 +545,6 @@ impl<S: Storage> RawEngine<S> {
         match span_iter.size_hint() {
             (min, Some(max)) if min == max => min,
             _ => span_iter.count(),
-        }
-    }
-
-    fn render_span(&self, span: &Span) -> SpanView {
-        let context = SpanContext::with_span(span, &self.storage);
-
-        let mut attributes =
-            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
-        for (attribute, value) in &context.span().fields {
-            attributes.insert(
-                attribute.to_owned(),
-                (
-                    AttributeSourceView::Inherent,
-                    value.to_string(),
-                    value.to_type_view(),
-                ),
-            );
-        }
-        for parent in context.parents() {
-            for (attribute, value) in &parent.fields {
-                if !attributes.contains_key(attribute) {
-                    attributes.insert(
-                        attribute.to_owned(),
-                        (
-                            AttributeSourceView::Span {
-                                span_id: parent.id.to_string(),
-                            },
-                            value.to_string(),
-                            value.to_type_view(),
-                        ),
-                    );
-                }
-            }
-        }
-        for (attribute, value) in &context.resource().fields {
-            if !attributes.contains_key(attribute) {
-                attributes.insert(
-                    attribute.to_owned(),
-                    (
-                        AttributeSourceView::Resource,
-                        value.to_string(),
-                        value.to_type_view(),
-                    ),
-                );
-            }
-        }
-
-        SpanView {
-            kind: span.kind,
-            id: span.id.to_string(),
-            ancestors: {
-                let mut ancestors = context
-                    .parents()
-                    .map(|parent| AncestorView {
-                        id: parent.id.to_string(),
-                        name: parent.name.clone(),
-                    })
-                    .collect::<Vec<_>>();
-
-                ancestors.reverse();
-                ancestors
-            },
-            created_at: span.created_at,
-            closed_at: span.closed_at,
-            busy: span.busy,
-            level: span.level.into_simple_level(),
-            name: span.name.clone(),
-            namespace: span.namespace.clone(),
-            function: span.function.clone(),
-            file: match (&span.file_name, span.file_line) {
-                (None, _) => None,
-                (Some(name), None) => Some(name.clone()),
-                (Some(name), Some(line)) => Some(format!("{name}:{line}")),
-            },
-            links: span.links.clone(),
-            attributes: attributes
-                .into_iter()
-                .map(|(name, (kind, value, typ))| AttributeView {
-                    name,
-                    value,
-                    typ,
-                    source: kind,
-                })
-                .collect(),
         }
     }
 
@@ -747,14 +705,48 @@ impl<S: Storage> RawEngine<S> {
                                 .any(|p| p.key() == span.key())
                         });
 
-                    // update subscribers for events that may have been updated by
-                    // a new parent
+                    // update subscribers for events that may have been updated
+                    // by a new parent
                     for event_key in descendent_events {
                         let context = EventContext::new(event_key, &self.storage);
                         for subscriber in self.event_subscribers.values_mut() {
                             subscriber.on_event(&context);
                         }
                     }
+
+                    self.event_subscribers.retain(|_, s| s.connected());
+                }
+
+                if !self.span_subscribers.is_empty() {
+                    for subscriber in self.span_subscribers.values_mut() {
+                        subscriber.on_span(&SpanContext::with_span(&span, &self.storage));
+                    }
+
+                    let root = SpanContext::with_span(&span, &self.storage).trace_root();
+                    let descendent_spans = self
+                        .span_indexes
+                        .traces
+                        .get(&root)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default()
+                        .iter()
+                        .copied()
+                        .filter(|key| {
+                            SpanContext::new(*key, &self.storage)
+                                .parents()
+                                .any(|p| p.key() == span.key())
+                        });
+
+                    // update subscribers for spans that may have been updated
+                    // by a new parent
+                    for span_key in descendent_spans {
+                        let context = SpanContext::new(span_key, &self.storage);
+                        for subscriber in self.span_subscribers.values_mut() {
+                            subscriber.on_span(&context);
+                        }
+                    }
+
+                    self.span_subscribers.retain(|_, s| s.connected());
                 }
             }
             NewSpanEventKind::Update(new_update_event) => {
@@ -847,14 +839,43 @@ impl<S: Storage> RawEngine<S> {
                                 .any(|p| p.key() == span_key)
                         });
 
-                    // update subscribers for events that may have been updated by
-                    // an updated parent
+                    // update subscribers for events that may have been updated
+                    // by an updated parent
                     for event_key in descendent_events {
                         let context = EventContext::new(event_key, &self.storage);
                         for subscriber in self.event_subscribers.values_mut() {
                             subscriber.on_event(&context);
                         }
                     }
+
+                    self.event_subscribers.retain(|_, s| s.connected());
+                }
+
+                if !self.span_subscribers.is_empty() {
+                    let descendent_spans = self
+                        .span_indexes
+                        .traces
+                        .get(&trace)
+                        .map(Vec::as_slice)
+                        .unwrap_or_default()
+                        .iter()
+                        .copied()
+                        .filter(|key| {
+                            SpanContext::new(*key, &self.storage)
+                                .parents()
+                                .any(|p| p.key() == span_key)
+                        });
+
+                    // update subscribers for spans that may have been updated
+                    // by an updated parent
+                    for span_key in descendent_spans {
+                        let context = SpanContext::new(span_key, &self.storage);
+                        for subscriber in self.span_subscribers.values_mut() {
+                            subscriber.on_span(&context);
+                        }
+                    }
+
+                    self.span_subscribers.retain(|_, s| s.connected());
                 }
             }
             NewSpanEventKind::Follows(new_follows_event) => {
@@ -1274,6 +1295,36 @@ impl<S: Storage> RawEngine<S> {
         for event in events {
             to.insert_event((*event).clone());
         }
+    }
+
+    pub fn subscribe_to_spans(
+        &mut self,
+        filter: Vec<FilterPredicate>,
+    ) -> (
+        SubscriptionId,
+        UnboundedReceiver<SubscriptionResponse<SpanView>>,
+    ) {
+        let mut filter = BasicSpanFilter::And(
+            filter
+                .into_iter()
+                .map(|p| BasicSpanFilter::from_predicate(p, &self.span_indexes.ids).unwrap())
+                .collect(),
+        );
+        filter.simplify();
+
+        let id = self.next_subscriber_id;
+        self.next_subscriber_id += 1;
+
+        let (sender, receiver) = mpsc::unbounded_channel();
+
+        self.span_subscribers
+            .insert(id, SpanSubscription::new(filter, sender));
+
+        (id, receiver)
+    }
+
+    pub fn unsubscribe_from_spans(&mut self, id: SubscriptionId) {
+        self.span_subscribers.remove(&id);
     }
 
     pub fn subscribe_to_events(
@@ -1763,6 +1814,90 @@ where
         }
 
         attributes.into_iter()
+    }
+
+    fn render(&self) -> SpanView {
+        let span = self.span();
+
+        let mut attributes =
+            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
+        for (attribute, value) in &self.span().fields {
+            attributes.insert(
+                attribute.to_owned(),
+                (
+                    AttributeSourceView::Inherent,
+                    value.to_string(),
+                    value.to_type_view(),
+                ),
+            );
+        }
+        for parent in self.parents() {
+            for (attribute, value) in &parent.fields {
+                if !attributes.contains_key(attribute) {
+                    attributes.insert(
+                        attribute.to_owned(),
+                        (
+                            AttributeSourceView::Span {
+                                span_id: parent.id.to_string(),
+                            },
+                            value.to_string(),
+                            value.to_type_view(),
+                        ),
+                    );
+                }
+            }
+        }
+        for (attribute, value) in &self.resource().fields {
+            if !attributes.contains_key(attribute) {
+                attributes.insert(
+                    attribute.to_owned(),
+                    (
+                        AttributeSourceView::Resource,
+                        value.to_string(),
+                        value.to_type_view(),
+                    ),
+                );
+            }
+        }
+
+        SpanView {
+            kind: span.kind,
+            id: span.id.to_string(),
+            ancestors: {
+                let mut ancestors = self
+                    .parents()
+                    .map(|parent| AncestorView {
+                        id: parent.id.to_string(),
+                        name: parent.name.clone(),
+                    })
+                    .collect::<Vec<_>>();
+
+                ancestors.reverse();
+                ancestors
+            },
+            created_at: span.created_at,
+            closed_at: span.closed_at,
+            busy: span.busy,
+            level: span.level.into_simple_level(),
+            name: span.name.clone(),
+            namespace: span.namespace.clone(),
+            function: span.function.clone(),
+            file: match (&span.file_name, span.file_line) {
+                (None, _) => None,
+                (Some(name), None) => Some(name.clone()),
+                (Some(name), Some(line)) => Some(format!("{name}:{line}")),
+            },
+            links: span.links.clone(),
+            attributes: attributes
+                .into_iter()
+                .map(|(name, (kind, value, typ))| AttributeView {
+                    name,
+                    value,
+                    typ,
+                    source: kind,
+                })
+                .collect(),
+        }
     }
 }
 

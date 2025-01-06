@@ -179,6 +179,39 @@ async fn get_stats(engine: State<'_, Engine>) -> Result<StatsView, ()> {
 }
 
 #[tauri::command]
+async fn subscribe_to_spans(
+    engine: State<'_, Engine>,
+    filter: Vec<FilterPredicate>,
+    channel: Channel<SubscriptionResponseView<SpanView>>,
+) -> Result<SubscriptionId, String> {
+    let (id, mut receiver) = engine.subscribe_to_spans(filter).await;
+
+    tokio::spawn(async move {
+        while let Some(response) = receiver.recv().await {
+            let response = match response {
+                SubscriptionResponse::Add(span) => SubscriptionResponseView::Add(span),
+                SubscriptionResponse::Remove(span_key) => {
+                    SubscriptionResponseView::Remove(span_key)
+                }
+            };
+            let _ = channel.send(response);
+        }
+    });
+
+    Ok(id)
+}
+
+#[tauri::command]
+async fn unsubscribe_from_spans(
+    engine: State<'_, Engine>,
+    id: SubscriptionId,
+) -> Result<(), String> {
+    engine.unsubscribe_from_spans(id).await;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn subscribe_to_events(
     engine: State<'_, Engine>,
     filter: Vec<FilterPredicate>,
@@ -702,6 +735,8 @@ fn main() {
             parse_span_filter,
             delete_entities,
             get_stats,
+            subscribe_to_spans,
+            unsubscribe_from_spans,
             subscribe_to_events,
             unsubscribe_from_events,
             get_status,
@@ -834,7 +869,7 @@ struct SessionTab {
 }
 
 #[derive(Clone, Serialize)]
-#[serde(tag = "kind", content = "entity")]
+#[serde(tag = "kind", content = "entity", rename_all = "snake_case")]
 enum SubscriptionResponseView<T> {
     Add(T),
     Remove(Timestamp),

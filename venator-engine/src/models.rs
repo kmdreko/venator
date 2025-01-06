@@ -487,7 +487,7 @@ impl Span {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct SpanView {
     pub kind: SourceKind,
     pub id: FullSpanIdView,

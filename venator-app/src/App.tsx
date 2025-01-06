@@ -827,7 +827,11 @@ function App() {
             live,
         };
 
-        let store = (updated_screens[current_selected_screen] as EventsScreenData).store;
+        if (updated_screens[current_selected_screen].kind == 'trace') {
+            return;
+        }
+
+        let store = updated_screens[current_selected_screen].store;
         if (live) {
             store.subscribe();
         } else {
@@ -1496,6 +1500,9 @@ function App() {
 
                                 getSpans={(f, w) => getAndCacheSpans(getCurrentScreen() as SpansScreenData, f, w)}
                                 getPositionedSpans={(f, w) => getAndCachePositionedSpans(getCurrentScreen() as SpansScreenData, f, w)}
+
+                                live={(getCurrentScreen() as EventsScreenData).live}
+                                setLive={setScreenLive}
 
                                 selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}
