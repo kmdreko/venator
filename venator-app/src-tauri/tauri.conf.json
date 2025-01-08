@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "Venator",
+        "title": "Venator (BETA)",
         "width": 1280,
         "height": 720,
         "theme": "Dark"
