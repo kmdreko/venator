@@ -16,6 +16,7 @@ use super::util::IndexExt;
 // it needs to be accounted for regardless.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct AttributeIndex {
+    kind: String,
     nulls: Vec<Timestamp>,
     f64s: AttributeF64Index,
     i64s: AttributeI64Index,
@@ -33,6 +34,7 @@ impl AttributeIndex {
     #[allow(unused)]
     pub(crate) fn new() -> AttributeIndex {
         AttributeIndex {
+            kind: "v1".to_owned(),
             nulls: Vec::new(),
             f64s: AttributeF64Index::new(),
             i64s: AttributeI64Index::new(),
@@ -269,6 +271,7 @@ impl AttributeIndex {
 // invididual values.
 #[derive(Serialize, Deserialize)]
 struct AttributeStringIndex {
+    kind: String,
     total: Vec<Timestamp>,
     value_indexes: BTreeMap<String, Vec<Timestamp>>,
 }
@@ -276,6 +279,7 @@ struct AttributeStringIndex {
 impl AttributeStringIndex {
     fn new() -> AttributeStringIndex {
         AttributeStringIndex {
+            kind: "basic".to_owned(),
             total: Vec::new(),
             value_indexes: BTreeMap::new(),
         }
@@ -299,12 +303,16 @@ impl AttributeStringIndex {
 #[derive(Serialize, Deserialize)]
 struct AttributeF64Index {
     // TODO: figure out how best to do categorical & numerical indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeF64Index {
     fn new() -> AttributeF64Index {
-        AttributeF64Index { index: Vec::new() }
+        AttributeF64Index {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
@@ -315,12 +323,16 @@ impl AttributeF64Index {
 #[derive(Serialize, Deserialize)]
 struct AttributeI64Index {
     // TODO: figure out how best to do categorical & numerical indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeI64Index {
     fn new() -> AttributeI64Index {
-        AttributeI64Index { index: Vec::new() }
+        AttributeI64Index {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
@@ -331,12 +343,16 @@ impl AttributeI64Index {
 #[derive(Serialize, Deserialize)]
 struct AttributeU64Index {
     // TODO: figure out how best to do categorical & numerical indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeU64Index {
     fn new() -> AttributeU64Index {
-        AttributeU64Index { index: Vec::new() }
+        AttributeU64Index {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
@@ -347,12 +363,16 @@ impl AttributeU64Index {
 #[derive(Serialize, Deserialize)]
 struct AttributeI128Index {
     // TODO: figure out how best to do categorical & numerical indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeI128Index {
     fn new() -> AttributeI128Index {
-        AttributeI128Index { index: Vec::new() }
+        AttributeI128Index {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
@@ -363,12 +383,16 @@ impl AttributeI128Index {
 #[derive(Serialize, Deserialize)]
 struct AttributeU128Index {
     // TODO: figure out how best to do categorical & numerical indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeU128Index {
     fn new() -> AttributeU128Index {
-        AttributeU128Index { index: Vec::new() }
+        AttributeU128Index {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
@@ -378,6 +402,7 @@ impl AttributeU128Index {
 
 #[derive(Serialize, Deserialize)]
 struct AttributeBoolIndex {
+    kind: String,
     trues: Vec<Timestamp>,
     falses: Vec<Timestamp>,
 }
@@ -385,6 +410,7 @@ struct AttributeBoolIndex {
 impl AttributeBoolIndex {
     fn new() -> AttributeBoolIndex {
         AttributeBoolIndex {
+            kind: "basic".to_owned(),
             trues: Vec::new(),
             falses: Vec::new(),
         }
@@ -399,12 +425,16 @@ impl AttributeBoolIndex {
 #[derive(Serialize, Deserialize)]
 struct AttributeByteIndex {
     // TODO: figure out how best to do indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeByteIndex {
     fn new() -> AttributeByteIndex {
-        AttributeByteIndex { index: Vec::new() }
+        AttributeByteIndex {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
@@ -415,12 +445,16 @@ impl AttributeByteIndex {
 #[derive(Serialize, Deserialize)]
 struct AttributeArrayIndex {
     // TODO: figure out how best to do indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeArrayIndex {
     fn new() -> AttributeArrayIndex {
-        AttributeArrayIndex { index: Vec::new() }
+        AttributeArrayIndex {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
@@ -431,12 +465,16 @@ impl AttributeArrayIndex {
 #[derive(Serialize, Deserialize)]
 struct AttributeObjectIndex {
     // TODO: figure out how best to do indexing
+    kind: String,
     index: Vec<Timestamp>,
 }
 
 impl AttributeObjectIndex {
     fn new() -> AttributeObjectIndex {
-        AttributeObjectIndex { index: Vec::new() }
+        AttributeObjectIndex {
+            kind: "basic".to_owned(),
+            index: Vec::new(),
+        }
     }
 
     fn remove_entries(&mut self, keys: &[Timestamp]) {
