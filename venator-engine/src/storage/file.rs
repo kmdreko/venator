@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use bincode::Options;
 use rusqlite::{params, Connection as DbConnection, Error as DbError, Params, Row};
+use tracing::instrument;
 
 use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{EventKey, Level, SourceKind, Value};
@@ -174,6 +175,7 @@ impl FileStorage {
 }
 
 impl Storage for FileStorage {
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_resource(&self, at: Timestamp) -> Option<Arc<Resource>> {
         let mut stmt = self
             .connection
@@ -185,6 +187,7 @@ impl Storage for FileStorage {
         Some(Arc::new(result.unwrap()))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_span(&self, at: Timestamp) -> Option<Arc<Span>> {
         let mut stmt = self
             .connection
@@ -196,6 +199,7 @@ impl Storage for FileStorage {
         Some(Arc::new(result.unwrap()))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_span_event(&self, at: Timestamp) -> Option<Arc<SpanEvent>> {
         let mut stmt = self
             .connection
@@ -207,6 +211,7 @@ impl Storage for FileStorage {
         Some(Arc::new(result.unwrap()))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_event(&self, at: Timestamp) -> Option<Arc<Event>> {
         let mut stmt = self
             .connection
@@ -218,6 +223,7 @@ impl Storage for FileStorage {
         Some(Arc::new(result.unwrap()))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
         use bincode::DefaultOptions;
 
@@ -259,6 +265,7 @@ impl Storage for FileStorage {
         Some((span_indexes, span_event_indexes, event_indexes))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
         let mut stmt = self
             .connection
@@ -274,6 +281,7 @@ impl Storage for FileStorage {
         Box::new(resources.into_iter().map(Arc::new))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_> {
         let mut stmt = self
             .connection
@@ -289,6 +297,7 @@ impl Storage for FileStorage {
         Box::new(spans.into_iter().map(Arc::new))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_span_events(&self) -> Box<dyn Iterator<Item = Arc<SpanEvent>> + '_> {
         let mut stmt = self
             .connection
@@ -304,6 +313,7 @@ impl Storage for FileStorage {
         Box::new(span_events.into_iter().map(Arc::new))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_events(&self) -> Box<dyn Iterator<Item = Arc<Event>> + '_> {
         let mut stmt = self
             .connection
@@ -319,6 +329,7 @@ impl Storage for FileStorage {
         Box::new(events.into_iter().map(Arc::new))
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_resource(&mut self, resource: Resource) {
         let mut stmt = self
             .connection
@@ -328,6 +339,7 @@ impl Storage for FileStorage {
         stmt.execute(resource_to_params(resource)).unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_span(&mut self, span: Span) {
         self.invalidate_indexes();
 
@@ -382,6 +394,7 @@ impl Storage for FileStorage {
         .unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_span_event(&mut self, span_event: SpanEvent) {
         self.invalidate_indexes();
 
@@ -393,6 +406,7 @@ impl Storage for FileStorage {
         stmt.execute(span_event_to_params(span_event)).unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_event(&mut self, event: Event) {
         self.invalidate_indexes();
 
@@ -406,6 +420,7 @@ impl Storage for FileStorage {
         stmt.execute(event_to_params(event)).unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>) {
         self.invalidate_indexes();
 
@@ -417,6 +432,7 @@ impl Storage for FileStorage {
         stmt.execute((at, closed, busy.map(|b| b as i64))).unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
         self.invalidate_indexes();
 
@@ -443,6 +459,7 @@ impl Storage for FileStorage {
         stmt.execute((at, fields)).unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn update_span_link(
         &mut self,
         at: Timestamp,
@@ -474,6 +491,7 @@ impl Storage for FileStorage {
         stmt.execute((at, fields)).unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {
         self.invalidate_indexes();
 
@@ -491,6 +509,7 @@ impl Storage for FileStorage {
         tx.commit().unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]) {
         self.invalidate_indexes();
 
@@ -508,6 +527,7 @@ impl Storage for FileStorage {
         tx.commit().unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn update_indexes(
         &mut self,
         span_indexes: &SpanIndexes,
@@ -539,6 +559,7 @@ impl Storage for FileStorage {
         tx.commit().unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_resources(&mut self, resources: &[Timestamp]) {
         let tx = self.connection.transaction().unwrap();
 
@@ -554,6 +575,7 @@ impl Storage for FileStorage {
         tx.commit().unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_spans(&mut self, spans: &[Timestamp]) {
         let tx = self.connection.transaction().unwrap();
 
@@ -569,6 +591,7 @@ impl Storage for FileStorage {
         tx.commit().unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_span_events(&mut self, span_events: &[Timestamp]) {
         let tx = self.connection.transaction().unwrap();
 
@@ -584,6 +607,7 @@ impl Storage for FileStorage {
         tx.commit().unwrap();
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_events(&mut self, events: &[Timestamp]) {
         let tx = self.connection.transaction().unwrap();
 

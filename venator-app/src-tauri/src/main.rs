@@ -413,6 +413,12 @@ impl Args {
 }
 
 fn main() {
+    #[cfg(debug_assertions)]
+    tracing_subscriber::fmt()
+        .compact()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
     let args = Args::parse();
     let dataset = args.dataset();
     let bind = args.bind();

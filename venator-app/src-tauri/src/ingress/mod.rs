@@ -111,9 +111,14 @@ async fn ingress_middleware(
     request: Request,
     next: Next,
 ) -> Response {
+    ::tracing::info!("client connected");
     state.num_connections.fetch_add(1, Ordering::Relaxed);
+
     let response = next.run(request).await;
+
+    ::tracing::info!("client disconnected");
     state.num_connections.fetch_sub(1, Ordering::Relaxed);
+
     response
 }
 

@@ -14,6 +14,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
+use tracing::instrument;
+
 use models::{
     AttributeTypeView, CloseSpanEvent, EnterSpanEvent, EventKey, FollowsSpanEvent, TraceRoot,
 };
@@ -61,14 +63,16 @@ pub enum EngineInsertError {
 
 #[derive(Clone)]
 pub struct Engine {
-    insert_sender: UnboundedSender<EngineCommand>,
-    query_sender: UnboundedSender<EngineCommand>,
+    insert_sender: UnboundedSender<(tracing::Span, EngineCommand)>,
+    query_sender: UnboundedSender<(tracing::Span, EngineCommand)>,
 }
 
 impl Engine {
     pub fn new<S: Storage + Send + 'static>(storage: S) -> Engine {
-        let (insert_sender, mut insert_receiver) = mpsc::unbounded_channel();
-        let (query_sender, mut query_receiver) = mpsc::unbounded_channel();
+        let (insert_sender, mut insert_receiver) =
+            mpsc::unbounded_channel::<(tracing::Span, EngineCommand)>();
+        let (query_sender, mut query_receiver) =
+            mpsc::unbounded_channel::<(tracing::Span, EngineCommand)>();
 
         std::thread::spawn(move || {
             let mut engine = RawEngine::new(storage);
@@ -90,7 +94,9 @@ impl Engine {
                 })
             };
 
-            while let Some(cmd) = recv() {
+            while let Some((tracing_span, cmd)) = recv() {
+                let _entered_span = tracing_span.enter();
+
                 let cmd_start = Instant::now();
                 match cmd {
                     EngineCommand::QuerySpan(query, sender) => {
@@ -199,109 +205,134 @@ impl Engine {
     }
 
     // The query is executed even if the returned future is not awaited
+    #[instrument(skip_all)]
     pub fn query_span(&self, query: Query) -> impl Future<Output = Vec<SpanView>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::QuerySpan(query, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::QuerySpan(query, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
     // The query is executed even if the returned future is not awaited
+    #[instrument(skip_all)]
     pub fn query_span_count(&self, query: Query) -> impl Future<Output = usize> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::QuerySpanCount(query, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::QuerySpanCount(query, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
     // The query is executed even if the returned future is not awaited
+    #[instrument(skip_all)]
+    #[doc(hidden)]
     pub fn query_span_event(&self, query: Query) -> impl Future<Output = Vec<SpanEvent>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::QuerySpanEvent(query, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::QuerySpanEvent(query, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
     // The query is executed even if the returned future is not awaited
+    #[instrument(skip_all)]
     pub fn query_event(&self, query: Query) -> impl Future<Output = Vec<EventView>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::QueryEvent(query, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::QueryEvent(query, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
     // The query is executed even if the returned future is not awaited
+    #[instrument(skip_all)]
     pub fn query_event_count(&self, query: Query) -> impl Future<Output = usize> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::QueryEventCount(query, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::QueryEventCount(query, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
     // The query is executed even if the returned future is not awaited
+    #[instrument(skip_all)]
     pub fn query_stats(&self) -> impl Future<Output = StatsView> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send(EngineCommand::QueryStats(sender));
+        let _ = self
+            .query_sender
+            .send((tracing::Span::current(), EngineCommand::QueryStats(sender)));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn insert_resource(
         &self,
         resource: NewResource,
     ) -> impl Future<Output = Result<ResourceKey, EngineInsertError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .insert_sender
-            .send(EngineCommand::InsertResource(resource, sender));
+        let _ = self.insert_sender.send((
+            tracing::Span::current(),
+            EngineCommand::InsertResource(resource, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn disconnect_tracing_instance(
         &self,
         id: InstanceId,
     ) -> impl Future<Output = Result<(), EngineInsertError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .insert_sender
-            .send(EngineCommand::DisconnectTracingInstance(id, sender));
+        let _ = self.insert_sender.send((
+            tracing::Span::current(),
+            EngineCommand::DisconnectTracingInstance(id, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn insert_span_event(
         &self,
         span_event: NewSpanEvent,
     ) -> impl Future<Output = Result<SpanKey, EngineInsertError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .insert_sender
-            .send(EngineCommand::InsertSpanEvent(span_event, sender));
+        let _ = self.insert_sender.send((
+            tracing::Span::current(),
+            EngineCommand::InsertSpanEvent(span_event, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn insert_event(
         &self,
         event: NewEvent,
     ) -> impl Future<Output = Result<(), EngineInsertError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .insert_sender
-            .send(EngineCommand::InsertEvent(event, sender));
+        let _ = self.insert_sender.send((
+            tracing::Span::current(),
+            EngineCommand::InsertEvent(event, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn delete(&self, filter: DeleteFilter) -> impl Future<Output = DeleteMetrics> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .insert_sender
-            .send(EngineCommand::Delete(filter, sender));
+        let _ = self.insert_sender.send((
+            tracing::Span::current(),
+            EngineCommand::Delete(filter, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn subscribe_to_spans(
         &self,
         filter: Vec<FilterPredicate>,
@@ -312,20 +343,24 @@ impl Engine {
         ),
     > {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::SpanSubscribe(filter, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::SpanSubscribe(filter, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn unsubscribe_from_spans(&self, id: SubscriptionId) -> impl Future<Output = ()> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::SpanUnsubscribe(id, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::SpanUnsubscribe(id, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn subscribe_to_events(
         &self,
         filter: Vec<FilterPredicate>,
@@ -336,37 +371,48 @@ impl Engine {
         ),
     > {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::EventSubscribe(filter, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::EventSubscribe(filter, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn unsubscribe_from_events(&self, id: SubscriptionId) -> impl Future<Output = ()> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::EventUnsubscribe(id, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::EventUnsubscribe(id, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn copy_dataset(&self, to: Box<dyn Storage + Send>) -> impl Future<Output = ()> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send(EngineCommand::CopyDataset(to, sender));
+        let _ = self.query_sender.send((
+            tracing::Span::current(),
+            EngineCommand::CopyDataset(to, sender),
+        ));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn get_status(&self) -> impl Future<Output = EngineStatusView> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send(EngineCommand::GetStatus(sender));
+        let _ = self
+            .query_sender
+            .send((tracing::Span::current(), EngineCommand::GetStatus(sender)));
         async move { receiver.await.unwrap() }
     }
 
+    #[instrument(skip_all)]
     pub fn save(&self) -> impl Future<Output = ()> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.insert_sender.send(EngineCommand::Save(sender));
+        let _ = self
+            .insert_sender
+            .send((tracing::Span::current(), EngineCommand::Save(sender)));
         async move { receiver.await.unwrap() }
     }
 }
@@ -459,6 +505,8 @@ impl<S: Storage> RawEngine<S> {
             event_subscribers: HashMap::new(),
         };
 
+        tracing::info!("initializing engine");
+
         let resources = engine.storage.get_all_resources().collect::<Vec<_>>();
 
         for resource in resources {
@@ -512,7 +560,10 @@ impl<S: Storage> RawEngine<S> {
         engine
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn query_event(&self, query: Query) -> Vec<EventView> {
+        tracing::debug!(?query, "querying for events");
+
         let limit = query.limit;
         IndexedEventFilterIterator::new(query, self)
             .take(limit)
@@ -521,7 +572,10 @@ impl<S: Storage> RawEngine<S> {
             .collect()
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn query_event_count(&self, query: Query) -> usize {
+        tracing::debug!(?query, "querying for event counts");
+
         let event_iter = IndexedEventFilterIterator::new(query, self);
 
         match event_iter.size_hint() {
@@ -530,7 +584,10 @@ impl<S: Storage> RawEngine<S> {
         }
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn query_span(&self, query: Query) -> Vec<SpanView> {
+        tracing::debug!(?query, "querying for spans");
+
         let limit = query.limit;
         IndexedSpanFilterIterator::new(query, self)
             .take(limit)
@@ -539,7 +596,10 @@ impl<S: Storage> RawEngine<S> {
             .collect()
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn query_span_count(&self, query: Query) -> usize {
+        tracing::debug!(?query, "querying for span counts");
+
         let span_iter = IndexedSpanFilterIterator::new(query, self);
 
         match span_iter.size_hint() {
@@ -548,11 +608,16 @@ impl<S: Storage> RawEngine<S> {
         }
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
+    #[doc(hidden)]
     pub fn query_span_event(&self, _query: Query) -> Vec<SpanEvent> {
         unimplemented!()
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn query_stats(&self) -> StatsView {
+        tracing::debug!("querying for stats");
+
         let event_start = self.event_indexes.all.first().copied();
         let event_end = self.event_indexes.all.last().copied();
         let span_start = self.span_indexes.all.first().copied();
@@ -566,10 +631,13 @@ impl<S: Storage> RawEngine<S> {
         }
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn insert_resource(
         &mut self,
         resource: NewResource,
     ) -> Result<ResourceKey, EngineInsertError> {
+        tracing::debug!(?resource, "inserting resource");
+
         if let Some((key, _)) = self
             .resources
             .iter()
@@ -595,10 +663,13 @@ impl<S: Storage> RawEngine<S> {
         self.resources.insert(resource.key(), resource.clone());
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn disconnect_tracing_instance(
         &mut self,
         instance_id: InstanceId,
     ) -> Result<(), EngineInsertError> {
+        tracing::debug!(instance_id, "disconnecting tracing instance");
+
         let now = now();
         let at = self.keys.register(now, now);
 
@@ -624,10 +695,13 @@ impl<S: Storage> RawEngine<S> {
         Ok(())
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn insert_span_event(
         &mut self,
         mut new_span_event: NewSpanEvent,
     ) -> Result<SpanEventKey, EngineInsertError> {
+        tracing::debug!(span_event = ?new_span_event, "inserting span event");
+
         let span_event_key = self.keys.register(now(), new_span_event.timestamp);
         new_span_event.timestamp = span_event_key;
 
@@ -1075,6 +1149,7 @@ impl<S: Storage> RawEngine<S> {
             .update_with_new_span_event(span_event);
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn insert_event(&mut self, mut new_event: NewEvent) -> Result<(), EngineInsertError> {
         let event_key = self.keys.register(now(), new_event.timestamp);
         new_event.timestamp = event_key;
@@ -1117,6 +1192,7 @@ impl<S: Storage> RawEngine<S> {
             .update_with_new_event(&EventContext::with_event(event, &self.storage));
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn delete(&mut self, filter: DeleteFilter) -> DeleteMetrics {
         // TODO: clean up resources as well
 
@@ -1199,7 +1275,7 @@ impl<S: Storage> RawEngine<S> {
         }
     }
 
-    pub fn get_root_spans_in_range_filter(
+    fn get_root_spans_in_range_filter(
         &self,
         start: Timestamp,
         end: Timestamp,
@@ -1228,7 +1304,7 @@ impl<S: Storage> RawEngine<S> {
         iter.collect()
     }
 
-    pub fn get_root_events_in_range_filter(
+    fn get_root_events_in_range_filter(
         &self,
         start: Timestamp,
         end: Timestamp,
@@ -1271,6 +1347,7 @@ impl<S: Storage> RawEngine<S> {
         self.event_indexes.remove_events(events);
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn copy_dataset(&self, mut to: Box<dyn Storage + Send>) {
         let resources = self.storage.get_all_resources().collect::<Vec<_>>();
 
@@ -1297,6 +1374,7 @@ impl<S: Storage> RawEngine<S> {
         }
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn subscribe_to_spans(
         &mut self,
         filter: Vec<FilterPredicate>,
@@ -1323,10 +1401,12 @@ impl<S: Storage> RawEngine<S> {
         (id, receiver)
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn unsubscribe_from_spans(&mut self, id: SubscriptionId) {
         self.span_subscribers.remove(&id);
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn subscribe_to_events(
         &mut self,
         filter: Vec<FilterPredicate>,
@@ -1353,10 +1433,12 @@ impl<S: Storage> RawEngine<S> {
         (id, receiver)
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn unsubscribe_from_events(&mut self, id: SubscriptionId) {
         self.event_subscribers.remove(&id);
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn save(&mut self) {
         self.storage.update_indexes(
             &self.span_indexes,

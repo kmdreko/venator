@@ -293,6 +293,7 @@ impl SimpleLevel {
     }
 }
 
+#[derive(Debug)]
 pub struct NewResource {
     pub fields: BTreeMap<String, Value>,
 }
@@ -309,12 +310,14 @@ impl Resource {
     }
 }
 
+#[derive(Debug)]
 pub struct NewSpanEvent {
     pub timestamp: Timestamp,
     pub span_id: FullSpanId,
     pub kind: NewSpanEventKind,
 }
 
+#[derive(Debug)]
 pub enum NewSpanEventKind {
     Create(NewCreateSpanEvent),
     Update(NewUpdateSpanEvent),
@@ -341,6 +344,7 @@ pub enum SpanEventKind {
     Close(CloseSpanEvent),
 }
 
+#[derive(Debug)]
 pub struct NewCreateSpanEvent {
     pub kind: SourceKind,
     pub resource_key: ResourceKey,
@@ -372,6 +376,7 @@ pub struct CreateSpanEvent {
     pub fields: BTreeMap<String, Value>,
 }
 
+#[derive(Debug)]
 pub struct NewUpdateSpanEvent {
     pub fields: BTreeMap<String, Value>,
 }
@@ -381,14 +386,17 @@ pub struct UpdateSpanEvent {
     pub fields: BTreeMap<String, Value>,
 }
 
+#[derive(Debug)]
 pub struct NewFollowsSpanEvent {
     pub follows: SpanId,
 }
 
+#[derive(Debug)]
 pub struct NewEnterSpanEvent {
     pub thread_id: u64,
 }
 
+#[derive(Debug)]
 pub struct NewCloseSpanEvent {
     pub busy: Option<u64>,
 }

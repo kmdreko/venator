@@ -27,7 +27,7 @@ pub enum FallibleFilterPredicate {
     Or(Vec<Result<FallibleFilterPredicate, (InputError, String)>>),
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Query {
     pub filter: Vec<FilterPredicate>,
     pub order: Order,
@@ -2745,7 +2745,7 @@ fn filterify_span_filter(
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Order {
     Asc,
