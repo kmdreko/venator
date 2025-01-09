@@ -1,7 +1,3 @@
-// TODO: refactor to remove these
-#![allow(private_interfaces)]
-#![allow(clippy::new_without_default)]
-
 use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +9,7 @@ use crate::{EventContext, ResourceKey, SpanContext, SpanKey, Storage};
 use super::{IndexExt, ValueIndex};
 
 #[derive(Serialize, Deserialize)]
-pub struct EventIndexes {
+pub(crate) struct EventIndexes {
     pub all: Vec<Timestamp>,
     pub levels: [Vec<Timestamp>; 6],
     pub resources: BTreeMap<ResourceKey, Vec<Timestamp>>,

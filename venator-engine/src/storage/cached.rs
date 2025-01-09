@@ -5,10 +5,9 @@ use std::sync::Arc;
 
 use lru::LruCache;
 
-use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::{Event, EventKey, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 
-use super::Storage;
+use super::{IndexStorage, Storage};
 
 /// This storage wraps another storage implementation to keep some in memory.
 pub struct CachedStorage<S> {
@@ -77,10 +76,6 @@ where
         }
 
         None
-    }
-
-    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
-        self.inner.get_indexes()
     }
 
     fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
@@ -153,16 +148,6 @@ where
         self.inner.update_event_parents(parent_key, events);
     }
 
-    fn update_indexes(
-        &mut self,
-        span_indexes: &SpanIndexes,
-        span_event_indexes: &SpanEventIndexes,
-        event_indexes: &EventIndexes,
-    ) {
-        self.inner
-            .update_indexes(span_indexes, span_event_indexes, event_indexes);
-    }
-
     fn drop_resources(&mut self, resources: &[Timestamp]) {
         for c in resources {
             self.resources.borrow_mut().pop(c);
@@ -189,5 +174,15 @@ where
         }
 
         self.inner.drop_events(events);
+    }
+
+    #[allow(private_interfaces)]
+    fn as_index_storage(&self) -> Option<&dyn IndexStorage> {
+        self.inner.as_index_storage()
+    }
+
+    #[allow(private_interfaces)]
+    fn as_index_storage_mut(&mut self) -> Option<&mut dyn IndexStorage> {
+        self.inner.as_index_storage_mut()
     }
 }

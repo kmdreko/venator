@@ -1,7 +1,3 @@
-// TODO: refactor to remove these
-#![allow(private_interfaces)]
-#![allow(clippy::new_without_default)]
-
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +9,7 @@ use crate::{SpanEvent, SpanEventKey, SpanKey};
 use super::IndexExt;
 
 #[derive(Serialize, Deserialize)]
-pub struct SpanEventIndexes {
+pub(crate) struct SpanEventIndexes {
     pub all: Vec<Timestamp>,
     pub spans: HashMap<SpanKey, Vec<Timestamp>>,
 }

@@ -1,7 +1,3 @@
-// TODO: refactor to remove these
-#![allow(private_interfaces)]
-#![allow(clippy::new_without_default)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
@@ -14,7 +10,7 @@ use crate::{InstanceId, ResourceKey, SpanContext, SpanKey, Storage};
 use super::{IndexExt, ValueIndex};
 
 #[derive(Serialize, Deserialize)]
-pub struct SpanIndexes {
+pub(crate) struct SpanIndexes {
     pub all: Vec<Timestamp>,
     pub ids: HashMap<FullSpanId, SpanKey>,
     pub levels: [Vec<Timestamp>; 6],

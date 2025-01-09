@@ -5,7 +5,7 @@
 mod filter;
 mod index;
 mod models;
-mod storage;
+pub mod storage;
 mod subscription;
 
 use std::cell::{Cell, OnceCell};
@@ -27,6 +27,7 @@ use filter::{
     IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator,
 };
 use index::{EventIndexes, SpanEventIndexes, SpanIndexes};
+use storage::Storage;
 use subscription::{EventSubscription, SpanSubscription};
 
 pub use filter::input::{
@@ -43,11 +44,7 @@ pub use models::{
     SpanEventKind, SpanId, SpanKey, SpanView, StatsView, Timestamp, TraceId, UpdateSpanEvent,
     Value, ValueOperator,
 };
-pub use storage::{CachedStorage, Storage, TransientStorage};
 pub use subscription::{SubscriptionId, SubscriptionResponse};
-
-#[cfg(feature = "persist")]
-pub use storage::FileStorage;
 
 #[derive(Debug, Copy, Clone, Serialize)]
 pub enum EngineInsertError {
@@ -513,7 +510,11 @@ impl<S: Storage> RawEngine<S> {
             engine.insert_resource_bookeeping(&resource);
         }
 
-        if let Some(indexes) = engine.storage.get_indexes() {
+        if let Some(indexes) = engine
+            .storage
+            .as_index_storage()
+            .and_then(|s| s.get_indexes())
+        {
             let (span_indexes, span_event_indexes, event_indexes) = indexes;
 
             engine.span_indexes = span_indexes;
@@ -1440,11 +1441,13 @@ impl<S: Storage> RawEngine<S> {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn save(&mut self) {
-        self.storage.update_indexes(
-            &self.span_indexes,
-            &self.span_event_indexes,
-            &self.event_indexes,
-        );
+        if let Some(s) = self.storage.as_index_storage_mut() {
+            s.update_indexes(
+                &self.span_indexes,
+                &self.span_event_indexes,
+                &self.event_indexes,
+            );
+        }
     }
 }
 
@@ -2007,6 +2010,7 @@ fn now() -> Timestamp {
 mod tests {
     use filter::Order;
     use models::{Level, NewCloseSpanEvent, NewCreateSpanEvent, NewUpdateSpanEvent, SourceKind};
+    use storage::TransientStorage;
 
     use super::*;
 

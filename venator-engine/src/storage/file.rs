@@ -12,7 +12,7 @@ use crate::{
     Event, FullSpanId, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp,
 };
 
-use super::Storage;
+use super::{IndexStorage, Storage};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum IndexState {
@@ -20,6 +20,7 @@ enum IndexState {
     Fresh,
 }
 
+/// This storage holds all entities in an SQLite database at the provided path.
 pub struct FileStorage {
     connection: DbConnection,
     index_state: IndexState,
@@ -221,48 +222,6 @@ impl Storage for FileStorage {
         let result = stmt.query_row((at,), event_from_row);
 
         Some(Arc::new(result.unwrap()))
-    }
-
-    #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
-        use bincode::DefaultOptions;
-
-        if self.index_state == IndexState::Stale {
-            return None;
-        }
-
-        let span_index_data: Vec<u8> = self
-            .connection
-            .query_row("SELECT data FROM indexes WHERE kind = 'spans'", (), |row| {
-                row.get(0)
-            })
-            .unwrap();
-
-        let span_event_index_data: Vec<u8> = self
-            .connection
-            .query_row(
-                "SELECT data FROM indexes WHERE kind = 'span_events'",
-                (),
-                |row| row.get(0),
-            )
-            .unwrap();
-
-        let event_index_data: Vec<u8> = self
-            .connection
-            .query_row(
-                "SELECT data FROM indexes WHERE kind = 'events'",
-                (),
-                |row| row.get(0),
-            )
-            .unwrap();
-
-        let bincode_options = DefaultOptions::new().with_fixint_encoding();
-
-        let span_indexes = bincode_options.deserialize(&span_index_data).unwrap();
-        let span_event_indexes = bincode_options.deserialize(&span_event_index_data).unwrap();
-        let event_indexes = bincode_options.deserialize(&event_index_data).unwrap();
-
-        Some((span_indexes, span_event_indexes, event_indexes))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -528,38 +487,6 @@ impl Storage for FileStorage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn update_indexes(
-        &mut self,
-        span_indexes: &SpanIndexes,
-        span_event_indexes: &SpanEventIndexes,
-        event_indexes: &EventIndexes,
-    ) {
-        use bincode::DefaultOptions;
-
-        let bincode_options = DefaultOptions::new().with_fixint_encoding();
-
-        let span_index_data = bincode_options.serialize(span_indexes).unwrap();
-        let span_event_index_data = bincode_options.serialize(span_event_indexes).unwrap();
-        let event_index_data = bincode_options.serialize(event_indexes).unwrap();
-
-        let tx = self.connection.transaction().unwrap();
-
-        let mut stmt = tx
-            .prepare("UPDATE indexes SET data = ?2 WHERE kind = ?1")
-            .unwrap();
-        stmt.execute(("spans", span_index_data)).unwrap();
-        stmt.execute(("span_events", span_event_index_data))
-            .unwrap();
-        stmt.execute(("events", event_index_data)).unwrap();
-        drop(stmt);
-
-        tx.execute("UPDATE meta SET indexes = 'FRESH' WHERE id = 1", ())
-            .unwrap();
-
-        tx.commit().unwrap();
-    }
-
-    #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_resources(&mut self, resources: &[Timestamp]) {
         let tx = self.connection.transaction().unwrap();
 
@@ -620,6 +547,92 @@ impl Storage for FileStorage {
         }
 
         drop(stmt);
+        tx.commit().unwrap();
+    }
+
+    #[allow(private_interfaces)]
+    fn as_index_storage(&self) -> Option<&dyn IndexStorage> {
+        Some(self)
+    }
+
+    #[allow(private_interfaces)]
+    fn as_index_storage_mut(&mut self) -> Option<&mut dyn IndexStorage> {
+        Some(self)
+    }
+}
+
+impl IndexStorage for FileStorage {
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
+    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
+        use bincode::DefaultOptions;
+
+        if self.index_state == IndexState::Stale {
+            return None;
+        }
+
+        let span_index_data: Vec<u8> = self
+            .connection
+            .query_row("SELECT data FROM indexes WHERE kind = 'spans'", (), |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        let span_event_index_data: Vec<u8> = self
+            .connection
+            .query_row(
+                "SELECT data FROM indexes WHERE kind = 'span_events'",
+                (),
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let event_index_data: Vec<u8> = self
+            .connection
+            .query_row(
+                "SELECT data FROM indexes WHERE kind = 'events'",
+                (),
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let bincode_options = DefaultOptions::new().with_fixint_encoding();
+
+        let span_indexes = bincode_options.deserialize(&span_index_data).unwrap();
+        let span_event_indexes = bincode_options.deserialize(&span_event_index_data).unwrap();
+        let event_indexes = bincode_options.deserialize(&event_index_data).unwrap();
+
+        Some((span_indexes, span_event_indexes, event_indexes))
+    }
+
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
+    fn update_indexes(
+        &mut self,
+        span_indexes: &SpanIndexes,
+        span_event_indexes: &SpanEventIndexes,
+        event_indexes: &EventIndexes,
+    ) {
+        use bincode::DefaultOptions;
+
+        let bincode_options = DefaultOptions::new().with_fixint_encoding();
+
+        let span_index_data = bincode_options.serialize(span_indexes).unwrap();
+        let span_event_index_data = bincode_options.serialize(span_event_indexes).unwrap();
+        let event_index_data = bincode_options.serialize(event_indexes).unwrap();
+
+        let tx = self.connection.transaction().unwrap();
+
+        let mut stmt = tx
+            .prepare("UPDATE indexes SET data = ?2 WHERE kind = ?1")
+            .unwrap();
+        stmt.execute(("spans", span_index_data)).unwrap();
+        stmt.execute(("span_events", span_event_index_data))
+            .unwrap();
+        stmt.execute(("events", event_index_data)).unwrap();
+        drop(stmt);
+
+        tx.execute("UPDATE meta SET indexes = 'FRESH' WHERE id = 1", ())
+            .unwrap();
+
         tx.commit().unwrap();
     }
 }

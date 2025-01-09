@@ -2,11 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::Storage;
-use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{EventKey, Value};
 use crate::{Event, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp};
 
-/// This storage implementation just holds elements in memory.
+/// This storage just holds all entities in memory.
 pub struct TransientStorage {
     resources: BTreeMap<Timestamp, Arc<Resource>>,
     spans: BTreeMap<Timestamp, Arc<Span>>,
@@ -15,7 +14,6 @@ pub struct TransientStorage {
 }
 
 impl TransientStorage {
-    #[allow(clippy::new_without_default)]
     pub fn new() -> TransientStorage {
         TransientStorage {
             resources: BTreeMap::new(),
@@ -23,6 +21,12 @@ impl TransientStorage {
             span_events: BTreeMap::new(),
             events: BTreeMap::new(),
         }
+    }
+}
+
+impl Default for TransientStorage {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -41,10 +45,6 @@ impl Storage for TransientStorage {
 
     fn get_event(&self, at: Timestamp) -> Option<Arc<Event>> {
         self.events.get(&at).cloned()
-    }
-
-    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
-        None
     }
 
     fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
@@ -131,15 +131,6 @@ impl Storage for TransientStorage {
                 self.events.insert(event.key(), Arc::new(event));
             }
         }
-    }
-
-    fn update_indexes(
-        &mut self,
-        _span_indexes: &SpanIndexes,
-        _span_event_indexes: &SpanEventIndexes,
-        _event_indexes: &EventIndexes,
-    ) {
-        // do nothing
     }
 
     fn drop_resources(&mut self, resources: &[Timestamp]) {
