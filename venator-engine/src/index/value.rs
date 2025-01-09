@@ -7,45 +7,45 @@ use crate::filter::BoundSearch;
 use crate::models::ValueOperator;
 use crate::{Timestamp, Value};
 
-use super::util::IndexExt;
+use super::IndexExt;
 
-/// This is an index for a single attribute name.
+/// This is an index for `Value`s (so @attributes and #content).
 
-// Since the values of an attribute can be varied, this keeps separate typed
-// indexes. It is unlikely that an attribute has values with multiple types, but
-// it needs to be accounted for regardless.
+// Since the type in a `Value` can be varied, this keeps separate typed indexes.
+// It is unlikely that an attribute has values with multiple types, but it needs
+// to be accounted for regardless.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct AttributeIndex {
+pub(crate) struct ValueIndex {
     kind: String,
     nulls: Vec<Timestamp>,
-    f64s: AttributeF64Index,
-    i64s: AttributeI64Index,
-    u64s: AttributeU64Index,
-    i128s: AttributeI128Index,
-    u128s: AttributeU128Index,
-    bools: AttributeBoolIndex,
+    f64s: ValueF64Index,
+    i64s: ValueI64Index,
+    u64s: ValueU64Index,
+    i128s: ValueI128Index,
+    u128s: ValueU128Index,
+    bools: ValueBoolIndex,
     strings: AttributeStringIndex,
-    bytes: AttributeByteIndex,
-    arrays: AttributeArrayIndex,
-    objects: AttributeObjectIndex,
+    bytes: ValueByteIndex,
+    arrays: ValueArrayIndex,
+    objects: ValueObjectIndex,
 }
 
-impl AttributeIndex {
+impl ValueIndex {
     #[allow(unused)]
-    pub(crate) fn new() -> AttributeIndex {
-        AttributeIndex {
+    pub(crate) fn new() -> ValueIndex {
+        ValueIndex {
             kind: "v1".to_owned(),
             nulls: Vec::new(),
-            f64s: AttributeF64Index::new(),
-            i64s: AttributeI64Index::new(),
-            u64s: AttributeU64Index::new(),
-            i128s: AttributeI128Index::new(),
-            u128s: AttributeU128Index::new(),
-            bools: AttributeBoolIndex::new(),
+            f64s: ValueF64Index::new(),
+            i64s: ValueI64Index::new(),
+            u64s: ValueU64Index::new(),
+            i128s: ValueI128Index::new(),
+            u128s: ValueU128Index::new(),
+            bools: ValueBoolIndex::new(),
             strings: AttributeStringIndex::new(),
-            bytes: AttributeByteIndex::new(),
-            arrays: AttributeArrayIndex::new(),
-            objects: AttributeObjectIndex::new(),
+            bytes: ValueByteIndex::new(),
+            arrays: ValueArrayIndex::new(),
+            objects: ValueObjectIndex::new(),
         }
     }
 
@@ -301,15 +301,15 @@ impl AttributeStringIndex {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeF64Index {
+struct ValueF64Index {
     // TODO: figure out how best to do categorical & numerical indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeF64Index {
-    fn new() -> AttributeF64Index {
-        AttributeF64Index {
+impl ValueF64Index {
+    fn new() -> ValueF64Index {
+        ValueF64Index {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
@@ -321,15 +321,15 @@ impl AttributeF64Index {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeI64Index {
+struct ValueI64Index {
     // TODO: figure out how best to do categorical & numerical indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeI64Index {
-    fn new() -> AttributeI64Index {
-        AttributeI64Index {
+impl ValueI64Index {
+    fn new() -> ValueI64Index {
+        ValueI64Index {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
@@ -341,15 +341,15 @@ impl AttributeI64Index {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeU64Index {
+struct ValueU64Index {
     // TODO: figure out how best to do categorical & numerical indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeU64Index {
-    fn new() -> AttributeU64Index {
-        AttributeU64Index {
+impl ValueU64Index {
+    fn new() -> ValueU64Index {
+        ValueU64Index {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
@@ -361,15 +361,15 @@ impl AttributeU64Index {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeI128Index {
+struct ValueI128Index {
     // TODO: figure out how best to do categorical & numerical indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeI128Index {
-    fn new() -> AttributeI128Index {
-        AttributeI128Index {
+impl ValueI128Index {
+    fn new() -> ValueI128Index {
+        ValueI128Index {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
@@ -381,15 +381,15 @@ impl AttributeI128Index {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeU128Index {
+struct ValueU128Index {
     // TODO: figure out how best to do categorical & numerical indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeU128Index {
-    fn new() -> AttributeU128Index {
-        AttributeU128Index {
+impl ValueU128Index {
+    fn new() -> ValueU128Index {
+        ValueU128Index {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
@@ -401,15 +401,15 @@ impl AttributeU128Index {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeBoolIndex {
+struct ValueBoolIndex {
     kind: String,
     trues: Vec<Timestamp>,
     falses: Vec<Timestamp>,
 }
 
-impl AttributeBoolIndex {
-    fn new() -> AttributeBoolIndex {
-        AttributeBoolIndex {
+impl ValueBoolIndex {
+    fn new() -> ValueBoolIndex {
+        ValueBoolIndex {
             kind: "basic".to_owned(),
             trues: Vec::new(),
             falses: Vec::new(),
@@ -423,15 +423,15 @@ impl AttributeBoolIndex {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeByteIndex {
+struct ValueByteIndex {
     // TODO: figure out how best to do indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeByteIndex {
-    fn new() -> AttributeByteIndex {
-        AttributeByteIndex {
+impl ValueByteIndex {
+    fn new() -> ValueByteIndex {
+        ValueByteIndex {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
@@ -443,15 +443,15 @@ impl AttributeByteIndex {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeArrayIndex {
+struct ValueArrayIndex {
     // TODO: figure out how best to do indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeArrayIndex {
-    fn new() -> AttributeArrayIndex {
-        AttributeArrayIndex {
+impl ValueArrayIndex {
+    fn new() -> ValueArrayIndex {
+        ValueArrayIndex {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
@@ -463,15 +463,15 @@ impl AttributeArrayIndex {
 }
 
 #[derive(Serialize, Deserialize)]
-struct AttributeObjectIndex {
+struct ValueObjectIndex {
     // TODO: figure out how best to do indexing
     kind: String,
     index: Vec<Timestamp>,
 }
 
-impl AttributeObjectIndex {
-    fn new() -> AttributeObjectIndex {
-        AttributeObjectIndex {
+impl ValueObjectIndex {
+    fn new() -> ValueObjectIndex {
+        ValueObjectIndex {
             kind: "basic".to_owned(),
             index: Vec::new(),
         }
