@@ -27,9 +27,10 @@ use opentelemetry::proto::common::v1::{AnyValue, KeyValue};
 use prost::bytes::{Bytes, BytesMut};
 use tonic::{async_trait, Request, Response, Status};
 
+use venator_engine::engine::AsyncEngine;
 use venator_engine::{
-    Engine, FullSpanId, Level, NewCloseSpanEvent, NewCreateSpanEvent, NewEvent, NewResource,
-    NewSpanEvent, NewSpanEventKind, SourceKind, SpanId, Timestamp, TraceId, Value,
+    FullSpanId, Level, NewCloseSpanEvent, NewCreateSpanEvent, NewEvent, NewResource, NewSpanEvent,
+    NewSpanEventKind, SourceKind, SpanId, Timestamp, TraceId, Value,
 };
 
 use super::IngressState;
@@ -117,7 +118,7 @@ where
 }
 
 pub(super) struct LogsCollector {
-    engine: Engine,
+    engine: AsyncEngine,
 }
 
 #[async_trait]
@@ -133,7 +134,7 @@ impl LogsService for LogsCollector {
 }
 
 pub(super) struct MetricsCollector {
-    engine: Engine,
+    engine: AsyncEngine,
 }
 
 #[async_trait]
@@ -149,7 +150,7 @@ impl MetricsService for MetricsCollector {
 }
 
 pub(super) struct TraceCollector {
-    engine: Engine,
+    engine: AsyncEngine,
 }
 
 #[async_trait]
@@ -164,15 +165,15 @@ impl TraceService for TraceCollector {
     }
 }
 
-pub fn logs_service(engine: Engine) -> LogsServiceServer<LogsCollector> {
+pub fn logs_service(engine: AsyncEngine) -> LogsServiceServer<LogsCollector> {
     LogsServiceServer::new(LogsCollector { engine })
 }
 
-pub fn metrics_service(engine: Engine) -> MetricsServiceServer<MetricsCollector> {
+pub fn metrics_service(engine: AsyncEngine) -> MetricsServiceServer<MetricsCollector> {
     MetricsServiceServer::new(MetricsCollector { engine })
 }
 
-pub fn trace_service(engine: Engine) -> TraceServiceServer<TraceCollector> {
+pub fn trace_service(engine: AsyncEngine) -> TraceServiceServer<TraceCollector> {
     TraceServiceServer::new(TraceCollector { engine })
 }
 
@@ -201,7 +202,7 @@ pub(super) async fn post_otel_trace_handler(
 }
 
 async fn process_logs_request(
-    engine: &Engine,
+    engine: &AsyncEngine,
     request: &ExportLogsServiceRequest,
 ) -> ExportLogsServiceResponse {
     for resource_log in &request.resource_logs {
@@ -280,7 +281,7 @@ async fn process_logs_request(
 }
 
 async fn process_metrics_request(
-    _engine: &Engine,
+    _engine: &AsyncEngine,
     _request: &ExportMetricsServiceRequest,
 ) -> ExportMetricsServiceResponse {
     ExportMetricsServiceResponse {
@@ -289,7 +290,7 @@ async fn process_metrics_request(
 }
 
 async fn process_trace_request(
-    engine: &Engine,
+    engine: &AsyncEngine,
     request: &ExportTraceServiceRequest,
 ) -> ExportTraceServiceResponse {
     for resource_span in &request.resource_spans {

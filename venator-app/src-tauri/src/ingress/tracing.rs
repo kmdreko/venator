@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::StreamReader;
 
+use venator_engine::engine::AsyncEngine;
 use venator_engine::{
-    Engine, FullSpanId, Level, NewCloseSpanEvent, NewCreateSpanEvent, NewEnterSpanEvent, NewEvent,
+    FullSpanId, Level, NewCloseSpanEvent, NewCreateSpanEvent, NewEnterSpanEvent, NewEvent,
     NewFollowsSpanEvent, NewResource, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent,
     SourceKind,
 };
@@ -70,7 +71,7 @@ pub(super) async fn post_tracing_handler(
 
 async fn handle_tracing_stream<S: AsyncRead + Unpin>(
     mut stream: S,
-    engine: Engine,
+    engine: AsyncEngine,
     instance_id: u128,
 ) {
     let deserializer = DefaultOptions::new()

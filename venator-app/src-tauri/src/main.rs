@@ -13,9 +13,10 @@ use tauri::ipc::Channel;
 use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
+use venator_engine::engine::AsyncEngine;
 use venator_engine::storage::{CachedStorage, FileStorage, TransientStorage};
 use venator_engine::{
-    BasicEventFilter, BasicSpanFilter, DeleteFilter, DeleteMetrics, Engine, EventView,
+    BasicEventFilter, BasicSpanFilter, DeleteFilter, DeleteMetrics, EventView,
     FallibleFilterPredicate, FilterPredicate, FilterPredicateSingle, FilterPropertyKind,
     InputError, Order, Query, SpanView, StatsView, SubscriptionId, SubscriptionResponse, Timestamp,
     ValuePredicate,
@@ -27,7 +28,7 @@ use ingress::{launch_ingress_thread, IngressState};
 
 #[tauri::command]
 async fn get_events(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     filter: Vec<FilterPredicate>,
     order: Order,
     previous: Option<Timestamp>,
@@ -50,7 +51,7 @@ async fn get_events(
 
 #[tauri::command]
 async fn get_event_count(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     filter: Vec<FilterPredicate>,
     start: Timestamp,
     end: Timestamp,
@@ -71,7 +72,7 @@ async fn get_event_count(
 
 #[tauri::command]
 async fn parse_event_filter(
-    _engine: State<'_, Engine>,
+    _engine: State<'_, AsyncEngine>,
     filter: &str,
 ) -> Result<Vec<InputView>, ()> {
     match FilterPredicate::parse(filter) {
@@ -93,7 +94,7 @@ async fn parse_event_filter(
 
 #[tauri::command]
 async fn get_spans(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     filter: Vec<FilterPredicate>,
     order: Order,
     previous: Option<Timestamp>,
@@ -116,7 +117,7 @@ async fn get_spans(
 
 #[tauri::command]
 async fn get_span_count(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     filter: Vec<FilterPredicate>,
     start: Timestamp,
     end: Timestamp,
@@ -136,7 +137,10 @@ async fn get_span_count(
 }
 
 #[tauri::command]
-async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<Vec<InputView>, ()> {
+async fn parse_span_filter(
+    _engine: State<'_, AsyncEngine>,
+    filter: &str,
+) -> Result<Vec<InputView>, ()> {
     match FilterPredicate::parse(filter) {
         Ok(predicates) => Ok(predicates
             .into_iter()
@@ -156,7 +160,7 @@ async fn parse_span_filter(_engine: State<'_, Engine>, filter: &str) -> Result<V
 
 #[tauri::command]
 async fn delete_entities(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     start: Option<Timestamp>,
     end: Option<Timestamp>,
     inside: bool,
@@ -175,13 +179,13 @@ async fn delete_entities(
 }
 
 #[tauri::command]
-async fn get_stats(engine: State<'_, Engine>) -> Result<StatsView, ()> {
+async fn get_stats(engine: State<'_, AsyncEngine>) -> Result<StatsView, ()> {
     Ok(engine.query_stats().await)
 }
 
 #[tauri::command]
 async fn subscribe_to_spans(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     filter: Vec<FilterPredicate>,
     channel: Channel<SubscriptionResponseView<SpanView>>,
 ) -> Result<SubscriptionId, String> {
@@ -204,7 +208,7 @@ async fn subscribe_to_spans(
 
 #[tauri::command]
 async fn unsubscribe_from_spans(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     id: SubscriptionId,
 ) -> Result<(), String> {
     engine.unsubscribe_from_spans(id).await;
@@ -214,7 +218,7 @@ async fn unsubscribe_from_spans(
 
 #[tauri::command]
 async fn subscribe_to_events(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     filter: Vec<FilterPredicate>,
     channel: Channel<SubscriptionResponseView<EventView>>,
 ) -> Result<SubscriptionId, String> {
@@ -237,7 +241,7 @@ async fn subscribe_to_events(
 
 #[tauri::command]
 async fn unsubscribe_from_events(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     id: SubscriptionId,
 ) -> Result<(), String> {
     engine.unsubscribe_from_events(id).await;
@@ -274,7 +278,7 @@ async fn save_session(
 
 #[tauri::command]
 async fn get_status(
-    engine: State<'_, Engine>,
+    engine: State<'_, AsyncEngine>,
     dataset: State<'_, DatasetConfig>,
     ingress: State<'_, Option<Arc<IngressState>>>,
 ) -> Result<StatusView, String> {
@@ -428,10 +432,12 @@ fn main() {
     dataset.prepare();
     let engine = match &dataset {
         DatasetConfig::Default(path) => {
-            Engine::new(CachedStorage::new(10000, FileStorage::new(path)))
+            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))
         }
-        DatasetConfig::File(path) => Engine::new(CachedStorage::new(10000, FileStorage::new(path))),
-        DatasetConfig::Memory => Engine::new(TransientStorage::new()),
+        DatasetConfig::File(path) => {
+            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))
+        }
+        DatasetConfig::Memory => AsyncEngine::new(TransientStorage::new()),
     };
 
     let ingress = bind.map(|bind| launch_ingress_thread(engine.clone(), bind.to_string()));
@@ -646,7 +652,7 @@ fn main() {
                     });
                 }
                 "save-dataset-as" => {
-                    let engine = app.state::<Engine>().inner().clone();
+                    let engine = app.state::<AsyncEngine>().inner().clone();
 
                     app.dialog().file().save_file(move |file_path| {
                         let Some(path) = file_path else { return };
@@ -725,7 +731,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {
-                let engine = window.state::<Engine>();
+                let engine = window.state::<AsyncEngine>();
                 shutdown(&engine);
             }
         })
@@ -755,7 +761,7 @@ fn main() {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn shutdown(engine: &Engine) {
+async fn shutdown(engine: &AsyncEngine) {
     engine.save().await;
 }
 

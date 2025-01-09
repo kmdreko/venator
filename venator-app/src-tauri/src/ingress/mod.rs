@@ -14,7 +14,7 @@ use http_body::Frame;
 use tokio::net::TcpListener;
 use tonic::service::Routes;
 
-use venator_engine::Engine;
+use venator_engine::engine::AsyncEngine;
 
 mod otel;
 mod tracing;
@@ -23,7 +23,7 @@ pub(crate) struct IngressState {
     bind: String,
     error: OnceLock<String>,
 
-    engine: Engine,
+    engine: AsyncEngine,
 
     last_check: Mutex<Instant>,
     num_connections: AtomicUsize,
@@ -35,7 +35,7 @@ pub(crate) struct IngressState {
 }
 
 impl IngressState {
-    fn new(engine: Engine, bind: String) -> IngressState {
+    fn new(engine: AsyncEngine, bind: String) -> IngressState {
         IngressState {
             bind,
             error: OnceLock::new(),
@@ -122,7 +122,7 @@ async fn ingress_middleware(
     response
 }
 
-pub fn launch_ingress_thread(engine: Engine, bind: String) -> Arc<IngressState> {
+pub fn launch_ingress_thread(engine: AsyncEngine, bind: String) -> Arc<IngressState> {
     #[tokio::main(flavor = "current_thread")]
     async fn ingress_task(state: Arc<IngressState>) {
         let listener = match TcpListener::bind(&state.bind).await {

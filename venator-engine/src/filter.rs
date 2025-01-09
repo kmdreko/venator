@@ -9,12 +9,13 @@ use regex::Regex;
 use serde::Deserialize;
 use wildcard::WildcardBuilder;
 
+use crate::engine::SyncEngine;
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
 use crate::models::{
     EventKey, FullSpanId, Level, SimpleLevel, SpanKey, Timestamp, TraceRoot, ValueOperator,
 };
 use crate::storage::Storage;
-use crate::{EventContext, RawEngine, SpanContext};
+use crate::{EventContext, SpanContext};
 
 pub mod attribute;
 pub mod input;
@@ -1070,7 +1071,7 @@ pub struct IndexedEventFilterIterator<'i, S> {
 }
 
 impl<'i, S: Storage> IndexedEventFilterIterator<'i, S> {
-    pub fn new(query: Query, engine: &'i RawEngine<S>) -> IndexedEventFilterIterator<'i, S> {
+    pub fn new(query: Query, engine: &'i SyncEngine<S>) -> IndexedEventFilterIterator<'i, S> {
         let mut filter = BasicEventFilter::And(
             query
                 .filter
@@ -1112,7 +1113,7 @@ impl<'i, S: Storage> IndexedEventFilterIterator<'i, S> {
 
     pub fn new_internal(
         filter: IndexedEventFilter<'i>,
-        engine: &'i RawEngine<S>,
+        engine: &'i SyncEngine<S>,
     ) -> IndexedEventFilterIterator<'i, S> {
         IndexedEventFilterIterator {
             filter,
@@ -2502,7 +2503,7 @@ pub struct IndexedSpanFilterIterator<'i, S> {
 }
 
 impl<'i, S: Storage> IndexedSpanFilterIterator<'i, S> {
-    pub fn new(query: Query, engine: &'i RawEngine<S>) -> IndexedSpanFilterIterator<'i, S> {
+    pub fn new(query: Query, engine: &'i SyncEngine<S>) -> IndexedSpanFilterIterator<'i, S> {
         let mut filter = BasicSpanFilter::And(
             query
                 .filter
@@ -2573,7 +2574,7 @@ impl<'i, S: Storage> IndexedSpanFilterIterator<'i, S> {
 
     pub fn new_internal(
         filter: IndexedSpanFilter<'i>,
-        engine: &'i RawEngine<S>,
+        engine: &'i SyncEngine<S>,
     ) -> IndexedSpanFilterIterator<'i, S> {
         IndexedSpanFilterIterator {
             filter,

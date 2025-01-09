@@ -639,3 +639,20 @@ pub struct StatsView {
     pub total_spans: usize,
     pub total_events: usize,
 }
+
+pub struct DeleteFilter {
+    pub start: Timestamp,
+    pub end: Timestamp,
+    pub inside: bool,
+    pub dry_run: bool,
+}
+
+pub struct DeleteMetrics {
+    pub spans: usize,
+    pub span_events: usize,
+    pub events: usize,
+}
+
+pub struct EngineStatusView {
+    pub load: f64,
+}
