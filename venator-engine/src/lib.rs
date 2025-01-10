@@ -4,7 +4,7 @@
 
 mod context;
 pub mod engine;
-mod filter;
+pub mod filter;
 mod index;
 mod models;
 pub mod storage;
@@ -12,12 +12,6 @@ mod subscription;
 
 use storage::Storage;
 
-pub use filter::input::{
-    FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate,
-};
-pub use filter::{
-    BasicEventFilter, BasicSpanFilter, FallibleFilterPredicate, InputError, Order, Query,
-};
 pub use models::{
     AncestorView, AttributeSourceView, AttributeTypeView, AttributeView, CreateSpanEvent,
     DeleteFilter, DeleteMetrics, EngineStatusView, Event, EventKey, EventView, FullSpanId,

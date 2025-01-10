@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::filter::attribute::{ValueComparison, ValueFilter, ValueStringComparison};
-use crate::filter::BoundSearch;
+use crate::filter::{BoundSearch, ValueComparison, ValueFilter, ValueStringComparison};
 use crate::models::ValueOperator;
 use crate::{Timestamp, Value};
 

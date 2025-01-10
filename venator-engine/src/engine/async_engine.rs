@@ -5,11 +5,12 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
 use tracing::instrument;
 
+use crate::filter::{FilterPredicate, Query};
 use crate::storage::Storage;
 use crate::{
-    DeleteFilter, DeleteMetrics, EngineStatusView, EventView, FilterPredicate, InstanceId,
-    NewEvent, NewResource, NewSpanEvent, Query, ResourceKey, SpanEvent, SpanKey, SpanView,
-    StatsView, SubscriptionId, SubscriptionResponse,
+    DeleteFilter, DeleteMetrics, EngineStatusView, EventView, InstanceId, NewEvent, NewResource,
+    NewSpanEvent, ResourceKey, SpanEvent, SpanKey, SpanView, StatsView, SubscriptionId,
+    SubscriptionResponse,
 };
 
 use super::{EngineInsertError, SyncEngine};

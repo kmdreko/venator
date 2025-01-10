@@ -8,7 +8,10 @@ use crate::models::{Value, ValueOperator};
 use super::InputError;
 
 #[derive(Clone)]
-pub enum ValueStringComparison {
+pub(crate) enum ValueStringComparison {
+    // TODO: apparently we never create a non-matching string comparison,
+    // consider removing this
+    #[allow(unused)]
     None,
     Compare(ValueOperator, String),
     Wildcard(Wildcard<'static, u8>),
@@ -48,7 +51,7 @@ impl ValueStringComparison {
 }
 
 #[derive(Debug, Clone)]
-pub enum ValueComparison<T> {
+pub(crate) enum ValueComparison<T> {
     None,
     Compare(ValueOperator, T),
     All,
@@ -68,7 +71,7 @@ impl<T> ValueComparison<T> {
 }
 
 #[derive(Clone)]
-pub struct ValueFilter {
+pub(crate) struct ValueFilter {
     pub nulls: bool,
     pub f64s: ValueComparison<f64>,
     pub i64s: ValueComparison<i64>,

@@ -1,9 +1,9 @@
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::context::{EventContext, SpanContext};
-use crate::filter::BoundSearch;
+use crate::filter::{BasicEventFilter, BasicSpanFilter, BoundSearch};
 use crate::models::EventKey;
-use crate::{BasicEventFilter, BasicSpanFilter, EventView, SpanKey, SpanView, Storage, Timestamp};
+use crate::{EventView, SpanKey, SpanView, Storage, Timestamp};
 
 pub type SubscriptionId = usize;
 

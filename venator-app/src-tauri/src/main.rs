@@ -14,12 +14,14 @@ use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 use venator_engine::engine::AsyncEngine;
+use venator_engine::filter::{
+    validate_event_filter, validate_span_filter, FallibleFilterPredicate, FilterPredicate,
+    FilterPredicateSingle, FilterPropertyKind, InputError, Order, Query, ValuePredicate,
+};
 use venator_engine::storage::{CachedStorage, FileStorage, TransientStorage};
 use venator_engine::{
-    BasicEventFilter, BasicSpanFilter, DeleteFilter, DeleteMetrics, EventView,
-    FallibleFilterPredicate, FilterPredicate, FilterPredicateSingle, FilterPropertyKind,
-    InputError, Order, Query, SpanView, StatsView, SubscriptionId, SubscriptionResponse, Timestamp,
-    ValuePredicate,
+    DeleteFilter, DeleteMetrics, EventView, SpanView, StatsView, SubscriptionId,
+    SubscriptionResponse, Timestamp,
 };
 
 mod ingress;
@@ -80,7 +82,7 @@ async fn parse_event_filter(
             .into_iter()
             .map(|p| {
                 let text = p.to_string();
-                InputView::from(BasicEventFilter::validate(p).map_err(|e| (e, text)))
+                InputView::from(validate_event_filter(p).map_err(|e| (e, text)))
             })
             .collect()),
         Err(err) => Ok(vec![InputView {
@@ -146,7 +148,7 @@ async fn parse_span_filter(
             .into_iter()
             .map(|p| {
                 let text = p.to_string();
-                InputView::from(BasicSpanFilter::validate(p).map_err(|e| (e, text)))
+                InputView::from(validate_span_filter(p).map_err(|e| (e, text)))
             })
             .collect()),
         Err(err) => Ok(vec![InputView {
