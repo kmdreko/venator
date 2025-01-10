@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tracing::instrument;
 
+use crate::context::{EventContext, SpanContext};
 use crate::filter::{
     IndexedEventFilter, IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator,
 };
@@ -13,10 +14,10 @@ use crate::storage::Storage;
 use crate::subscription::{EventSubscription, SpanSubscription};
 use crate::{
     BasicEventFilter, BasicSpanFilter, CreateSpanEvent, DeleteFilter, DeleteMetrics, Event,
-    EventContext, EventView, FilterPredicate, FullSpanId, InstanceId, NewEvent, NewResource,
-    NewSpanEvent, NewSpanEventKind, Query, Resource, ResourceKey, Span, SpanContext, SpanEvent,
-    SpanEventKey, SpanEventKind, SpanKey, SpanView, StatsView, SubscriptionId,
-    SubscriptionResponse, Timestamp, UpdateSpanEvent, ValueOperator,
+    EventView, FilterPredicate, FullSpanId, InstanceId, NewEvent, NewResource, NewSpanEvent,
+    NewSpanEventKind, Query, Resource, ResourceKey, Span, SpanEvent, SpanEventKey, SpanEventKind,
+    SpanKey, SpanView, StatsView, SubscriptionId, SubscriptionResponse, Timestamp, UpdateSpanEvent,
+    ValueOperator,
 };
 
 use super::EngineInsertError;

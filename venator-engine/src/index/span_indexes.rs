@@ -3,9 +3,10 @@ use std::ops::Range;
 
 use serde::{Deserialize, Serialize};
 
+use crate::context::SpanContext;
 use crate::filter::BoundSearch;
 use crate::models::{FullSpanId, Timestamp, TraceRoot, Value};
-use crate::{InstanceId, ResourceKey, SpanContext, SpanKey, Storage};
+use crate::{InstanceId, ResourceKey, SpanKey, Storage};
 
 use super::{IndexExt, ValueIndex};
 

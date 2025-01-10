@@ -9,13 +9,13 @@ use regex::Regex;
 use serde::Deserialize;
 use wildcard::WildcardBuilder;
 
+use crate::context::{EventContext, SpanContext};
 use crate::engine::SyncEngine;
 use crate::index::{EventIndexes, SpanDurationIndex, SpanIndexes};
 use crate::models::{
     EventKey, FullSpanId, Level, SimpleLevel, SpanKey, Timestamp, TraceRoot, ValueOperator,
 };
 use crate::storage::Storage;
-use crate::{EventContext, SpanContext};
 
 pub mod attribute;
 pub mod input;

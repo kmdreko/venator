@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::context::{EventContext, SpanContext};
 use crate::filter::BoundSearch;
 use crate::models::{EventKey, FullSpanId, Timestamp, TraceRoot, Value};
-use crate::{EventContext, ResourceKey, SpanContext, SpanKey, Storage};
+use crate::{ResourceKey, SpanKey, Storage};
 
 use super::{IndexExt, ValueIndex};
 
