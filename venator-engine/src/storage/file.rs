@@ -88,8 +88,8 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE resources (
-                key             INT8 NOT NULL,
-                fields          TEXT,
+                key        INT8 NOT NULL,
+                attributes TEXT NOT NULL,
 
                 CONSTRAINT resources_pk PRIMARY KEY (key)
             );"#,
@@ -99,24 +99,24 @@ impl FileStorage {
         let _ = connection.execute(
             r#"
             CREATE TABLE spans (
-                key          INT8 NOT NULL,
-                kind         INT,
-                resource_key INT8,
-                id           TEXT,
-                closed_at    INT8,
-                busy         INT8,
-                parent_id    TEXT,
-                parent_key   INT8,
-                links        TEXT,
-                name         TEXT,
-                namespace    TEXT,
-                function     TEXT,
-                level        INT,
-                file_name    TEXT,
-                file_line    INT,
-                file_column  INT,
-                instrumentation_fields TEXT,
-                fields       TEXT,
+                key              INT8 NOT NULL,
+                kind             INT NOT NULL,
+                resource_key     INT8 NOT NULL,
+                id               TEXT NOT NULL,
+                closed_at        INT8,
+                busy             INT8,
+                parent_id        TEXT,
+                parent_key       INT8,
+                links            TEXT NOT NULL,
+                name             TEXT NOT NULL,
+                namespace        TEXT,
+                function         TEXT,
+                level            INT NOT NULL,
+                file_name        TEXT,
+                file_line        INT,
+                file_column      INT,
+                instr_attributes TEXT NOT NULL,
+                attributes       TEXT NOT NULL,
 
                 CONSTRAINT spans_pk PRIMARY KEY (key)
             );"#,
@@ -140,18 +140,18 @@ impl FileStorage {
             r#"
             CREATE TABLE events (
                 key          INT8 NOT NULL,
-                kind         INT,
-                resource_key INT8,
+                kind         INT NOT NULL,
+                resource_key INT8 NOT NULL,
                 parent_id    TEXT,
                 parent_key   INT8,
-                content      TEXT,
+                content      TEXT NOT NULL,
                 namespace    TEXT,
                 function     TEXT,
-                level        INT,
+                level        INT NOT NULL,
                 file_name    TEXT,
                 file_line    INT,
                 file_column  INT,
-                fields       TEXT,
+                attributes   TEXT NOT NULL,
 
                 CONSTRAINT events_pk PRIMARY KEY (key)
             );"#,
@@ -327,8 +327,9 @@ impl Storage for FileStorage {
         let file_name = span.file_name;
         let file_line = span.file_line;
         let file_column = span.file_column;
-        let instrumentation_fields = serde_json::to_string(&span.instrumentation_fields).unwrap();
-        let fields = serde_json::to_string(&span.fields).unwrap();
+        let instrumentation_attributes =
+            serde_json::to_string(&span.instrumentation_attributes).unwrap();
+        let attributes = serde_json::to_string(&span.attributes).unwrap();
 
         stmt.execute(params![
             key,
@@ -347,8 +348,8 @@ impl Storage for FileStorage {
             file_name,
             file_line,
             file_column,
-            instrumentation_fields,
-            fields
+            instrumentation_attributes,
+            attributes
         ])
         .unwrap();
     }
@@ -392,7 +393,7 @@ impl Storage for FileStorage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
+    fn update_span_attributes(&mut self, at: Timestamp, attributes: BTreeMap<String, Value>) {
         self.invalidate_indexes();
 
         let mut stmt = self
@@ -401,21 +402,21 @@ impl Storage for FileStorage {
             .unwrap();
 
         let span = stmt.query_row((at,), span_from_row).unwrap();
-        let existing_fields = span.fields;
+        let existing_attributes = span.attributes;
 
-        let fields = {
-            let mut new_fields = existing_fields;
-            new_fields.extend(fields);
-            new_fields
+        let attributes = {
+            let mut new_attributes = existing_attributes;
+            new_attributes.extend(attributes);
+            new_attributes
         };
-        let fields = serde_json::to_string(&fields).unwrap();
+        let attributes = serde_json::to_string(&attributes).unwrap();
 
         let mut stmt = self
             .connection
-            .prepare_cached("UPDATE spans SET fields = ?2 WHERE key = ?1")
+            .prepare_cached("UPDATE spans SET attributes = ?2 WHERE key = ?1")
             .unwrap();
 
-        stmt.execute((at, fields)).unwrap();
+        stmt.execute((at, attributes)).unwrap();
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -423,7 +424,7 @@ impl Storage for FileStorage {
         &mut self,
         at: Timestamp,
         link: FullSpanId,
-        fields: BTreeMap<String, Value>,
+        attributes: BTreeMap<String, Value>,
     ) {
         self.invalidate_indexes();
 
@@ -437,17 +438,17 @@ impl Storage for FileStorage {
 
         let links = {
             let mut new_linkss = existing_links;
-            new_linkss.push((link, fields));
+            new_linkss.push((link, attributes));
             new_linkss
         };
-        let fields = serde_json::to_string(&links).unwrap();
+        let attributes = serde_json::to_string(&links).unwrap();
 
         let mut stmt = self
             .connection
             .prepare_cached("UPDATE spans SET follows = ?2 WHERE key = ?1")
             .unwrap();
 
-        stmt.execute((at, fields)).unwrap();
+        stmt.execute((at, attributes)).unwrap();
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -639,19 +640,19 @@ impl IndexStorage for FileStorage {
 
 fn resource_to_params(resource: Resource) -> impl Params {
     let key = resource.key();
-    let fields = serde_json::to_string(&resource.fields).unwrap();
+    let attributes = serde_json::to_string(&resource.attributes).unwrap();
 
-    (key, fields)
+    (key, attributes)
 }
 
 fn resource_from_row(row: &Row<'_>) -> Result<Resource, DbError> {
     let key: i64 = row.get(0)?;
-    let fields: String = row.get(1)?;
-    let fields = serde_json::from_str(&fields).unwrap();
+    let attributes: String = row.get(1)?;
+    let attributes = serde_json::from_str(&attributes).unwrap();
 
     Ok(Resource {
         created_at: ResourceKey::new(key as u64).unwrap(),
-        fields,
+        attributes,
     })
 }
 
@@ -673,10 +674,10 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
     let file_name = row.get(13)?;
     let file_line = row.get(14)?;
     let file_column = row.get(15)?;
-    let instrumentation_fields: String = row.get(16)?;
-    let instrumentation_fields = serde_json::from_str(&instrumentation_fields).unwrap();
-    let fields: String = row.get(17)?;
-    let fields = serde_json::from_str(&fields).unwrap();
+    let instrumentation_attributes: String = row.get(16)?;
+    let instrumentation_attributes = serde_json::from_str(&instrumentation_attributes).unwrap();
+    let attributes: String = row.get(17)?;
+    let attributes = serde_json::from_str(&attributes).unwrap();
 
     Ok(Span {
         kind: SourceKind::try_from(kind).unwrap(),
@@ -695,8 +696,8 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
         file_name,
         file_line,
         file_column,
-        instrumentation_fields,
-        fields,
+        instrumentation_attributes,
+        attributes,
     })
 }
 
@@ -821,9 +822,9 @@ fn event_to_params(event: Event) -> impl Params {
     let file_name = event.file_name;
     let file_line = event.file_line;
     let file_column = event.file_column;
-    let fields = serde_json::to_string(&event.fields).unwrap();
+    let attributes = serde_json::to_string(&event.attributes).unwrap();
 
-    (key, kind, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, fields)
+    (key, kind, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, attributes)
 }
 
 fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
@@ -840,8 +841,8 @@ fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
     let file_name = row.get(9)?;
     let file_line = row.get(10)?;
     let file_column = row.get(11)?;
-    let fields: String = row.get(12)?;
-    let fields = serde_json::from_str(&fields).unwrap();
+    let attributes: String = row.get(12)?;
+    let attributes = serde_json::from_str(&attributes).unwrap();
 
     Ok(Event {
         kind: SourceKind::try_from(kind).unwrap(),
@@ -856,6 +857,6 @@ fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
         file_name,
         file_line,
         file_column,
-        fields,
+        attributes,
     })
 }

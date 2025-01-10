@@ -10,7 +10,7 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
-use crate::fields::OwnedValue;
+use crate::attributes::OwnedValue;
 use crate::ids::VenatorId;
 
 fn now() -> NonZeroU64 {
@@ -61,7 +61,7 @@ pub(crate) fn encode_chunk(buffer: &mut Vec<u8>, payload: &[u8]) -> Result<(), I
 
 #[derive(Serialize)]
 pub struct Handshake {
-    pub fields: BTreeMap<String, OwnedValue>,
+    pub attributes: BTreeMap<String, OwnedValue>,
 }
 
 #[derive(Serialize)]
@@ -106,7 +106,7 @@ impl Message<'_, '_> {
                 level: level_to_number(*metadata.level()),
                 file_name: metadata.file(),
                 file_line: metadata.line(),
-                fields: attrs,
+                attributes: attrs,
             }),
         }
     }
@@ -120,7 +120,7 @@ impl Message<'_, '_> {
         Message {
             timestamp,
             span_id: Some(id.0),
-            data: MessageData::Update(UpdateData { fields: values }),
+            data: MessageData::Update(UpdateData { attributes: values }),
         }
     }
 
@@ -191,7 +191,7 @@ impl Message<'_, '_> {
                 level: level_to_number(*metadata.level()),
                 file_name: metadata.file(),
                 file_line: metadata.line(),
-                fields: event,
+                attributes: event,
             }),
         }
     }
@@ -205,14 +205,14 @@ struct CreateData<'a, 'callsite> {
     level: i32,
     file_name: Option<&'static str>,
     file_line: Option<u32>,
-    #[serde(serialize_with = "crate::fields::attributes_as_fields")]
-    fields: &'a Attributes<'callsite>,
+    #[serde(serialize_with = "crate::attributes::from_attributes")]
+    attributes: &'a Attributes<'callsite>,
 }
 
 #[derive(Serialize)]
 struct UpdateData<'a, 'callsite> {
-    #[serde(serialize_with = "crate::fields::record_as_fields")]
-    fields: &'a Record<'callsite>,
+    #[serde(serialize_with = "crate::attributes::from_record")]
+    attributes: &'a Record<'callsite>,
 }
 
 #[derive(Serialize)]
@@ -232,8 +232,8 @@ struct EventData<'a, 'callsite> {
     level: i32,
     file_name: Option<&'static str>,
     file_line: Option<u32>,
-    #[serde(serialize_with = "crate::fields::event_as_fields")]
-    fields: &'a Event<'callsite>,
+    #[serde(serialize_with = "crate::attributes::from_event")]
+    attributes: &'a Event<'callsite>,
 }
 
 fn level_to_number(level: Level) -> i32 {

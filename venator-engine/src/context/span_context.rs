@@ -102,23 +102,23 @@ where
 
     pub(crate) fn attribute(&self, attr: &str) -> Option<&Value> {
         let span = self.span();
-        if let Some(v) = span.fields.get(attr) {
+        if let Some(v) = span.attributes.get(attr) {
             return Some(v);
         }
 
-        if let Some(v) = span.instrumentation_fields.get(attr) {
+        if let Some(v) = span.instrumentation_attributes.get(attr) {
             return Some(v);
         }
 
         let parents = self.parents();
         for parent in parents {
-            if let Some(v) = parent.fields.get(attr) {
+            if let Some(v) = parent.attributes.get(attr) {
                 return Some(v);
             }
         }
 
         let resource = self.resource();
-        if let Some(v) = resource.fields.get(attr) {
+        if let Some(v) = resource.attributes.get(attr) {
             return Some(v);
         }
 
@@ -127,23 +127,23 @@ where
 
     pub(crate) fn attribute_with_key(&self, attr: &str) -> Option<(&Value, Timestamp)> {
         let span = self.span();
-        if let Some(v) = span.fields.get(attr) {
+        if let Some(v) = span.attributes.get(attr) {
             return Some((v, span.key()));
         }
 
-        if let Some(v) = span.instrumentation_fields.get(attr) {
+        if let Some(v) = span.instrumentation_attributes.get(attr) {
             return Some((v, span.key()));
         }
 
         let parents = self.parents();
         for parent in parents {
-            if let Some(v) = parent.fields.get(attr) {
+            if let Some(v) = parent.attributes.get(attr) {
                 return Some((v, parent.key()));
             }
         }
 
         let resource = self.resource();
-        if let Some(v) = resource.fields.get(attr) {
+        if let Some(v) = resource.attributes.get(attr) {
             return Some((v, resource.key()));
         }
 
@@ -154,23 +154,23 @@ where
         let mut attributes = BTreeMap::new();
 
         let span = self.span();
-        for (attr, value) in &span.fields {
+        for (attr, value) in &span.attributes {
             attributes.entry(&**attr).or_insert(value);
         }
 
-        for (attr, value) in &span.instrumentation_fields {
+        for (attr, value) in &span.instrumentation_attributes {
             attributes.entry(&**attr).or_insert(value);
         }
 
         let parents = self.parents();
         for parent in parents {
-            for (attr, value) in &parent.fields {
+            for (attr, value) in &parent.attributes {
                 attributes.entry(&**attr).or_insert(value);
             }
         }
 
         let resource = self.resource();
-        for (attr, value) in &resource.fields {
+        for (attr, value) in &resource.attributes {
             attributes.entry(&**attr).or_insert(value);
         }
 
@@ -182,7 +182,7 @@ where
 
         let mut attributes =
             BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
-        for (attribute, value) in &self.span().fields {
+        for (attribute, value) in &self.span().attributes {
             attributes.insert(
                 attribute.to_owned(),
                 (
@@ -193,7 +193,7 @@ where
             );
         }
         for parent in self.parents() {
-            for (attribute, value) in &parent.fields {
+            for (attribute, value) in &parent.attributes {
                 if !attributes.contains_key(attribute) {
                     attributes.insert(
                         attribute.to_owned(),
@@ -208,7 +208,7 @@ where
                 }
             }
         }
-        for (attribute, value) in &self.resource().fields {
+        for (attribute, value) in &self.resource().attributes {
             if !attributes.contains_key(attribute) {
                 attributes.insert(
                     attribute.to_owned(),

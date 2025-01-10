@@ -192,7 +192,7 @@ impl<S: Storage> SyncEngine<S> {
         if let Some((key, _)) = self
             .resources
             .iter()
-            .find(|(_, r)| r.fields == resource.fields)
+            .find(|(_, r)| r.attributes == resource.attributes)
         {
             return Ok(*key);
         }
@@ -201,7 +201,7 @@ impl<S: Storage> SyncEngine<S> {
         let resource_key = self.keys.register(now, now);
         let resource = Resource {
             created_at: resource_key,
-            fields: resource.fields,
+            attributes: resource.attributes,
         };
 
         self.insert_resource_bookeeping(&resource);
@@ -283,8 +283,8 @@ impl<S: Storage> SyncEngine<S> {
                     file_name: new_create_event.file_name.clone(),
                     file_line: new_create_event.file_line,
                     file_column: new_create_event.file_column,
-                    instrumentation_fields: new_create_event.instrumentation_fields.clone(),
-                    fields: new_create_event.fields.clone(),
+                    instrumentation_attributes: new_create_event.instrumentation_attributes.clone(),
+                    attributes: new_create_event.attributes.clone(),
                 };
 
                 let span_event = SpanEvent {
@@ -301,8 +301,8 @@ impl<S: Storage> SyncEngine<S> {
                         file_name: new_create_event.file_name,
                         file_line: new_create_event.file_line,
                         file_column: new_create_event.file_column,
-                        instrumentation_fields: new_create_event.instrumentation_fields,
-                        fields: new_create_event.fields,
+                        instrumentation_attributes: new_create_event.instrumentation_attributes,
+                        attributes: new_create_event.attributes,
                     }),
                 };
 
@@ -386,7 +386,7 @@ impl<S: Storage> SyncEngine<S> {
                 let trace = span.trace_root();
 
                 let update_event = UpdateSpanEvent {
-                    fields: new_update_event.fields.clone(),
+                    attributes: new_update_event.attributes.clone(),
                 };
 
                 let descendent_spans = self
@@ -409,7 +409,7 @@ impl<S: Storage> SyncEngine<S> {
                     self.span_indexes.update_with_new_field_on_parent(
                         &SpanContext::new(child_span_key, &self.storage),
                         span_key,
-                        &update_event.fields,
+                        &update_event.attributes,
                     );
                 }
 
@@ -433,7 +433,7 @@ impl<S: Storage> SyncEngine<S> {
                     self.event_indexes.update_with_new_field_on_parent(
                         &EventContext::new(event_key, &self.storage),
                         span_key,
-                        &update_event.fields,
+                        &update_event.attributes,
                     );
                 }
 
@@ -444,7 +444,7 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 self.storage
-                    .update_span_fields(span_key, new_update_event.fields);
+                    .update_span_attributes(span_key, new_update_event.attributes);
 
                 self.insert_span_event_bookeeping(&span_event);
                 self.storage.insert_span_event(span_event);
@@ -661,7 +661,7 @@ impl<S: Storage> SyncEngine<S> {
             self.span_indexes.update_with_new_field_on_parent(
                 &SpanContext::new(descendent, &self.storage),
                 span.key(),
-                &span.fields,
+                &span.attributes,
             );
         }
 
@@ -688,7 +688,7 @@ impl<S: Storage> SyncEngine<S> {
             self.event_indexes.update_with_new_field_on_parent(
                 &EventContext::new(descendent, &self.storage),
                 span.key(),
-                &span.fields,
+                &span.attributes,
             );
         }
 
@@ -722,7 +722,7 @@ impl<S: Storage> SyncEngine<S> {
             file_name: new_event.file_name,
             file_line: new_event.file_line,
             file_column: new_event.file_column,
-            fields: new_event.fields,
+            attributes: new_event.attributes,
         };
 
         self.insert_event_bookeeping(&event);
@@ -1077,7 +1077,7 @@ mod tests {
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: BTreeMap::new(),
+                attributes: BTreeMap::new(),
             })
             .unwrap();
 
@@ -1094,7 +1094,7 @@ mod tests {
                 file_name: None,
                 file_line: None,
                 file_column: None,
-                fields: BTreeMap::from_iter([
+                attributes: BTreeMap::from_iter([
                     ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
                     ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
                 ]),
@@ -1134,7 +1134,7 @@ mod tests {
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: BTreeMap::new(),
+                attributes: BTreeMap::new(),
             })
             .unwrap();
 
@@ -1154,8 +1154,8 @@ mod tests {
                         file_name: None,
                         file_line: None,
                         file_column: None,
-                        instrumentation_fields: BTreeMap::default(),
-                        fields: BTreeMap::from_iter([
+                        instrumentation_attributes: BTreeMap::default(),
+                        attributes: BTreeMap::from_iter([
                             ("attribute1".to_owned(), Value::Str(attribute1.to_owned())),
                             ("attribute2".to_owned(), Value::Str(attribute2.to_owned())),
                         ]),
@@ -1226,7 +1226,7 @@ mod tests {
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
             })
             .unwrap();
 
@@ -1244,7 +1244,7 @@ mod tests {
                 file_name: None,
                 file_line: None,
                 file_column: None,
-                fields: BTreeMap::new(),
+                attributes: BTreeMap::new(),
             })
             .unwrap();
 
@@ -1277,7 +1277,7 @@ mod tests {
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
             })
             .unwrap();
 
@@ -1295,7 +1295,7 @@ mod tests {
                 file_name: None,
                 file_line: None,
                 file_column: None,
-                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
             })
             .unwrap();
 
@@ -1328,7 +1328,7 @@ mod tests {
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
             })
             .unwrap();
 
@@ -1347,8 +1347,11 @@ mod tests {
                     file_name: None,
                     file_line: None,
                     file_column: None,
-                    instrumentation_fields: BTreeMap::default(),
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("C".to_owned()))]),
+                    instrumentation_attributes: BTreeMap::default(),
+                    attributes: BTreeMap::from_iter([(
+                        "attr1".to_owned(),
+                        Value::Str("C".to_owned()),
+                    )]),
                 }),
             })
             .unwrap();
@@ -1367,7 +1370,7 @@ mod tests {
                 file_name: None,
                 file_line: None,
                 file_column: None,
-                fields: BTreeMap::new(),
+                attributes: BTreeMap::new(),
             })
             .unwrap();
 
@@ -1400,7 +1403,7 @@ mod tests {
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
             })
             .unwrap();
 
@@ -1419,8 +1422,8 @@ mod tests {
                     file_name: None,
                     file_line: None,
                     file_column: None,
-                    instrumentation_fields: BTreeMap::default(),
-                    fields: BTreeMap::new(),
+                    instrumentation_attributes: BTreeMap::default(),
+                    attributes: BTreeMap::new(),
                 }),
             })
             .unwrap();
@@ -1439,7 +1442,7 @@ mod tests {
                 file_name: None,
                 file_line: None,
                 file_column: None,
-                fields: BTreeMap::new(),
+                attributes: BTreeMap::new(),
             })
             .unwrap();
 
@@ -1448,7 +1451,10 @@ mod tests {
                 timestamp: super::now(),
                 span_id: FullSpanId::Tracing(1.try_into().unwrap(), 1),
                 kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("C".to_owned()))]),
+                    attributes: BTreeMap::from_iter([(
+                        "attr1".to_owned(),
+                        Value::Str("C".to_owned()),
+                    )]),
                 }),
             })
             .unwrap();
@@ -1482,7 +1488,7 @@ mod tests {
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
             })
             .unwrap();
 
@@ -1501,8 +1507,8 @@ mod tests {
                     file_name: None,
                     file_line: None,
                     file_column: None,
-                    instrumentation_fields: BTreeMap::default(),
-                    fields: BTreeMap::new(),
+                    instrumentation_attributes: BTreeMap::default(),
+                    attributes: BTreeMap::new(),
                 }),
             })
             .unwrap();
@@ -1521,7 +1527,7 @@ mod tests {
                 file_name: None,
                 file_line: None,
                 file_column: None,
-                fields: BTreeMap::new(),
+                attributes: BTreeMap::new(),
             })
             .unwrap();
 
@@ -1530,7 +1536,10 @@ mod tests {
                 timestamp: super::now(),
                 span_id: FullSpanId::Tracing(1.try_into().unwrap(), 1),
                 kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                    fields: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("C".to_owned()))]),
+                    attributes: BTreeMap::from_iter([(
+                        "attr1".to_owned(),
+                        Value::Str("C".to_owned()),
+                    )]),
                 }),
             })
             .unwrap();

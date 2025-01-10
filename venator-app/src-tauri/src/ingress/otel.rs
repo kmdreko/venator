@@ -206,7 +206,7 @@ async fn process_logs_request(
     request: &ExportLogsServiceRequest,
 ) -> ExportLogsServiceResponse {
     for resource_log in &request.resource_logs {
-        let resoource_fields = if let Some(resource) = &resource_log.resource {
+        let resoource_attributes = if let Some(resource) = &resource_log.resource {
             conv_value_map(&resource.attributes)
         } else {
             // resource info is unknown
@@ -215,7 +215,7 @@ async fn process_logs_request(
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: resoource_fields,
+                attributes: resoource_attributes,
             })
             .await
             .unwrap();
@@ -238,13 +238,13 @@ async fn process_logs_request(
                 let trace_id = parse_trace_id(&log_record.trace_id);
                 let span_id = parse_span_id(&log_record.span_id);
 
-                let mut fields = conv_value_map(&log_record.attributes);
+                let mut attributes = conv_value_map(&log_record.attributes);
 
-                let namespace = extract_namespace(&mut fields);
-                let function = extract_function(&mut fields);
-                let file_name = extract_file_name(&mut fields);
-                let file_line = extract_file_line(&mut fields);
-                let file_column = extract_file_column(&mut fields);
+                let namespace = extract_namespace(&mut attributes);
+                let function = extract_function(&mut attributes);
+                let file_name = extract_file_name(&mut attributes);
+                let file_line = extract_file_line(&mut attributes);
+                let file_column = extract_file_column(&mut attributes);
 
                 let event = NewEvent {
                     kind: SourceKind::Opentelemetry,
@@ -264,7 +264,7 @@ async fn process_logs_request(
                     file_name,
                     file_line,
                     file_column,
-                    fields,
+                    attributes,
                 };
 
                 // we have no need for the result, and the insert is
@@ -294,7 +294,7 @@ async fn process_trace_request(
     request: &ExportTraceServiceRequest,
 ) -> ExportTraceServiceResponse {
     for resource_span in &request.resource_spans {
-        let resource_fields = if let Some(resource) = &resource_span.resource {
+        let resource_attributes = if let Some(resource) = &resource_span.resource {
             conv_value_map(&resource.attributes)
         } else {
             // resource info is unknown
@@ -303,7 +303,7 @@ async fn process_trace_request(
 
         let resource_key = engine
             .insert_resource(NewResource {
-                fields: resource_fields,
+                attributes: resource_attributes,
             })
             .await
             .unwrap();
@@ -311,18 +311,18 @@ async fn process_trace_request(
         for scope_span in &resource_span.scope_spans {
             // I'm not going to worry about instrumentation scope
 
-            let mut instrumentation_fields = scope_span
+            let mut instrumentation_attributes = scope_span
                 .scope
                 .as_ref()
                 .map(|scope| conv_value_map(&scope.attributes))
                 .unwrap_or_default();
 
-            let scope_level = extract_level(&mut instrumentation_fields);
-            let scope_namespace = extract_namespace(&mut instrumentation_fields);
-            let scope_function = extract_function(&mut instrumentation_fields);
-            let scope_file_name = extract_file_name(&mut instrumentation_fields);
-            let scope_file_line = extract_file_line(&mut instrumentation_fields);
-            let scope_file_column = extract_file_column(&mut instrumentation_fields);
+            let scope_level = extract_level(&mut instrumentation_attributes);
+            let scope_namespace = extract_namespace(&mut instrumentation_attributes);
+            let scope_function = extract_function(&mut instrumentation_attributes);
+            let scope_file_name = extract_file_name(&mut instrumentation_attributes);
+            let scope_file_line = extract_file_line(&mut instrumentation_attributes);
+            let scope_file_column = extract_file_column(&mut instrumentation_attributes);
 
             for span in &scope_span.spans {
                 let created_timestamp = span.start_time_unix_nano / 1000;
@@ -331,18 +331,20 @@ async fn process_trace_request(
                 let trace_id = parse_trace_id(&span.trace_id).unwrap();
                 let span_id = parse_span_id(&span.span_id).unwrap();
                 let parent_span_id = parse_span_id(&span.parent_span_id);
-                let mut fields = conv_value_map(&span.attributes);
+                let mut attributes = conv_value_map(&span.attributes);
 
                 // spans don't have levels so just set to @level if it has
                 // it or just fallback to INFO (todo: there is a "status"
                 // which could be "error")
-                let busy = extract_busy(&mut fields);
-                let level = extract_level(&mut fields).or(scope_level);
-                let namespace = extract_namespace(&mut fields).or_else(|| scope_namespace.clone());
-                let function = extract_function(&mut fields).or_else(|| scope_function.clone());
-                let file_name = extract_file_name(&mut fields).or_else(|| scope_file_name.clone());
-                let file_line = extract_file_line(&mut fields).or(scope_file_line);
-                let file_column = extract_file_column(&mut fields).or(scope_file_column);
+                let busy = extract_busy(&mut attributes);
+                let level = extract_level(&mut attributes).or(scope_level);
+                let namespace =
+                    extract_namespace(&mut attributes).or_else(|| scope_namespace.clone());
+                let function = extract_function(&mut attributes).or_else(|| scope_function.clone());
+                let file_name =
+                    extract_file_name(&mut attributes).or_else(|| scope_file_name.clone());
+                let file_line = extract_file_line(&mut attributes).or(scope_file_line);
+                let file_column = extract_file_column(&mut attributes).or(scope_file_column);
 
                 let create_span_event = NewSpanEvent {
                     timestamp: Timestamp::new(created_timestamp).unwrap(),
@@ -359,8 +361,8 @@ async fn process_trace_request(
                         file_name,
                         file_line,
                         file_column,
-                        instrumentation_fields: instrumentation_fields.clone(),
-                        fields,
+                        instrumentation_attributes: instrumentation_attributes.clone(),
+                        attributes,
                     }),
                 };
 
@@ -383,19 +385,20 @@ async fn process_trace_request(
                 for event in &span.events {
                     let timestamp = event.time_unix_nano / 1000;
 
-                    let mut fields = conv_value_map(&event.attributes);
+                    let mut attributes = conv_value_map(&event.attributes);
 
                     // spans events don't have levels so just set to @level
                     // if it has it or just fallback to INFO (todo: there is
                     // a "status" which could be "error")
-                    let level = extract_level(&mut fields).or(scope_level);
+                    let level = extract_level(&mut attributes).or(scope_level);
                     let namespace =
-                        extract_namespace(&mut fields).or_else(|| scope_namespace.clone());
-                    let function = extract_function(&mut fields).or_else(|| scope_function.clone());
+                        extract_namespace(&mut attributes).or_else(|| scope_namespace.clone());
+                    let function =
+                        extract_function(&mut attributes).or_else(|| scope_function.clone());
                     let file_name =
-                        extract_file_name(&mut fields).or_else(|| scope_file_name.clone());
-                    let file_line = extract_file_line(&mut fields).or(scope_file_line);
-                    let file_column = extract_file_column(&mut fields).or(scope_file_column);
+                        extract_file_name(&mut attributes).or_else(|| scope_file_name.clone());
+                    let file_line = extract_file_line(&mut attributes).or(scope_file_line);
+                    let file_column = extract_file_column(&mut attributes).or(scope_file_column);
 
                     let event = NewEvent {
                         kind: SourceKind::Opentelemetry,
@@ -409,7 +412,7 @@ async fn process_trace_request(
                         file_name,
                         file_line,
                         file_column,
-                        fields,
+                        attributes,
                     };
 
                     // we have no need for the result, and the insert is
@@ -470,87 +473,87 @@ fn parse_span_id(bytes: &[u8]) -> Option<SpanId> {
         .ok()
 }
 
-fn extract_namespace(fields: &mut BTreeMap<String, Value>) -> Option<String> {
-    let val = fields.remove_entry("code.namespace");
+fn extract_namespace(attributes: &mut BTreeMap<String, Value>) -> Option<String> {
+    let val = attributes.remove_entry("code.namespace");
 
     match val {
         Some((_, Value::Str(path))) => Some(path),
         Some((key, val)) => {
-            fields.insert(key, val);
+            attributes.insert(key, val);
             None
         }
         None => None,
     }
 }
 
-fn extract_function(fields: &mut BTreeMap<String, Value>) -> Option<String> {
-    let val = fields.remove_entry("code.function");
+fn extract_function(attributes: &mut BTreeMap<String, Value>) -> Option<String> {
+    let val = attributes.remove_entry("code.function");
 
     match val {
         Some((_, Value::Str(path))) => Some(path),
         Some((key, val)) => {
-            fields.insert(key, val);
+            attributes.insert(key, val);
             None
         }
         None => None,
     }
 }
 
-fn extract_file_name(fields: &mut BTreeMap<String, Value>) -> Option<String> {
-    let val = fields.remove_entry("code.filepath");
+fn extract_file_name(attributes: &mut BTreeMap<String, Value>) -> Option<String> {
+    let val = attributes.remove_entry("code.filepath");
 
     match val {
         Some((_, Value::Str(path))) => Some(path),
         Some((key, val)) => {
-            fields.insert(key, val);
+            attributes.insert(key, val);
             None
         }
         None => None,
     }
 }
 
-fn extract_file_line(fields: &mut BTreeMap<String, Value>) -> Option<u32> {
-    let val = fields.remove_entry("code.lineno");
+fn extract_file_line(attributes: &mut BTreeMap<String, Value>) -> Option<u32> {
+    let val = attributes.remove_entry("code.lineno");
 
     match val {
         Some((_, Value::I64(line))) => Some(line as u32),
         Some((key, val)) => {
-            fields.insert(key, val);
+            attributes.insert(key, val);
             None
         }
         None => None,
     }
 }
 
-fn extract_file_column(fields: &mut BTreeMap<String, Value>) -> Option<u32> {
-    let val = fields.remove_entry("code.column");
+fn extract_file_column(attributes: &mut BTreeMap<String, Value>) -> Option<u32> {
+    let val = attributes.remove_entry("code.column");
 
     match val {
         Some((_, Value::I64(column))) => Some(column as u32),
         Some((key, val)) => {
-            fields.insert(key, val);
+            attributes.insert(key, val);
             None
         }
         None => None,
     }
 }
 
-fn extract_busy(fields: &mut BTreeMap<String, Value>) -> Option<u64> {
-    let val = fields.remove_entry("busy_ns");
-    let _ = fields.remove_entry("idle_ns");
+fn extract_busy(attributes: &mut BTreeMap<String, Value>) -> Option<u64> {
+    let val = attributes.remove_entry("busy_ns");
+    let _ = attributes.remove_entry("idle_ns");
 
     match val {
         Some((_, Value::I64(busy))) => Some(busy as u64 / 1000),
         Some((key, val)) => {
-            fields.insert(key, val);
+            attributes.insert(key, val);
             None
         }
         None => None,
     }
 }
 
-fn extract_level(fields: &mut BTreeMap<String, Value>) -> Option<i32> {
-    let val = fields.remove_entry("level");
+fn extract_level(attributes: &mut BTreeMap<String, Value>) -> Option<i32> {
+    let val = attributes.remove_entry("level");
 
     match val {
         Some((key, Value::Str(level))) => match level.trim().to_lowercase().as_str() {
@@ -561,12 +564,12 @@ fn extract_level(fields: &mut BTreeMap<String, Value>) -> Option<i32> {
             "error" => Some(17),
             "fatal" => Some(21),
             _ => {
-                fields.insert(key, Value::Str(level));
+                attributes.insert(key, Value::Str(level));
                 None
             }
         },
         Some((key, val)) => {
-            fields.insert(key, val);
+            attributes.insert(key, val);
             None
         }
         None => None,

@@ -92,10 +92,10 @@ impl Storage for TransientStorage {
         }
     }
 
-    fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
+    fn update_span_attributes(&mut self, at: Timestamp, attributes: BTreeMap<String, Value>) {
         if let Some(span) = self.spans.get(&at) {
             let mut span = (**span).clone();
-            span.fields.extend(fields);
+            span.attributes.extend(attributes);
             self.spans.insert(at, Arc::new(span));
         }
     }
@@ -104,11 +104,11 @@ impl Storage for TransientStorage {
         &mut self,
         at: Timestamp,
         link: FullSpanId,
-        fields: BTreeMap<String, Value>,
+        attributes: BTreeMap<String, Value>,
     ) {
         if let Some(span) = self.spans.get(&at) {
             let mut span = (**span).clone();
-            span.links.push((link, fields));
+            span.links.push((link, attributes));
             self.spans.insert(at, Arc::new(span));
         }
     }

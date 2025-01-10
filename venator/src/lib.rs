@@ -13,11 +13,11 @@ use tracing::{debug, error, Event, Subscriber, Value};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
-mod fields;
+mod attributes;
 mod ids;
 mod messaging;
 
-use fields::OwnedValue;
+use attributes::OwnedValue;
 use ids::VenatorId;
 use messaging::{Handshake, Message};
 
@@ -26,7 +26,7 @@ use messaging::{Handshake, Message};
 pub struct VenatorBuilder {
     id: u128,
     host: Option<String>,
-    fields: BTreeMap<String, OwnedValue>,
+    attributes: BTreeMap<String, OwnedValue>,
 }
 
 impl VenatorBuilder {
@@ -76,7 +76,7 @@ impl VenatorBuilder {
         value: V,
     ) -> VenatorBuilder {
         if let Some(value) = OwnedValue::from_tracing(value) {
-            self.fields.insert(attribute.into(), value);
+            self.attributes.insert(attribute.into(), value);
         }
         self
     }
@@ -104,7 +104,7 @@ impl VenatorBuilder {
     ///     .init();
     /// ```
     pub fn build(self) -> Venator {
-        let connection = Connection::new(self.id, self.host, self.fields);
+        let connection = Connection::new(self.id, self.host, self.attributes);
 
         Venator {
             connection: Mutex::new(connection),
@@ -132,7 +132,7 @@ impl Venator {
         VenatorBuilder {
             id: a as u128 + ((b as u128) << 64),
             host: None,
-            fields: BTreeMap::new(),
+            attributes: BTreeMap::new(),
         }
     }
 
@@ -279,17 +279,17 @@ where
 struct Connection {
     id: u128,
     host: Option<String>,
-    fields: BTreeMap<String, OwnedValue>,
+    attributes: BTreeMap<String, OwnedValue>,
     stream: Option<TcpStream>,
     last_connect_attempt: Instant,
 }
 
 impl Connection {
-    fn new(id: u128, host: Option<String>, fields: BTreeMap<String, OwnedValue>) -> Connection {
+    fn new(id: u128, host: Option<String>, attributes: BTreeMap<String, OwnedValue>) -> Connection {
         Connection {
             id,
             host,
-            fields,
+            attributes,
             stream: None,
             last_connect_attempt: Instant::now() - Duration::from_secs(10),
         }
@@ -333,7 +333,7 @@ impl Connection {
             .unwrap();
 
         let handshake = Handshake {
-            fields: self.fields.clone(),
+            attributes: self.attributes.clone(),
         };
 
         let mut message_buffer = vec![];

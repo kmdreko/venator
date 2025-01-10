@@ -98,7 +98,7 @@ where
     }
 }
 
-pub(crate) fn record_as_fields<S>(r: &Record<'_>, serializer: S) -> Result<S::Ok, S::Error>
+pub(crate) fn from_record<S>(r: &Record<'_>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -112,7 +112,7 @@ where
     visitor.finish()
 }
 
-pub(crate) fn attributes_as_fields<S>(a: &Attributes<'_>, serializer: S) -> Result<S::Ok, S::Error>
+pub(crate) fn from_attributes<S>(a: &Attributes<'_>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -126,7 +126,7 @@ where
     visitor.finish()
 }
 
-pub(crate) fn event_as_fields<S>(e: &Event<'_>, serializer: S) -> Result<S::Ok, S::Error>
+pub(crate) fn from_event<S>(e: &Event<'_>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {

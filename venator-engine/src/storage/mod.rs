@@ -50,12 +50,12 @@ pub trait Storage {
     fn insert_event(&mut self, event: Event);
 
     fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>);
-    fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>);
+    fn update_span_attributes(&mut self, at: Timestamp, attributes: BTreeMap<String, Value>);
     fn update_span_link(
         &mut self,
         at: Timestamp,
         link: FullSpanId,
-        fields: BTreeMap<String, Value>,
+        attributes: BTreeMap<String, Value>,
     );
     fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]);
     fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]);

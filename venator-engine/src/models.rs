@@ -295,13 +295,13 @@ impl SimpleLevel {
 
 #[derive(Debug)]
 pub struct NewResource {
-    pub fields: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, PartialEq)]
 pub struct Resource {
     pub created_at: Timestamp,
-    pub fields: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 impl Resource {
@@ -356,8 +356,8 @@ pub struct NewCreateSpanEvent {
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
     pub file_column: Option<u32>,
-    pub instrumentation_fields: BTreeMap<String, Value>,
-    pub fields: BTreeMap<String, Value>,
+    pub instrumentation_attributes: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -372,18 +372,18 @@ pub struct CreateSpanEvent {
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
     pub file_column: Option<u32>,
-    pub instrumentation_fields: BTreeMap<String, Value>,
-    pub fields: BTreeMap<String, Value>,
+    pub instrumentation_attributes: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Debug)]
 pub struct NewUpdateSpanEvent {
-    pub fields: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct UpdateSpanEvent {
-    pub fields: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Debug)]
@@ -428,7 +428,7 @@ pub struct NewEvent {
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
     pub file_column: Option<u32>,
-    pub fields: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Clone)]
@@ -445,7 +445,7 @@ pub struct Event {
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
     pub file_column: Option<u32>,
-    pub fields: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 impl Event {
@@ -485,8 +485,8 @@ pub struct Span {
     pub file_name: Option<String>,
     pub file_line: Option<u32>,
     pub file_column: Option<u32>,
-    pub instrumentation_fields: BTreeMap<String, Value>,
-    pub fields: BTreeMap<String, Value>,
+    pub instrumentation_attributes: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 impl Span {

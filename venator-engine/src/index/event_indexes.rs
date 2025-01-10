@@ -119,9 +119,9 @@ impl EventIndexes {
         &mut self,
         context: &EventContext<'_, S>,
         parent_key: Timestamp,
-        parent_fields: &BTreeMap<String, Value>,
+        parent_attributes: &BTreeMap<String, Value>,
     ) {
-        for (attribute, new_value) in parent_fields {
+        for (attribute, new_value) in parent_attributes {
             let attribute_index = self
                 .attributes
                 .entry(attribute.to_owned())

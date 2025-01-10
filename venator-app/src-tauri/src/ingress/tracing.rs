@@ -104,7 +104,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
     };
 
     let resource = NewResource {
-        fields: conv_value_map(handshake.fields),
+        attributes: conv_value_map(handshake.attributes),
     };
 
     let resource_key = match engine.insert_resource(resource).await {
@@ -163,8 +163,8 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                         file_name: create_data.file_name,
                         file_line: create_data.file_line,
                         file_column: None,
-                        instrumentation_fields: BTreeMap::new(),
-                        fields: conv_value_map(create_data.fields),
+                        instrumentation_attributes: BTreeMap::new(),
+                        attributes: conv_value_map(create_data.attributes),
                     }),
                 });
             }
@@ -176,7 +176,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     timestamp: msg.timestamp,
                     span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
-                        fields: conv_value_map(update_data.fields),
+                        attributes: conv_value_map(update_data.attributes),
                     }),
                 });
             }
@@ -225,10 +225,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                 });
             }
             MessageData::Event(event) => {
-                let mut fields = conv_value_map(event.fields);
+                let mut attributes = conv_value_map(event.attributes);
 
-                let content =
-                    extract_content(&mut fields).unwrap_or(venator_engine::Value::Str(event.name));
+                let content = extract_content(&mut attributes)
+                    .unwrap_or(venator_engine::Value::Str(event.name));
 
                 // we have no need for the result, and the insert is
                 // executed regardless if we poll
@@ -247,7 +247,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     file_name: event.file_name,
                     file_line: event.file_line,
                     file_column: None,
-                    fields,
+                    attributes,
                 });
             }
         };
@@ -256,7 +256,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
 
 #[derive(Deserialize)]
 pub struct Handshake {
-    pub fields: BTreeMap<String, Value>,
+    pub attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,12 +324,12 @@ struct CreateData {
     level: i32,
     file_name: Option<String>,
     file_line: Option<u32>,
-    fields: BTreeMap<String, Value>,
+    attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UpdateData {
-    fields: BTreeMap<String, Value>,
+    attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,7 +349,7 @@ struct EventData {
     level: i32,
     file_name: Option<String>,
     file_line: Option<u32>,
-    fields: BTreeMap<String, Value>,
+    attributes: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -382,7 +382,7 @@ fn conv_value(v: Value) -> venator_engine::Value {
 }
 
 fn extract_content(
-    fields: &mut BTreeMap<String, venator_engine::Value>,
+    attributes: &mut BTreeMap<String, venator_engine::Value>,
 ) -> Option<venator_engine::Value> {
-    fields.remove("message")
+    attributes.remove("message")
 }

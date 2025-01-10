@@ -115,19 +115,19 @@ where
         self.inner.update_span_closed(at, closed, busy);
     }
 
-    fn update_span_fields(&mut self, at: Timestamp, fields: BTreeMap<String, Value>) {
+    fn update_span_attributes(&mut self, at: Timestamp, attributes: BTreeMap<String, Value>) {
         self.spans.borrow_mut().pop(&at);
-        self.inner.update_span_fields(at, fields);
+        self.inner.update_span_attributes(at, attributes);
     }
 
     fn update_span_link(
         &mut self,
         at: Timestamp,
         link: FullSpanId,
-        fields: BTreeMap<String, Value>,
+        attributes: BTreeMap<String, Value>,
     ) {
         self.spans.borrow_mut().pop(&at);
-        self.inner.update_span_link(at, link, fields);
+        self.inner.update_span_link(at, link, attributes);
     }
 
     fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {
