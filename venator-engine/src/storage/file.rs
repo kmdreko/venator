@@ -90,6 +90,7 @@ impl FileStorage {
             CREATE TABLE resources (
                 key        INT8 NOT NULL,
                 attributes TEXT NOT NULL,
+                warnings   TEXT NOT NULL,
 
                 CONSTRAINT resources_pk PRIMARY KEY (key)
             );"#,
@@ -117,6 +118,7 @@ impl FileStorage {
                 file_column      INT,
                 instr_attributes TEXT NOT NULL,
                 attributes       TEXT NOT NULL,
+                warnings         TEXT NOT NULL,
 
                 CONSTRAINT spans_pk PRIMARY KEY (key)
             );"#,
@@ -130,6 +132,7 @@ impl FileStorage {
                 span_key INT8 NOT NULL,
                 kind     TEXT NOT NULL,
                 data     TEXT,
+                warnings TEXT NOT NULL,
 
                 CONSTRAINT span_events_pk PRIMARY KEY (key)
             );"#,
@@ -152,6 +155,7 @@ impl FileStorage {
                 file_line    INT,
                 file_column  INT,
                 attributes   TEXT NOT NULL,
+                warnings     TEXT NOT NULL,
 
                 CONSTRAINT events_pk PRIMARY KEY (key)
             );"#,
@@ -292,7 +296,7 @@ impl Storage for FileStorage {
     fn insert_resource(&mut self, resource: Resource) {
         let mut stmt = self
             .connection
-            .prepare_cached("INSERT INTO resources VALUES (?1, ?2)")
+            .prepare_cached("INSERT INTO resources VALUES (?1, ?2, ?3)")
             .unwrap();
 
         stmt.execute(resource_to_params(resource)).unwrap();
@@ -305,7 +309,7 @@ impl Storage for FileStorage {
         let mut stmt = self
             .connection
             .prepare_cached(
-                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             )
             .unwrap();
 
@@ -330,6 +334,7 @@ impl Storage for FileStorage {
         let instrumentation_attributes =
             serde_json::to_string(&span.instrumentation_attributes).unwrap();
         let attributes = serde_json::to_string(&span.attributes).unwrap();
+        let warnings = "[]";
 
         stmt.execute(params![
             key,
@@ -349,7 +354,8 @@ impl Storage for FileStorage {
             file_line,
             file_column,
             instrumentation_attributes,
-            attributes
+            attributes,
+            warnings,
         ])
         .unwrap();
     }
@@ -360,7 +366,7 @@ impl Storage for FileStorage {
 
         let mut stmt = self
             .connection
-            .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4)")
+            .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4, ?5)")
             .unwrap();
 
         stmt.execute(span_event_to_params(span_event)).unwrap();
@@ -373,7 +379,7 @@ impl Storage for FileStorage {
         let mut stmt = self
             .connection
             .prepare_cached(
-                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             )
             .unwrap();
 
@@ -641,14 +647,16 @@ impl IndexStorage for FileStorage {
 fn resource_to_params(resource: Resource) -> impl Params {
     let key = resource.key();
     let attributes = serde_json::to_string(&resource.attributes).unwrap();
+    let warnings = "[]";
 
-    (key, attributes)
+    (key, attributes, warnings)
 }
 
 fn resource_from_row(row: &Row<'_>) -> Result<Resource, DbError> {
     let key: i64 = row.get(0)?;
     let attributes: String = row.get(1)?;
     let attributes = serde_json::from_str(&attributes).unwrap();
+    // let warnings = row.get(2)?;
 
     Ok(Resource {
         created_at: ResourceKey::new(key as u64).unwrap(),
@@ -678,6 +686,7 @@ fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
     let instrumentation_attributes = serde_json::from_str(&instrumentation_attributes).unwrap();
     let attributes: String = row.get(17)?;
     let attributes = serde_json::from_str(&attributes).unwrap();
+    // let warnings = row.get(18)?;
 
     Ok(Span {
         kind: SourceKind::try_from(kind).unwrap(),
@@ -708,47 +717,53 @@ fn span_event_to_params(span_event: SpanEvent) -> impl Params {
             let span_key = span_event.span_key;
             let kind = "create";
             let data = serde_json::to_string(&create_span_event).unwrap();
+            let warnings = "[]";
 
-            (key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data), warnings)
         }
         SpanEventKind::Update(update_span_event) => {
             let key = span_event.timestamp;
             let span_key = span_event.span_key;
             let kind = "update";
             let data = serde_json::to_string(&update_span_event).unwrap();
+            let warnings = "[]";
 
-            (key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data), warnings)
         }
         SpanEventKind::Follows(follows_span_event) => {
             let key = span_event.timestamp;
             let span_key = span_event.span_key;
             let kind = "follows";
             let data = serde_json::to_string(&follows_span_event).unwrap();
+            let warnings = "[]";
 
-            (key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data), warnings)
         }
         SpanEventKind::Enter(enter_span_event) => {
             let key = span_event.timestamp;
             let span_key = span_event.span_key;
             let kind = "enter";
             let data = serde_json::to_string(&enter_span_event).unwrap();
+            let warnings = "[]";
 
-            (key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data), warnings)
         }
         SpanEventKind::Exit => {
             let key = span_event.timestamp;
             let span_key = span_event.span_key;
             let kind = "exit";
+            let warnings = "[]";
 
-            (key, span_key, kind, None)
+            (key, span_key, kind, None, warnings)
         }
         SpanEventKind::Close(close_span_event) => {
             let key = span_event.timestamp;
             let span_key = span_event.span_key;
             let kind = "close";
             let data = serde_json::to_string(&close_span_event).unwrap();
+            let warnings = "[]";
 
-            (key, span_key, kind, Some(data))
+            (key, span_key, kind, Some(data), warnings)
         }
     }
 }
@@ -758,6 +773,8 @@ fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
     let span_key = row.get(1)?;
     let kind: String = row.get(2)?;
     let data: Option<String> = row.get(3)?;
+    // let warnings = row.get(4)?;
+
     match kind.as_str() {
         "create" => {
             let create_span_event = serde_json::from_str(&data.unwrap()).unwrap();
@@ -823,8 +840,9 @@ fn event_to_params(event: Event) -> impl Params {
     let file_line = event.file_line;
     let file_column = event.file_column;
     let attributes = serde_json::to_string(&event.attributes).unwrap();
+    let warnings = "[]";
 
-    (key, kind, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, attributes)
+    (key, kind, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, attributes, warnings)
 }
 
 fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
@@ -843,6 +861,7 @@ fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
     let file_column = row.get(11)?;
     let attributes: String = row.get(12)?;
     let attributes = serde_json::from_str(&attributes).unwrap();
+    // let warnings = row.get(13)?;
 
     Ok(Event {
         kind: SourceKind::try_from(kind).unwrap(),
