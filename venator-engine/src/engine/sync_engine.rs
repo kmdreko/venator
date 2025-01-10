@@ -1,12 +1,11 @@
-use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tracing::instrument;
 
 use crate::context::{EventContext, SpanContext};
 use crate::filter::{
-    BasicEventFilter, BasicSpanFilter, FilterPredicate, IndexedEventFilter,
+    BasicEventFilter, BasicSpanFilter, BoundSearch, FilterPredicate, IndexedEventFilter,
     IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator, Query,
 };
 use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
@@ -25,12 +24,11 @@ use super::EngineInsertError;
 /// Provides the core engine functionality.
 pub struct SyncEngine<S> {
     pub(crate) storage: S,
-    keys: KeyCache,
-    resources: HashMap<ResourceKey, Resource>,
-
     pub(crate) span_indexes: SpanIndexes,
     pub(crate) span_event_indexes: SpanEventIndexes,
     pub(crate) event_indexes: EventIndexes,
+
+    resources: HashMap<ResourceKey, Resource>,
 
     next_subscriber_id: usize,
     span_subscribers: HashMap<usize, SpanSubscription>,
@@ -41,11 +39,11 @@ impl<S: Storage> SyncEngine<S> {
     pub fn new(storage: S) -> SyncEngine<S> {
         let mut engine = SyncEngine {
             storage,
-            keys: KeyCache::new(),
-            resources: HashMap::new(),
             span_indexes: SpanIndexes::new(),
             span_event_indexes: SpanEventIndexes::new(),
             event_indexes: EventIndexes::new(),
+
+            resources: HashMap::new(),
 
             next_subscriber_id: 0,
             span_subscribers: HashMap::new(),
@@ -197,8 +195,9 @@ impl<S: Storage> SyncEngine<S> {
             return Ok(*key);
         }
 
+        let keys = self.resources.keys().copied().collect::<Vec<_>>();
         let now = now();
-        let resource_key = self.keys.register(now, now);
+        let resource_key = get_unique_timestamp(now, &keys);
         let resource = Resource {
             created_at: resource_key,
             attributes: resource.attributes,
@@ -221,8 +220,7 @@ impl<S: Storage> SyncEngine<S> {
     ) -> Result<(), EngineInsertError> {
         tracing::debug!(instance_id, "disconnecting tracing instance");
 
-        let now = now();
-        let at = self.keys.register(now, now);
+        let at = now();
 
         let filter = IndexedSpanFilter::And(vec![
             IndexedSpanFilter::Single(&self.span_indexes.durations.open, None),
@@ -253,7 +251,8 @@ impl<S: Storage> SyncEngine<S> {
     ) -> Result<SpanEventKey, EngineInsertError> {
         tracing::debug!(span_event = ?new_span_event, "inserting span event");
 
-        let span_event_key = self.keys.register(now(), new_span_event.timestamp);
+        let span_event_key =
+            get_unique_timestamp(new_span_event.timestamp, &self.span_event_indexes.all);
         new_span_event.timestamp = span_event_key;
 
         match new_span_event.kind {
@@ -266,11 +265,14 @@ impl<S: Storage> SyncEngine<S> {
                 let parent_id = new_create_event.parent_id;
                 let parent_key = parent_id.and_then(|id| self.span_indexes.ids.get(&id).copied());
 
+                let created_at =
+                    get_unique_timestamp(new_span_event.timestamp, &self.span_indexes.all);
+
                 let span = Span {
                     kind: new_create_event.kind,
                     resource_key: new_create_event.resource_key,
                     id: new_span_event.span_id,
-                    created_at: new_span_event.timestamp,
+                    created_at,
                     closed_at: None,
                     busy: None,
                     parent_id,
@@ -702,7 +704,7 @@ impl<S: Storage> SyncEngine<S> {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn insert_event(&mut self, mut new_event: NewEvent) -> Result<(), EngineInsertError> {
-        let event_key = self.keys.register(now(), new_event.timestamp);
+        let event_key = get_unique_timestamp(new_event.timestamp, &self.event_indexes.all);
         new_event.timestamp = event_key;
 
         // parent may not yet exist, that is ok
@@ -1001,48 +1003,15 @@ impl<S: Storage> SyncEngine<S> {
     }
 }
 
-struct KeyCache {
-    keys: Cell<VecDeque<Timestamp>>,
-}
+fn get_unique_timestamp(mut timestamp: Timestamp, existing: &[Timestamp]) -> Timestamp {
+    let mut idx = existing.lower_bound(&timestamp);
 
-impl KeyCache {
-    fn new() -> KeyCache {
-        KeyCache {
-            keys: Cell::new(VecDeque::new()),
-        }
+    while idx < existing.len() && timestamp == existing[idx] {
+        idx += 1;
+        timestamp = timestamp.saturating_add(1);
     }
 
-    fn register(&self, now: Timestamp, desired: Timestamp) -> Timestamp {
-        let mut keys = self.keys.take();
-
-        // only keep 10s of cached keys and limit to 1s in the future
-        let min = saturating_sub(now, 10000000);
-        let max = now.saturating_add(1000000);
-
-        let mut desired = desired.max(min).min(max);
-
-        let idx = keys.partition_point(|key| *key < min);
-        keys.drain(..idx);
-
-        let mut idx = keys.partition_point(|key| *key < desired);
-        while idx < keys.len() {
-            if keys[idx] != desired {
-                break;
-            } else {
-                idx += 1;
-                desired = desired.saturating_add(1);
-            }
-        }
-
-        keys.insert(idx, desired);
-
-        self.keys.set(keys);
-        desired
-    }
-}
-
-fn saturating_sub(a: Timestamp, b: u64) -> Timestamp {
-    Timestamp::new(a.get().saturating_sub(b)).unwrap_or(Timestamp::MIN)
+    timestamp
 }
 
 fn now() -> Timestamp {
@@ -1565,25 +1534,5 @@ mod tests {
         });
 
         assert_eq!(events.len(), 1);
-    }
-
-    #[test]
-    fn key_cache() {
-        let cache = KeyCache::new();
-
-        assert_eq!(
-            cache.register(1000.try_into().unwrap(), 1.try_into().unwrap()),
-            Timestamp::new(1).unwrap()
-        );
-
-        assert_eq!(
-            cache.register(1000.try_into().unwrap(), 1.try_into().unwrap()),
-            Timestamp::new(2).unwrap()
-        );
-
-        assert_eq!(
-            cache.register(20000000.try_into().unwrap(), 1.try_into().unwrap()),
-            Timestamp::new(10000000).unwrap()
-        );
     }
 }
