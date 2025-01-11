@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
+use anyhow::Error as AnyError;
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -36,7 +37,7 @@ async fn get_events(
     previous: Option<Timestamp>,
     start: Option<Timestamp>,
     end: Option<Timestamp>,
-) -> Result<Vec<EventView>, ()> {
+) -> Result<Vec<EventView>, String> {
     let events = engine
         .query_event(Query {
             filter,
@@ -46,7 +47,8 @@ async fn get_events(
             end: end.unwrap_or(Timestamp::MAX),
             previous,
         })
-        .await;
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(events)
 }
@@ -57,7 +59,7 @@ async fn get_event_count(
     filter: Vec<FilterPredicate>,
     start: Timestamp,
     end: Timestamp,
-) -> Result<usize, ()> {
+) -> Result<usize, String> {
     let events = engine
         .query_event_count(Query {
             filter,
@@ -67,7 +69,8 @@ async fn get_event_count(
             end,
             previous: None,
         })
-        .await;
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(events)
 }
@@ -102,7 +105,7 @@ async fn get_spans(
     previous: Option<Timestamp>,
     start: Option<Timestamp>,
     end: Option<Timestamp>,
-) -> Result<Vec<SpanView>, ()> {
+) -> Result<Vec<SpanView>, String> {
     let spans = engine
         .query_span(Query {
             filter,
@@ -112,7 +115,8 @@ async fn get_spans(
             end: end.unwrap_or(Timestamp::MAX),
             previous,
         })
-        .await;
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(spans)
 }
@@ -123,7 +127,7 @@ async fn get_span_count(
     filter: Vec<FilterPredicate>,
     start: Timestamp,
     end: Timestamp,
-) -> Result<usize, ()> {
+) -> Result<usize, String> {
     let spans = engine
         .query_span_count(Query {
             filter,
@@ -133,7 +137,8 @@ async fn get_span_count(
             end,
             previous: None,
         })
-        .await;
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(spans)
 }
@@ -167,7 +172,7 @@ async fn delete_entities(
     end: Option<Timestamp>,
     inside: bool,
     dry_run: bool,
-) -> Result<DeleteMetricsView, ()> {
+) -> Result<DeleteMetricsView, String> {
     let metrics = engine
         .delete(DeleteFilter {
             start: start.unwrap_or(Timestamp::MIN),
@@ -175,14 +180,15 @@ async fn delete_entities(
             inside,
             dry_run,
         })
-        .await;
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(metrics.into())
 }
 
 #[tauri::command]
-async fn get_stats(engine: State<'_, AsyncEngine>) -> Result<StatsView, ()> {
-    Ok(engine.query_stats().await)
+async fn get_stats(engine: State<'_, AsyncEngine>) -> Result<StatsView, String> {
+    engine.query_stats().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -191,7 +197,10 @@ async fn subscribe_to_spans(
     filter: Vec<FilterPredicate>,
     channel: Channel<SubscriptionResponseView<SpanView>>,
 ) -> Result<SubscriptionId, String> {
-    let (id, mut receiver) = engine.subscribe_to_spans(filter).await;
+    let (id, mut receiver) = engine
+        .subscribe_to_spans(filter)
+        .await
+        .map_err(|e| e.to_string())?;
 
     tokio::spawn(async move {
         while let Some(response) = receiver.recv().await {
@@ -213,7 +222,10 @@ async fn unsubscribe_from_spans(
     engine: State<'_, AsyncEngine>,
     id: SubscriptionId,
 ) -> Result<(), String> {
-    engine.unsubscribe_from_spans(id).await;
+    engine
+        .unsubscribe_from_spans(id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -224,7 +236,10 @@ async fn subscribe_to_events(
     filter: Vec<FilterPredicate>,
     channel: Channel<SubscriptionResponseView<EventView>>,
 ) -> Result<SubscriptionId, String> {
-    let (id, mut receiver) = engine.subscribe_to_events(filter).await;
+    let (id, mut receiver) = engine
+        .subscribe_to_events(filter)
+        .await
+        .map_err(|e| e.to_string())?;
 
     tokio::spawn(async move {
         while let Some(response) = receiver.recv().await {
@@ -246,7 +261,10 @@ async fn unsubscribe_from_events(
     engine: State<'_, AsyncEngine>,
     id: SubscriptionId,
 ) -> Result<(), String> {
-    engine.unsubscribe_from_events(id).await;
+    engine
+        .unsubscribe_from_events(id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -300,7 +318,7 @@ async fn get_status(
         DatasetConfig::Memory => ":memory:".to_owned(),
     };
 
-    let engine_status = engine.get_status().await;
+    let engine_status = engine.get_status().await.map_err(|e| e.to_string())?;
 
     Ok(StatusView {
         ingress_message,
@@ -420,7 +438,7 @@ impl Args {
     }
 }
 
-fn main() {
+fn main() -> Result<(), AnyError> {
     #[cfg(debug_assertions)]
     tracing_subscriber::fmt()
         .compact()
@@ -435,12 +453,12 @@ fn main() {
     dataset.prepare();
     let engine = match &dataset {
         DatasetConfig::Default(path) => {
-            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))
+            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))?
         }
         DatasetConfig::File(path) => {
-            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))
+            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))?
         }
-        DatasetConfig::Memory => AsyncEngine::new(TransientStorage::new()),
+        DatasetConfig::Memory => AsyncEngine::new(TransientStorage::new())?,
     };
 
     let ingress = bind.map(|bind| launch_ingress_thread(engine.clone(), bind.to_string()));
@@ -764,11 +782,15 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    Ok(())
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn shutdown(engine: &AsyncEngine) {
-    engine.save().await;
+    if let Err(err) = engine.save().await {
+        tracing::error!(?err, "failed to save");
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

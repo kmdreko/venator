@@ -5301,6 +5301,7 @@ dependencies = [
 name = "venator-app"
 version = "0.2.2"
 dependencies = [
+ "anyhow",
  "axum",
  "bincode",
  "clap",

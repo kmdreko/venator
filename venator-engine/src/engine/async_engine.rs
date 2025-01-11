@@ -1,17 +1,17 @@
 use std::future::Future;
 use std::time::Instant;
 
-use anyhow::Error as AnyError;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use anyhow::{Context, Error as AnyError};
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
 use tracing::instrument;
 
 use crate::filter::{FilterPredicate, Query};
 use crate::storage::Storage;
+use crate::subscription::Subscriber;
 use crate::{
     DeleteFilter, DeleteMetrics, EngineStatusView, EventView, InstanceId, NewEvent, NewResource,
     NewSpanEvent, ResourceKey, SpanEvent, SpanKey, SpanView, StatsView, SubscriptionId,
-    SubscriptionResponse,
 };
 
 use super::SyncEngine;
@@ -28,15 +28,15 @@ pub struct AsyncEngine {
 }
 
 impl AsyncEngine {
-    pub fn new<S: Storage + Send + 'static>(storage: S) -> AsyncEngine {
+    pub fn new<S: Storage + Send + 'static>(storage: S) -> Result<AsyncEngine, AnyError> {
         let (insert_sender, mut insert_receiver) =
             mpsc::unbounded_channel::<(tracing::Span, EngineCommand)>();
         let (query_sender, mut query_receiver) =
             mpsc::unbounded_channel::<(tracing::Span, EngineCommand)>();
 
-        std::thread::spawn(move || {
-            let mut engine = SyncEngine::new(storage).unwrap();
+        let mut engine = SyncEngine::new(storage)?;
 
+        std::thread::spawn(move || {
             let mut last_check = Instant::now();
             let mut computed_ms_since_last_check: u128 = 0;
 
@@ -86,37 +86,37 @@ impl AsyncEngine {
                     EngineCommand::InsertResource(resource, sender) => {
                         let res = engine.insert_resource(resource);
                         if let Err(err) = &res {
-                            eprintln!("rejecting resource insert due to: {err:?}");
+                            tracing::warn!("rejecting resource insert due to: {err:?}");
                         }
                         let _ = sender.send(res);
                     }
                     EngineCommand::DisconnectTracingInstance(instance_id, sender) => {
                         let res = engine.disconnect_tracing_instance(instance_id);
                         if let Err(err) = &res {
-                            eprintln!("rejecting disconnect due to: {err:?}");
+                            tracing::warn!("rejecting disconnect due to: {err:?}");
                         }
                         let _ = sender.send(res);
                     }
                     EngineCommand::InsertSpanEvent(span_event, sender) => {
                         let res = engine.insert_span_event(span_event);
                         if let Err(err) = &res {
-                            eprintln!("rejecting span event insert due to: {err:?}");
+                            tracing::warn!("rejecting span event insert due to: {err:?}");
                         }
                         let _ = sender.send(res);
                     }
                     EngineCommand::InsertEvent(event, sender) => {
                         let res = engine.insert_event(event);
                         if let Err(err) = &res {
-                            eprintln!("rejecting event insert due to: {err:?}");
+                            tracing::warn!("rejecting event insert due to: {err:?}");
                         }
                         let _ = sender.send(res);
                     }
                     EngineCommand::Delete(filter, sender) => {
-                        let metrics = engine.delete(filter).unwrap();
-                        let _ = sender.send(metrics);
+                        let res = engine.delete(filter);
+                        let _ = sender.send(res);
                     }
                     EngineCommand::SpanSubscribe(filter, sender) => {
-                        let res = engine.subscribe_to_spans(filter).unwrap();
+                        let res = engine.subscribe_to_spans(filter);
                         let _ = sender.send(res);
                     }
                     EngineCommand::SpanUnsubscribe(id, sender) => {
@@ -124,7 +124,7 @@ impl AsyncEngine {
                         let _ = sender.send(());
                     }
                     EngineCommand::EventSubscribe(filter, sender) => {
-                        let res = engine.subscribe_to_events(filter).unwrap();
+                        let res = engine.subscribe_to_events(filter);
                         let _ = sender.send(res);
                     }
                     EngineCommand::EventUnsubscribe(id, sender) => {
@@ -132,8 +132,8 @@ impl AsyncEngine {
                         let _ = sender.send(());
                     }
                     EngineCommand::CopyDataset(to, sender) => {
-                        engine.copy_dataset(to).unwrap();
-                        let _ = sender.send(());
+                        let res = engine.copy_dataset(to);
+                        let _ = sender.send(res);
                     }
                     EngineCommand::GetStatus(sender) => {
                         let elapsed_ms = last_check.elapsed().as_millis();
@@ -149,8 +149,8 @@ impl AsyncEngine {
                         });
                     }
                     EngineCommand::Save(sender) => {
-                        engine.save().unwrap();
-                        let _ = sender.send(());
+                        let res = engine.save();
+                        let _ = sender.send(res);
                     }
                 }
                 let cmd_elapsed = cmd_start.elapsed().as_millis();
@@ -158,76 +158,85 @@ impl AsyncEngine {
             }
         });
 
-        AsyncEngine {
+        Ok(AsyncEngine {
             insert_sender,
             query_sender,
-        }
+        })
     }
 
     // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_span(&self, query: Query) -> impl Future<Output = Vec<SpanView>> {
+    pub fn query_span(
+        &self,
+        query: Query,
+    ) -> impl Future<Output = Result<Vec<SpanView>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::QuerySpan(query, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_span_count(&self, query: Query) -> impl Future<Output = usize> {
+    pub fn query_span_count(&self, query: Query) -> impl Future<Output = Result<usize, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::QuerySpanCount(query, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
     #[doc(hidden)]
-    pub fn query_span_event(&self, query: Query) -> impl Future<Output = Vec<SpanEvent>> {
+    pub fn query_span_event(
+        &self,
+        query: Query,
+    ) -> impl Future<Output = Result<Vec<SpanEvent>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::QuerySpanEvent(query, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_event(&self, query: Query) -> impl Future<Output = Vec<EventView>> {
+    pub fn query_event(
+        &self,
+        query: Query,
+    ) -> impl Future<Output = Result<Vec<EventView>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::QueryEvent(query, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_event_count(&self, query: Query) -> impl Future<Output = usize> {
+    pub fn query_event_count(&self, query: Query) -> impl Future<Output = Result<usize, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::QueryEventCount(query, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_stats(&self) -> impl Future<Output = StatsView> {
+    pub fn query_stats(&self) -> impl Future<Output = Result<StatsView, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
             .send((tracing::Span::current(), EngineCommand::QueryStats(sender)));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     #[instrument(skip_all)]
@@ -240,7 +249,7 @@ impl AsyncEngine {
             tracing::Span::current(),
             EngineCommand::InsertResource(resource, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
@@ -253,7 +262,7 @@ impl AsyncEngine {
             tracing::Span::current(),
             EngineCommand::DisconnectTracingInstance(id, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
@@ -266,7 +275,7 @@ impl AsyncEngine {
             tracing::Span::current(),
             EngineCommand::InsertSpanEvent(span_event, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
@@ -276,101 +285,103 @@ impl AsyncEngine {
             tracing::Span::current(),
             EngineCommand::InsertEvent(event, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
-    pub fn delete(&self, filter: DeleteFilter) -> impl Future<Output = DeleteMetrics> {
+    pub fn delete(
+        &self,
+        filter: DeleteFilter,
+    ) -> impl Future<Output = Result<DeleteMetrics, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.insert_sender.send((
             tracing::Span::current(),
             EngineCommand::Delete(filter, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
     pub fn subscribe_to_spans(
         &self,
         filter: Vec<FilterPredicate>,
-    ) -> impl Future<
-        Output = (
-            SubscriptionId,
-            UnboundedReceiver<SubscriptionResponse<SpanView>>,
-        ),
-    > {
+    ) -> impl Future<Output = Result<Subscriber<SpanView>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::SpanSubscribe(filter, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
-    pub fn unsubscribe_from_spans(&self, id: SubscriptionId) -> impl Future<Output = ()> {
+    pub fn unsubscribe_from_spans(
+        &self,
+        id: SubscriptionId,
+    ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::SpanUnsubscribe(id, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     #[instrument(skip_all)]
     pub fn subscribe_to_events(
         &self,
         filter: Vec<FilterPredicate>,
-    ) -> impl Future<
-        Output = (
-            SubscriptionId,
-            UnboundedReceiver<SubscriptionResponse<EventView>>,
-        ),
-    > {
+    ) -> impl Future<Output = Result<Subscriber<EventView>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::EventSubscribe(filter, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
-    pub fn unsubscribe_from_events(&self, id: SubscriptionId) -> impl Future<Output = ()> {
+    pub fn unsubscribe_from_events(
+        &self,
+        id: SubscriptionId,
+    ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::EventUnsubscribe(id, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     #[instrument(skip_all)]
-    pub fn copy_dataset(&self, to: Box<dyn Storage + Send>) -> impl Future<Output = ()> {
+    pub fn copy_dataset(
+        &self,
+        to: Box<dyn Storage + Send>,
+    ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
             EngineCommand::CopyDataset(to, sender),
         ));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
-    pub fn get_status(&self) -> impl Future<Output = EngineStatusView> {
+    pub fn get_status(&self) -> impl Future<Output = Result<EngineStatusView, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
             .send((tracing::Span::current(), EngineCommand::GetStatus(sender)));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result") }
     }
 
     #[instrument(skip_all)]
-    pub fn save(&self) -> impl Future<Output = ()> {
+    pub fn save(&self) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .insert_sender
             .send((tracing::Span::current(), EngineCommand::Save(sender)));
-        async move { receiver.await.unwrap() }
+        async move { receiver.await.context("failed to get result")? }
     }
 }
 
@@ -385,27 +396,21 @@ enum EngineCommand {
     DisconnectTracingInstance(InstanceId, OneshotSender<Result<(), AnyError>>),
     InsertSpanEvent(NewSpanEvent, OneshotSender<Result<SpanKey, AnyError>>),
     InsertEvent(NewEvent, OneshotSender<Result<(), AnyError>>),
-    Delete(DeleteFilter, OneshotSender<DeleteMetrics>),
+    Delete(DeleteFilter, OneshotSender<Result<DeleteMetrics, AnyError>>),
 
     SpanSubscribe(
         Vec<FilterPredicate>,
-        OneshotSender<(
-            SubscriptionId,
-            UnboundedReceiver<SubscriptionResponse<SpanView>>,
-        )>,
+        OneshotSender<Result<Subscriber<SpanView>, AnyError>>,
     ),
     SpanUnsubscribe(SubscriptionId, OneshotSender<()>),
     EventSubscribe(
         Vec<FilterPredicate>,
-        OneshotSender<(
-            SubscriptionId,
-            UnboundedReceiver<SubscriptionResponse<EventView>>,
-        )>,
+        OneshotSender<Result<Subscriber<EventView>, AnyError>>,
     ),
     EventUnsubscribe(SubscriptionId, OneshotSender<()>),
 
-    CopyDataset(Box<dyn Storage + Send>, OneshotSender<()>),
+    CopyDataset(Box<dyn Storage + Send>, OneshotSender<Result<(), AnyError>>),
     GetStatus(OneshotSender<EngineStatusView>),
 
-    Save(OneshotSender<()>),
+    Save(OneshotSender<Result<(), AnyError>>),
 }
