@@ -66,7 +66,10 @@ impl IngressState {
 
     pub(crate) fn get_and_reset_metrics(&self) -> (usize, usize, f64) {
         let now = Instant::now();
-        let last = std::mem::replace(&mut *self.last_check.lock().unwrap(), now);
+        let last = std::mem::replace(
+            &mut *self.last_check.lock().unwrap_or_else(|p| p.into_inner()),
+            now,
+        );
         let elapsed = (now - last).as_secs_f64();
 
         let num_connections = self.num_connections.load(Ordering::Relaxed);

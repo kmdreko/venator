@@ -322,9 +322,10 @@ impl DatasetConfig {
     fn prepare(&self) {
         match self {
             DatasetConfig::Memory => { /* nothing to do */ }
-            DatasetConfig::Default(path) | DatasetConfig::File(path) => {
+            DatasetConfig::File(_) => { /* nothing to do, path should already exist */ }
+            DatasetConfig::Default(path) => {
                 if let Some(dir) = path.parent() {
-                    std::fs::create_dir_all(dir).unwrap();
+                    std::fs::create_dir_all(dir).expect("could not create default directory");
                 }
             }
         }
@@ -643,14 +644,16 @@ fn main() {
 
                     app.dialog().file().pick_file(move |file_path| {
                         let Some(path) = file_path else { return };
+                        let Some(path) = path.as_path() else { return };
+
                         Command::new(current_exe)
                             .arg("-d")
-                            .arg(path.as_path().unwrap())
+                            .arg(path)
                             .stdin(Stdio::null())
                             .stdout(Stdio::null())
                             .stderr(Stdio::null())
                             .spawn()
-                            .unwrap();
+                            .expect("could not spawn new process");
                     });
                 }
                 "save-dataset-as" => {
@@ -658,8 +661,9 @@ fn main() {
 
                     app.dialog().file().save_file(move |file_path| {
                         let Some(path) = file_path else { return };
+                        let Some(path) = path.as_path() else { return };
 
-                        let new_storage = FileStorage::new(path.as_path().unwrap());
+                        let new_storage = FileStorage::new(path);
 
                         // we have no need for the result, and the command is
                         // executed regardless if we poll
@@ -668,55 +672,55 @@ fn main() {
                     });
                 }
                 "save-as-csv" => {
-                    app.emit("save-as-csv-clicked", ()).unwrap();
+                    let _ = app.emit("save-as-csv-clicked", ());
                 }
                 "undo" => {
-                    app.emit("undo-clicked", ()).unwrap();
+                    let _ = app.emit("undo-clicked", ());
                 }
                 "redo" => {
-                    app.emit("redo-clicked", ()).unwrap();
+                    let _ = app.emit("redo-clicked", ());
                 }
                 "tab-new-events" => {
-                    app.emit("tab-new-events-clicked", ()).unwrap();
+                    let _ = app.emit("tab-new-events-clicked", ());
                 }
                 "tab-new-spans" => {
-                    app.emit("tab-new-spans-clicked", ()).unwrap();
+                    let _ = app.emit("tab-new-spans-clicked", ());
                 }
                 "tab-duplicate" => {
-                    app.emit("tab-duplicate-clicked", ()).unwrap();
+                    let _ = app.emit("tab-duplicate-clicked", ());
                 }
                 "tab-close-others" => {
-                    app.emit("tab-close-others-clicked", ()).unwrap();
+                    let _ = app.emit("tab-close-others-clicked", ());
                 }
                 "focus-filter" => {
-                    app.emit("focus-filter-clicked", ()).unwrap();
+                    let _ = app.emit("focus-filter-clicked", ());
                 }
                 "zoom-in" => {
-                    app.emit("zoom-in-clicked", ()).unwrap();
+                    let _ = app.emit("zoom-in-clicked", ());
                 }
                 "zoom-out" => {
-                    app.emit("zoom-out-clicked", ()).unwrap();
+                    let _ = app.emit("zoom-out-clicked", ());
                 }
                 "focus" => {
-                    app.emit("focus-clicked", ()).unwrap();
+                    let _ = app.emit("focus-clicked", ());
                 }
                 "focus-all" => {
-                    app.emit("focus-all-clicked", ()).unwrap();
+                    let _ = app.emit("focus-all-clicked", ());
                 }
                 "set-theme-light" => {
-                    app.emit("set-theme-light-clicked", ()).unwrap();
+                    let _ = app.emit("set-theme-light-clicked", ());
                 }
                 "set-theme-dark" => {
-                    app.emit("set-theme-dark-clicked", ()).unwrap();
+                    let _ = app.emit("set-theme-dark-clicked", ());
                 }
                 "delete-all" => {
-                    app.emit("delete-all-clicked", ()).unwrap();
+                    let _ = app.emit("delete-all-clicked", ());
                 }
                 "delete-inside" => {
-                    app.emit("delete-inside-clicked", ()).unwrap();
+                    let _ = app.emit("delete-inside-clicked", ());
                 }
                 "delete-outside" => {
-                    app.emit("delete-outside-clicked", ()).unwrap();
+                    let _ = app.emit("delete-outside-clicked", ());
                 }
                 "help-about" => {
                     let _ = open::that("https://github.com/kmdreko/venator");

@@ -46,7 +46,11 @@ pub(super) async fn post_tracing_handler(
     let stream = StreamReader::new(body.into_data_stream().map_err(IoError::other));
 
     {
-        let mut instances = state.tracing_instances.lock().unwrap();
+        let mut instances = state
+            .tracing_instances
+            .lock()
+            .expect("should never be poisoned");
+
         if instances.contains(&id) {
             return Err(StatusCode::CONFLICT);
         } else {
@@ -57,7 +61,11 @@ pub(super) async fn post_tracing_handler(
     handle_tracing_stream(stream, state.engine.clone(), id).await;
 
     {
-        let mut instances = state.tracing_instances.lock().unwrap();
+        let mut instances = state
+            .tracing_instances
+            .lock()
+            .expect("should never be poisoned");
+
         instances.remove(&id);
     }
 
@@ -83,7 +91,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
 
     let mut length_bytes = [0u8; 2];
     if let Err(err) = stream.read_exact(&mut length_bytes).await {
-        eprintln!("failed to read handshake length: {err:?}");
+        tracing::warn!("failed to read handshake length: {err:?}");
         return;
     }
 
@@ -91,14 +99,14 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
 
     buffer.resize(length as usize, 0u8);
     if let Err(err) = stream.read_exact(&mut buffer).await {
-        eprintln!("failed to read handshake: {err:?}");
+        tracing::warn!("failed to read handshake: {err:?}");
         return;
     }
 
     let handshake: Handshake = match deserializer.deserialize_from(buffer.as_slice()) {
         Ok(handshake) => handshake,
         Err(err) => {
-            eprintln!("failed to parse handshake: {err:?}");
+            tracing::warn!("failed to parse handshake: {err:?}");
             return;
         }
     };
@@ -110,7 +118,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
     let resource_key = match engine.insert_resource(resource).await {
         Ok(key) => key,
         Err(err) => {
-            eprintln!("failed to insert connection: {err:?}");
+            tracing::warn!("failed to insert connection: {err:?}");
             return;
         }
     };
@@ -126,7 +134,7 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
 
         buffer.resize(length as usize, 0u8);
         if let Err(err) = stream.read_exact(&mut buffer).await {
-            eprintln!("failed to read message: {err:?}");
+            tracing::warn!("failed to read message: {err:?}");
             break;
         }
 
@@ -137,19 +145,26 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
         let msg: Message = match deserializer.deserialize_from(buffer.as_slice()) {
             Ok(message) => message,
             Err(err) => {
-                eprintln!("failed to parse message: {err:?}");
+                tracing::warn!("failed to parse message: {err:?}");
                 break;
             }
         };
 
         match msg.data {
             MessageData::Create(create_data) => {
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
-                #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(NewSpanEvent {
+                let Some(span_id) = msg.span_id else {
+                    tracing::warn!("create span message must have a span id");
+                    continue;
+                };
+
+                let Ok(level) = Level::from_tracing_level(create_data.level) else {
+                    tracing::warn!("failed to interpret level from span");
+                    continue;
+                };
+
+                let span_event = NewSpanEvent {
                     timestamp: msg.timestamp,
-                    span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
+                    span_id: FullSpanId::Tracing(instance_id, span_id),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                         kind: SourceKind::Tracing,
                         resource_key,
@@ -159,81 +174,123 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                         name: create_data.name,
                         namespace: Some(create_data.target),
                         function: None,
-                        level: Level::from_tracing_level(create_data.level).unwrap(),
+                        level,
                         file_name: create_data.file_name,
                         file_line: create_data.file_line,
                         file_column: None,
                         instrumentation_attributes: BTreeMap::new(),
                         attributes: conv_value_map(create_data.attributes),
                     }),
-                });
-            }
-            MessageData::Update(update_data) => {
+                };
+
                 // we have no need for the result, and the insert is
                 // executed regardless if we poll
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(NewSpanEvent {
+                let _ = engine.insert_span_event(span_event);
+            }
+            MessageData::Update(update_data) => {
+                let Some(span_id) = msg.span_id else {
+                    tracing::warn!("update span message must have a span id");
+                    continue;
+                };
+
+                let span_event = NewSpanEvent {
                     timestamp: msg.timestamp,
-                    span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
+                    span_id: FullSpanId::Tracing(instance_id, span_id),
                     kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
                         attributes: conv_value_map(update_data.attributes),
                     }),
-                });
-            }
-            MessageData::Follows(follows_data) => {
+                };
+
                 // we have no need for the result, and the insert is
                 // executed regardless if we poll
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(NewSpanEvent {
+                let _ = engine.insert_span_event(span_event);
+            }
+            MessageData::Follows(follows_data) => {
+                let Some(span_id) = msg.span_id else {
+                    tracing::warn!("follows message must have a span id");
+                    continue;
+                };
+
+                let span_event = NewSpanEvent {
                     timestamp: msg.timestamp,
-                    span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
+                    span_id: FullSpanId::Tracing(instance_id, span_id),
                     kind: NewSpanEventKind::Follows(NewFollowsSpanEvent {
                         follows: follows_data.follows,
                     }),
-                });
-            }
-            MessageData::Enter(enter_data) => {
+                };
+
                 // we have no need for the result, and the insert is
                 // executed regardless if we poll
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(NewSpanEvent {
+                let _ = engine.insert_span_event(span_event);
+            }
+            MessageData::Enter(enter_data) => {
+                let Some(span_id) = msg.span_id else {
+                    tracing::warn!("enter span message must have a span id");
+                    continue;
+                };
+
+                let span_event = NewSpanEvent {
                     timestamp: msg.timestamp,
-                    span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
+                    span_id: FullSpanId::Tracing(instance_id, span_id),
                     kind: NewSpanEventKind::Enter(NewEnterSpanEvent {
                         thread_id: enter_data.thread_id,
                     }),
-                });
+                };
+
+                // we have no need for the result, and the insert is
+                // executed regardless if we poll
+                #[allow(clippy::let_underscore_future)]
+                let _ = engine.insert_span_event(span_event);
             }
             MessageData::Exit => {
+                let Some(span_id) = msg.span_id else {
+                    tracing::warn!("exit span message must have a span id");
+                    continue;
+                };
+
+                let span_event = NewSpanEvent {
+                    timestamp: msg.timestamp,
+                    span_id: FullSpanId::Tracing(instance_id, span_id),
+                    kind: NewSpanEventKind::Exit,
+                };
+
                 // we have no need for the result, and the insert is
                 // executed regardless if we poll
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(NewSpanEvent {
-                    timestamp: msg.timestamp,
-                    span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
-                    kind: NewSpanEventKind::Exit,
-                });
+                let _ = engine.insert_span_event(span_event);
             }
             MessageData::Close => {
+                let Some(span_id) = msg.span_id else {
+                    tracing::warn!("close span message must have a span id");
+                    continue;
+                };
+
+                let span_event = NewSpanEvent {
+                    timestamp: msg.timestamp,
+                    span_id: FullSpanId::Tracing(instance_id, span_id),
+                    kind: NewSpanEventKind::Close(NewCloseSpanEvent { busy: None }),
+                };
+
                 // we have no need for the result, and the insert is
                 // executed regardless if we poll
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(NewSpanEvent {
-                    timestamp: msg.timestamp,
-                    span_id: FullSpanId::Tracing(instance_id, msg.span_id.unwrap()),
-                    kind: NewSpanEventKind::Close(NewCloseSpanEvent { busy: None }),
-                });
+                let _ = engine.insert_span_event(span_event);
             }
             MessageData::Event(event) => {
+                let Ok(level) = Level::from_tracing_level(event.level) else {
+                    tracing::warn!("failed to interpret level from span");
+                    continue;
+                };
+
                 let mut attributes = conv_value_map(event.attributes);
 
                 let content = extract_content(&mut attributes)
                     .unwrap_or(venator_engine::Value::Str(event.name));
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
-                #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_event(NewEvent {
+                let event = NewEvent {
                     kind: SourceKind::Tracing,
                     resource_key,
                     timestamp: msg.timestamp,
@@ -243,12 +300,17 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     content,
                     namespace: Some(event.target),
                     function: None,
-                    level: Level::from_tracing_level(event.level).unwrap(),
+                    level,
                     file_name: event.file_name,
                     file_line: event.file_line,
                     file_column: None,
                     attributes,
-                });
+                };
+
+                // we have no need for the result, and the insert is
+                // executed regardless if we poll
+                #[allow(clippy::let_underscore_future)]
+                let _ = engine.insert_event(event);
             }
         };
     }

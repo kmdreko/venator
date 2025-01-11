@@ -206,19 +206,23 @@ async fn process_logs_request(
     request: &ExportLogsServiceRequest,
 ) -> ExportLogsServiceResponse {
     for resource_log in &request.resource_logs {
-        let resoource_attributes = if let Some(resource) = &resource_log.resource {
+        let resource_attributes = if let Some(resource) = &resource_log.resource {
             conv_value_map(&resource.attributes)
         } else {
             // resource info is unknown
             BTreeMap::new()
         };
 
-        let resource_key = engine
-            .insert_resource(NewResource {
-                attributes: resoource_attributes,
-            })
-            .await
-            .unwrap();
+        let resource = NewResource {
+            attributes: resource_attributes,
+        };
+        let resource_key = match engine.insert_resource(resource).await {
+            Ok(key) => key,
+            Err(err) => {
+                tracing::warn!(?err, "could not insert resource");
+                continue;
+            }
+        };
 
         for scope_log in &resource_log.scope_logs {
             // I'm not going to worry about instrumentation scope
@@ -231,12 +235,17 @@ async fn process_logs_request(
                 } else {
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .unwrap()
+                        .expect("now should not be before the UNIX epoch")
                         .as_micros() as u64
                 };
 
                 let trace_id = parse_trace_id(&log_record.trace_id);
                 let span_id = parse_span_id(&log_record.span_id);
+
+                let Ok(level) = Level::from_otel_severity(log_record.severity_number) else {
+                    tracing::warn!("failed to interpret level from log record");
+                    continue;
+                };
 
                 let mut attributes = conv_value_map(&log_record.attributes);
 
@@ -249,7 +258,8 @@ async fn process_logs_request(
                 let event = NewEvent {
                     kind: SourceKind::Opentelemetry,
                     resource_key,
-                    timestamp: Timestamp::new(timestamp).unwrap(),
+                    timestamp: Timestamp::new(timestamp)
+                        .expect("now should not be at the UNIX epoch"),
                     span_id: trace_id.and_then(|trace_id| {
                         span_id.map(|span_id| FullSpanId::Opentelemetry(trace_id, span_id))
                     }),
@@ -260,7 +270,7 @@ async fn process_logs_request(
                         .unwrap_or(Value::Null),
                     namespace,
                     function,
-                    level: Level::from_otel_severity(log_record.severity_number).unwrap(),
+                    level,
                     file_name,
                     file_line,
                     file_column,
@@ -301,12 +311,16 @@ async fn process_trace_request(
             BTreeMap::new()
         };
 
-        let resource_key = engine
-            .insert_resource(NewResource {
-                attributes: resource_attributes,
-            })
-            .await
-            .unwrap();
+        let resource = NewResource {
+            attributes: resource_attributes,
+        };
+        let resource_key = match engine.insert_resource(resource).await {
+            Ok(key) => key,
+            Err(err) => {
+                tracing::warn!(?err, "could not insert resource");
+                continue;
+            }
+        };
 
         for scope_span in &resource_span.scope_spans {
             // I'm not going to worry about instrumentation scope
@@ -328,16 +342,29 @@ async fn process_trace_request(
                 let created_timestamp = span.start_time_unix_nano / 1000;
                 let closed_timestamp = span.end_time_unix_nano / 1000;
 
-                let trace_id = parse_trace_id(&span.trace_id).unwrap();
-                let span_id = parse_span_id(&span.span_id).unwrap();
+                let Some(trace_id) = parse_trace_id(&span.trace_id) else {
+                    tracing::warn!("failed to parse trace id from span");
+                    continue;
+                };
+
+                let Some(span_id) = parse_span_id(&span.span_id) else {
+                    tracing::warn!("failed to parse span id from span");
+                    continue;
+                };
+
                 let parent_span_id = parse_span_id(&span.parent_span_id);
                 let mut attributes = conv_value_map(&span.attributes);
+
+                let level = extract_level(&mut attributes).or(scope_level);
+                let Ok(level) = Level::from_otel_severity(level.unwrap_or(9)) else {
+                    tracing::warn!("failed to interpret level from span");
+                    continue;
+                };
 
                 // spans don't have levels so just set to @level if it has
                 // it or just fallback to INFO (todo: there is a "status"
                 // which could be "error")
                 let busy = extract_busy(&mut attributes);
-                let level = extract_level(&mut attributes).or(scope_level);
                 let namespace =
                     extract_namespace(&mut attributes).or_else(|| scope_namespace.clone());
                 let function = extract_function(&mut attributes).or_else(|| scope_function.clone());
@@ -347,7 +374,8 @@ async fn process_trace_request(
                 let file_column = extract_file_column(&mut attributes).or(scope_file_column);
 
                 let create_span_event = NewSpanEvent {
-                    timestamp: Timestamp::new(created_timestamp).unwrap(),
+                    timestamp: Timestamp::new(created_timestamp)
+                        .expect("now should not be at the UNIX epoch"),
                     span_id: FullSpanId::Opentelemetry(trace_id, span_id),
                     kind: NewSpanEventKind::Create(NewCreateSpanEvent {
                         kind: SourceKind::Opentelemetry,
@@ -357,7 +385,7 @@ async fn process_trace_request(
                         name: span.name.clone(),
                         namespace,
                         function,
-                        level: Level::from_otel_severity(level.unwrap_or(9)).unwrap(),
+                        level,
                         file_name,
                         file_line,
                         file_column,
@@ -372,7 +400,8 @@ async fn process_trace_request(
                 let _ = engine.insert_span_event(create_span_event);
 
                 let close_span_event = NewSpanEvent {
-                    timestamp: Timestamp::new(closed_timestamp).unwrap(),
+                    timestamp: Timestamp::new(closed_timestamp)
+                        .expect("now should not be at the UNIX epoch"),
                     span_id: FullSpanId::Opentelemetry(trace_id, span_id),
                     kind: NewSpanEventKind::Close(NewCloseSpanEvent { busy }),
                 };
@@ -391,6 +420,11 @@ async fn process_trace_request(
                     // if it has it or just fallback to INFO (todo: there is
                     // a "status" which could be "error")
                     let level = extract_level(&mut attributes).or(scope_level);
+                    let Ok(level) = Level::from_otel_severity(level.unwrap_or(9)) else {
+                        tracing::warn!("failed to interpret level from log record");
+                        continue;
+                    };
+
                     let namespace =
                         extract_namespace(&mut attributes).or_else(|| scope_namespace.clone());
                     let function =
@@ -403,12 +437,13 @@ async fn process_trace_request(
                     let event = NewEvent {
                         kind: SourceKind::Opentelemetry,
                         resource_key,
-                        timestamp: Timestamp::new(timestamp).unwrap(),
+                        timestamp: Timestamp::new(timestamp)
+                            .expect("now should not be at the UNIX epoch"),
                         span_id: Some(FullSpanId::Opentelemetry(trace_id, span_id)),
                         content: Value::Str(event.name.to_owned()),
                         namespace,
                         function,
-                        level: Level::from_otel_severity(level.unwrap_or(9)).unwrap(),
+                        level,
                         file_name,
                         file_line,
                         file_column,

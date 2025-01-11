@@ -83,7 +83,10 @@ where
                 let mut parent_key_next = event.parent_key;
 
                 while let Some(parent_key) = parent_key_next {
-                    let parent = self.storage.get_span(parent_key).unwrap();
+                    let Some(parent) = self.storage.get_span(parent_key) else {
+                        tracing::error!("event/span has parent key but parent doesn't exist");
+                        break;
+                    };
 
                     parent_key_next = parent.parent_key;
                     parents.push(parent);

@@ -14,16 +14,15 @@ use crate::attributes::OwnedValue;
 use crate::ids::VenatorId;
 
 fn now() -> NonZeroU64 {
-    // this only errors if "now" is at or before the UNIX epoch, if so you are a
-    // liar and deserve to crash
-
     let microseconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("now should not be before the UNIX epoch")
         .as_micros();
 
-    // microseconds won't exceed a u64 until the year 586,912 AD
-    NonZeroU64::new(microseconds as u64).unwrap()
+    let microseconds = u64::try_from(microseconds)
+        .expect("microseconds shouldn't exceed a u64 until the year 586,912 AD");
+
+    NonZeroU64::new(microseconds).expect("now should not be at the UNIX epoch")
 }
 
 pub(crate) fn encode_message<T: Serialize>(

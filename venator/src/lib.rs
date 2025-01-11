@@ -171,7 +171,10 @@ impl Venator {
             return;
         };
 
-        self.connection.lock().unwrap().send(&chunk_buffer);
+        self.connection
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .send(&chunk_buffer);
 
         SCRATCH_MESSAGE_BUFFER.with(|b| b.set(message_buffer));
         SCRATCH_CHUNK_BUFFER.with(|b| b.set(chunk_buffer));
@@ -190,55 +193,68 @@ where
 {
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
         let vid = ids::generate();
-        ctx.span(id).unwrap().extensions_mut().insert(vid);
+        let Some(span) = ctx.span(id) else {
+            // this should not happen
+            return;
+        };
+
+        span.extensions_mut().insert(vid);
 
         self.send(&Message::from_new_span(attrs, &vid, &ctx));
     }
 
     fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
-        let vid = ctx
-            .span(id)
-            .unwrap()
-            .extensions()
-            .get::<VenatorId>()
-            .copied()
-            .unwrap();
+        let Some(span) = ctx.span(id) else {
+            // this should not happen
+            return;
+        };
+
+        let Some(&vid) = span.extensions().get::<VenatorId>() else {
+            // this should not happen since we insert it on every `on_new_span`
+            return;
+        };
 
         self.send(&Message::from_record(&vid, values));
     }
 
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
-        let vid = ctx
-            .span(id)
-            .unwrap()
-            .extensions()
-            .get::<VenatorId>()
-            .copied()
-            .unwrap();
+        let Some(span) = ctx.span(id) else {
+            // this should not happen
+            return;
+        };
+
+        let Some(&vid) = span.extensions().get::<VenatorId>() else {
+            // this should not happen since we insert it on every `on_new_span`
+            return;
+        };
 
         self.send(&Message::from_enter(&vid));
     }
 
     fn on_exit(&self, id: &Id, ctx: Context<'_, S>) {
-        let vid = ctx
-            .span(id)
-            .unwrap()
-            .extensions()
-            .get::<VenatorId>()
-            .copied()
-            .unwrap();
+        let Some(span) = ctx.span(id) else {
+            // this should not happen
+            return;
+        };
+
+        let Some(&vid) = span.extensions().get::<VenatorId>() else {
+            // this should not happen since we insert it on every `on_new_span`
+            return;
+        };
 
         self.send(&Message::from_exit(&vid));
     }
 
     fn on_close(&self, id: Id, ctx: Context<'_, S>) {
-        let vid = ctx
-            .span(&id)
-            .unwrap()
-            .extensions()
-            .get::<VenatorId>()
-            .copied()
-            .unwrap();
+        let Some(span) = ctx.span(&id) else {
+            // this should not happen
+            return;
+        };
+
+        let Some(&vid) = span.extensions().get::<VenatorId>() else {
+            // this should not happen since we insert it on every `on_new_span`
+            return;
+        };
 
         self.send(&Message::from_close(&vid));
     }
@@ -252,21 +268,25 @@ where
     }
 
     fn on_follows_from(&self, span: &Id, follows: &Id, ctx: Context<'_, S>) {
-        let vid = ctx
-            .span(span)
-            .unwrap()
-            .extensions()
-            .get::<VenatorId>()
-            .copied()
-            .unwrap();
+        let Some(span) = ctx.span(span) else {
+            // this should not happen
+            return;
+        };
 
-        let follows_vid = ctx
-            .span(follows)
-            .unwrap()
-            .extensions()
-            .get::<VenatorId>()
-            .copied()
-            .unwrap();
+        let Some(&vid) = span.extensions().get::<VenatorId>() else {
+            // this should not happen since we insert it on every `on_new_span`
+            return;
+        };
+
+        let Some(follows_span) = ctx.span(follows) else {
+            // this should not happen
+            return;
+        };
+
+        let Some(&follows_vid) = follows_span.extensions().get::<VenatorId>() else {
+            // this should not happen since we insert it on every `on_new_span`
+            return;
+        };
 
         self.send(&Message::from_follows(&vid, &follows_vid));
     }
@@ -328,9 +348,11 @@ impl Connection {
 
         debug!(parent: None, "connected");
 
-        #[rustfmt::skip]
-        write!(stream, "POST /tracing/v1 HTTP/1.1\r\nHost: {host}\r\nTransfer-Encoding: chunked\r\nInstance-Id: {id:032x}\r\n\r\n")
-            .unwrap();
+        let header_result = write!(stream, "POST /tracing/v1 HTTP/1.1\r\nHost: {host}\r\nTransfer-Encoding: chunked\r\nInstance-Id: {id:032x}\r\n\r\n");
+        if let Err(err) = header_result {
+            error!(parent: None, "failed to write header: {err:?}");
+            return;
+        }
 
         let handshake = Handshake {
             attributes: self.attributes.clone(),
@@ -340,7 +362,7 @@ impl Connection {
         if let Err(err) = messaging::encode_message(&mut message_buffer, &handshake) {
             error!(parent: None, "failed to encode handshake message: {err:?}");
             return;
-        };
+        }
 
         let mut chunk_buffer = vec![];
         if let Err(err) = messaging::encode_chunk(&mut chunk_buffer, &message_buffer) {

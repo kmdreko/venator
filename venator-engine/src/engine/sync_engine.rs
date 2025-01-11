@@ -1023,9 +1023,13 @@ fn now() -> Timestamp {
         use std::time::{SystemTime, UNIX_EPOCH};
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as u64;
-        Timestamp::new(timestamp).unwrap()
+            .expect("now should not be before the UNIX epoch")
+            .as_micros();
+
+        let timestamp = u64::try_from(timestamp)
+            .expect("microseconds shouldn't exceed a u64 until the year 586,912 AD");
+
+        Timestamp::new(timestamp).expect("now should not be at the UNIX epoch")
     }
 }
 
