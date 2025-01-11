@@ -12,12 +12,31 @@ use crate::{
     Event, FullSpanId, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp,
 };
 
-use super::{IndexStorage, Storage};
+use super::{IndexStorage, Storage, StorageError, StorageIter};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum IndexState {
     Stale,
     Fresh,
+}
+
+#[allow(unused)]
+#[derive(Debug)]
+enum FileStorageError {
+    Prepare(DbError),
+    Query(DbError),
+    Row(DbError),
+    Insert(DbError),
+    Update(DbError),
+    Begin(DbError),
+    Commit(DbError),
+    Delete(DbError),
+}
+
+impl From<FileStorageError> for StorageError {
+    fn from(value: FileStorageError) -> Self {
+        StorageError::Internal(format!("{value:?}"))
+    }
 }
 
 /// This storage holds all entities in an SQLite database at the provided path.
@@ -181,129 +200,155 @@ impl FileStorage {
 
 impl Storage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_resource(&self, at: Timestamp) -> Option<Arc<Resource>> {
+    fn get_resource(&self, at: Timestamp) -> Result<Arc<Resource>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM resources WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        let result = stmt.query_row((at,), resource_from_row);
+        let resource = stmt
+            .query_row((at,), resource_from_row)
+            .map_err(FileStorageError::Row)?;
 
-        Some(Arc::new(result.unwrap()))
+        Ok(Arc::new(resource))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_span(&self, at: Timestamp) -> Option<Arc<Span>> {
+    fn get_span(&self, at: Timestamp) -> Result<Arc<Span>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        let result = stmt.query_row((at,), span_from_row);
+        let span = stmt
+            .query_row((at,), span_from_row)
+            .map_err(FileStorageError::Row)?;
 
-        Some(Arc::new(result.unwrap()))
+        Ok(Arc::new(span))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_span_event(&self, at: Timestamp) -> Option<Arc<SpanEvent>> {
+    fn get_span_event(&self, at: Timestamp) -> Result<Arc<SpanEvent>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM span_events WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        let result = stmt.query_row((at,), span_event_from_row);
+        let span_event = stmt
+            .query_row((at,), span_event_from_row)
+            .map_err(FileStorageError::Row)?;
 
-        Some(Arc::new(result.unwrap()))
+        Ok(Arc::new(span_event))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_event(&self, at: Timestamp) -> Option<Arc<Event>> {
+    fn get_event(&self, at: Timestamp) -> Result<Arc<Event>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM events WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        let result = stmt.query_row((at,), event_from_row);
+        let event = stmt
+            .query_row((at,), event_from_row)
+            .map_err(FileStorageError::Row)?;
 
-        Some(Arc::new(result.unwrap()))
+        Ok(Arc::new(event))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_> {
+    fn get_all_resources(&self) -> Result<StorageIter<Resource>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM resources ORDER BY key")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         let resources = stmt
             .query_map((), resource_from_row)
-            .unwrap()
-            .map(|result| result.unwrap())
+            .map_err(FileStorageError::Query)?
+            .map(|result| {
+                result
+                    .map(Arc::new)
+                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+            })
             .collect::<Vec<_>>();
 
-        Box::new(resources.into_iter().map(Arc::new))
+        Ok(Box::new(resources.into_iter()))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_> {
+    fn get_all_spans(&self) -> Result<StorageIter<Span>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans ORDER BY key")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         let spans = stmt
             .query_map((), span_from_row)
-            .unwrap()
-            .map(|result| result.unwrap())
+            .map_err(FileStorageError::Query)?
+            .map(|result| {
+                result
+                    .map(Arc::new)
+                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+            })
             .collect::<Vec<_>>();
 
-        Box::new(spans.into_iter().map(Arc::new))
+        Ok(Box::new(spans.into_iter()))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_span_events(&self) -> Box<dyn Iterator<Item = Arc<SpanEvent>> + '_> {
+    fn get_all_span_events(&self) -> Result<StorageIter<SpanEvent>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM span_events ORDER BY key")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         let span_events = stmt
             .query_map((), span_event_from_row)
-            .unwrap()
-            .map(|result| result.unwrap())
+            .map_err(FileStorageError::Query)?
+            .map(|result| {
+                result
+                    .map(Arc::new)
+                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+            })
             .collect::<Vec<_>>();
 
-        Box::new(span_events.into_iter().map(Arc::new))
+        Ok(Box::new(span_events.into_iter()))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_events(&self) -> Box<dyn Iterator<Item = Arc<Event>> + '_> {
+    fn get_all_events(&self) -> Result<StorageIter<Event>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM events ORDER BY key")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         let events = stmt
             .query_map((), event_from_row)
-            .unwrap()
-            .map(|result| result.unwrap())
+            .map_err(FileStorageError::Query)?
+            .map(|result| {
+                result
+                    .map(Arc::new)
+                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+            })
             .collect::<Vec<_>>();
 
-        Box::new(events.into_iter().map(Arc::new))
+        Ok(Box::new(events.into_iter()))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn insert_resource(&mut self, resource: Resource) {
+    fn insert_resource(&mut self, resource: Resource) -> Result<(), StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("INSERT INTO resources VALUES (?1, ?2, ?3)")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        stmt.execute(resource_to_params(resource)).unwrap();
+        stmt.execute(resource_to_params(resource))
+            .map_err(FileStorageError::Insert)?;
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn insert_span(&mut self, span: Span) {
+    fn insert_span(&mut self, span: Span) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
         let mut stmt = self
@@ -311,7 +356,7 @@ impl Storage for FileStorage {
             .prepare_cached(
                 "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             )
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         // have to inline it since I exceeded 16 elements
 
@@ -357,23 +402,26 @@ impl Storage for FileStorage {
             attributes,
             warnings,
         ])
-        .unwrap();
+        .map_err(FileStorageError::Insert)?;
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn insert_span_event(&mut self, span_event: SpanEvent) {
+    fn insert_span_event(&mut self, span_event: SpanEvent) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
         let mut stmt = self
             .connection
             .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4, ?5)")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        stmt.execute(span_event_to_params(span_event)).unwrap();
+        stmt.execute(span_event_to_params(span_event))
+            .map_err(FileStorageError::Insert)?;
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn insert_event(&mut self, event: Event) {
+    fn insert_event(&mut self, event: Event) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
         let mut stmt = self
@@ -381,33 +429,50 @@ impl Storage for FileStorage {
             .prepare_cached(
                 "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             )
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        stmt.execute(event_to_params(event)).unwrap();
+        stmt.execute(event_to_params(event))
+            .map_err(FileStorageError::Insert)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>) {
+    fn update_span_closed(
+        &mut self,
+        at: Timestamp,
+        closed: Timestamp,
+        busy: Option<u64>,
+    ) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
         let mut stmt = self
             .connection
             .prepare_cached("UPDATE spans SET closed_at = ?2, busy = ?3 WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        stmt.execute((at, closed, busy.map(|b| b as i64))).unwrap();
+        stmt.execute((at, closed, busy.map(|b| b as i64)))
+            .map_err(FileStorageError::Update)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn update_span_attributes(&mut self, at: Timestamp, attributes: BTreeMap<String, Value>) {
+    fn update_span_attributes(
+        &mut self,
+        at: Timestamp,
+        attributes: BTreeMap<String, Value>,
+    ) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        let span = stmt.query_row((at,), span_from_row).unwrap();
+        let span = stmt
+            .query_row((at,), span_from_row)
+            .map_err(FileStorageError::Row)?;
         let existing_attributes = span.attributes;
 
         let attributes = {
@@ -420,9 +485,12 @@ impl Storage for FileStorage {
         let mut stmt = self
             .connection
             .prepare_cached("UPDATE spans SET attributes = ?2 WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        stmt.execute((at, attributes)).unwrap();
+        stmt.execute((at, attributes))
+            .map_err(FileStorageError::Update)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -431,15 +499,17 @@ impl Storage for FileStorage {
         at: Timestamp,
         link: FullSpanId,
         attributes: BTreeMap<String, Value>,
-    ) {
+    ) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        let span = stmt.query_row((at,), span_from_row).unwrap();
+        let span = stmt
+            .query_row((at,), span_from_row)
+            .map_err(FileStorageError::Row)?;
         let existing_links = span.links;
 
         let links = {
@@ -452,109 +522,156 @@ impl Storage for FileStorage {
         let mut stmt = self
             .connection
             .prepare_cached("UPDATE spans SET follows = ?2 WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
-        stmt.execute((at, attributes)).unwrap();
+        stmt.execute((at, attributes))
+            .map_err(FileStorageError::Update)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]) {
+    fn update_span_parents(
+        &mut self,
+        parent_key: SpanKey,
+        spans: &[SpanKey],
+    ) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
-        let tx = self.connection.transaction().unwrap();
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
 
         let mut stmt = tx
             .prepare_cached("UPDATE spans SET parent_key = ?2 WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         for span_key in spans {
-            stmt.execute((span_key, parent_key)).unwrap();
+            stmt.execute((span_key, parent_key))
+                .map_err(FileStorageError::Update)?;
         }
 
         drop(stmt);
-        tx.commit().unwrap();
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]) {
+    fn update_event_parents(
+        &mut self,
+        parent_key: SpanKey,
+        events: &[EventKey],
+    ) -> Result<(), StorageError> {
         self.invalidate_indexes();
 
-        let tx = self.connection.transaction().unwrap();
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
 
         let mut stmt = tx
             .prepare_cached("UPDATE events SET parent_key = ?2 WHERE key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         for event_key in events {
-            stmt.execute((event_key, parent_key)).unwrap();
+            stmt.execute((event_key, parent_key))
+                .map_err(FileStorageError::Update)?;
         }
 
         drop(stmt);
-        tx.commit().unwrap();
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn drop_resources(&mut self, resources: &[Timestamp]) {
-        let tx = self.connection.transaction().unwrap();
+    fn drop_resources(&mut self, resources: &[Timestamp]) -> Result<(), StorageError> {
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
 
         let mut stmt = tx
             .prepare_cached("DELETE FROM resources WHERE resources.key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         for resource_key in resources {
-            stmt.execute((resource_key,)).unwrap();
+            stmt.execute((resource_key,))
+                .map_err(FileStorageError::Delete)?;
         }
 
         drop(stmt);
-        tx.commit().unwrap();
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn drop_spans(&mut self, spans: &[Timestamp]) {
-        let tx = self.connection.transaction().unwrap();
+    fn drop_spans(&mut self, spans: &[Timestamp]) -> Result<(), StorageError> {
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
 
         let mut stmt = tx
             .prepare_cached("DELETE FROM spans WHERE spans.key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         for span_key in spans {
-            stmt.execute((span_key,)).unwrap();
+            stmt.execute((span_key,))
+                .map_err(FileStorageError::Delete)?;
         }
 
         drop(stmt);
-        tx.commit().unwrap();
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn drop_span_events(&mut self, span_events: &[Timestamp]) {
-        let tx = self.connection.transaction().unwrap();
+    fn drop_span_events(&mut self, span_events: &[Timestamp]) -> Result<(), StorageError> {
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
 
         let mut stmt = tx
             .prepare_cached("DELETE FROM span_events WHERE span_events.key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         for span_event_key in span_events {
-            stmt.execute((span_event_key,)).unwrap();
+            stmt.execute((span_event_key,))
+                .map_err(FileStorageError::Delete)?;
         }
 
         drop(stmt);
-        tx.commit().unwrap();
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn drop_events(&mut self, events: &[Timestamp]) {
-        let tx = self.connection.transaction().unwrap();
+    fn drop_events(&mut self, events: &[Timestamp]) -> Result<(), StorageError> {
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
 
         let mut stmt = tx
             .prepare_cached("DELETE FROM events WHERE events.key = ?1")
-            .unwrap();
+            .map_err(FileStorageError::Prepare)?;
 
         for event_key in events {
-            stmt.execute((event_key,)).unwrap();
+            stmt.execute((event_key,))
+                .map_err(FileStorageError::Delete)?;
         }
 
         drop(stmt);
-        tx.commit().unwrap();
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
     }
 
     #[allow(private_interfaces)]

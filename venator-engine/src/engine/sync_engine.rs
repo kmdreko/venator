@@ -52,10 +52,14 @@ impl<S: Storage> SyncEngine<S> {
 
         tracing::info!("initializing engine");
 
-        let resources = engine.storage.get_all_resources().collect::<Vec<_>>();
+        let resources = engine
+            .storage
+            .get_all_resources()
+            .unwrap()
+            .collect::<Vec<_>>();
 
         for resource in resources {
-            engine.insert_resource_bookeeping(&resource);
+            engine.insert_resource_bookeeping(&resource.unwrap());
         }
 
         if let Some(indexes) = engine
@@ -69,22 +73,26 @@ impl<S: Storage> SyncEngine<S> {
             engine.span_event_indexes = span_event_indexes;
             engine.event_indexes = event_indexes;
         } else {
-            let spans = engine.storage.get_all_spans().collect::<Vec<_>>();
+            let spans = engine.storage.get_all_spans().unwrap().collect::<Vec<_>>();
 
             for span in spans {
-                engine.insert_span_bookeeping(&span);
+                engine.insert_span_bookeeping(&span.unwrap());
             }
 
-            let span_events = engine.storage.get_all_span_events().collect::<Vec<_>>();
+            let span_events = engine
+                .storage
+                .get_all_span_events()
+                .unwrap()
+                .collect::<Vec<_>>();
 
             for span_event in span_events {
-                engine.insert_span_event_bookeeping(&span_event);
+                engine.insert_span_event_bookeeping(&span_event.unwrap());
             }
 
-            let events = engine.storage.get_all_events().collect::<Vec<_>>();
+            let events = engine.storage.get_all_events().unwrap().collect::<Vec<_>>();
 
             for event in events {
-                engine.insert_event_bookeeping(&event);
+                engine.insert_event_bookeeping(&event.unwrap());
             }
         }
 
@@ -102,7 +110,10 @@ impl<S: Storage> SyncEngine<S> {
 
             for span_key in engine.span_indexes.durations.open.clone() {
                 engine.span_indexes.update_with_closed(span_key, at);
-                engine.storage.update_span_closed(span_key, at, None);
+                engine
+                    .storage
+                    .update_span_closed(span_key, at, None)
+                    .unwrap();
             }
         }
 
@@ -204,7 +215,7 @@ impl<S: Storage> SyncEngine<S> {
         };
 
         self.insert_resource_bookeeping(&resource);
-        self.storage.insert_resource(resource);
+        self.storage.insert_resource(resource).unwrap();
 
         Ok(resource_key)
     }
@@ -238,7 +249,7 @@ impl<S: Storage> SyncEngine<S> {
 
         for span_key in open_spans {
             self.span_indexes.update_with_closed(span_key, at);
-            self.storage.update_span_closed(span_key, at, None);
+            self.storage.update_span_closed(span_key, at, None).unwrap();
         }
 
         Ok(())
@@ -309,12 +320,16 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 let (child_spans, child_events) = self.insert_span_bookeeping(&span);
-                self.storage.insert_span(span.clone());
-                self.storage.update_span_parents(span.key(), &child_spans);
-                self.storage.update_event_parents(span.key(), &child_events);
+                self.storage.insert_span(span.clone()).unwrap();
+                self.storage
+                    .update_span_parents(span.key(), &child_spans)
+                    .unwrap();
+                self.storage
+                    .update_event_parents(span.key(), &child_events)
+                    .unwrap();
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event);
+                self.storage.insert_span_event(span_event).unwrap();
 
                 if !self.event_subscribers.is_empty() {
                     let root = SpanContext::with_span(&span, &self.storage).trace_root();
@@ -446,10 +461,11 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 self.storage
-                    .update_span_attributes(span_key, new_update_event.attributes);
+                    .update_span_attributes(span_key, new_update_event.attributes)
+                    .unwrap();
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event);
+                self.storage.insert_span_event(span_event).unwrap();
 
                 if !self.event_subscribers.is_empty() {
                     let descendent_events = self
@@ -537,10 +553,11 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 self.storage
-                    .update_span_link(span_key, follows_span_id, BTreeMap::new());
+                    .update_span_link(span_key, follows_span_id, BTreeMap::new())
+                    .unwrap();
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event);
+                self.storage.insert_span_event(span_event).unwrap();
             }
             NewSpanEventKind::Enter(new_enter_event) => {
                 let span_key = self
@@ -559,7 +576,7 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event);
+                self.storage.insert_span_event(span_event).unwrap();
             }
             NewSpanEventKind::Exit => {
                 let span_key = self
@@ -576,7 +593,7 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event);
+                self.storage.insert_span_event(span_event).unwrap();
             }
             NewSpanEventKind::Close(new_close_event) => {
                 let span_key = self
@@ -624,10 +641,11 @@ impl<S: Storage> SyncEngine<S> {
                     .update_with_closed(span_key, new_span_event.timestamp);
 
                 self.storage
-                    .update_span_closed(span_key, new_span_event.timestamp, busy);
+                    .update_span_closed(span_key, new_span_event.timestamp, busy)
+                    .unwrap();
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event);
+                self.storage.insert_span_event(span_event).unwrap();
             }
         }
 
@@ -728,7 +746,7 @@ impl<S: Storage> SyncEngine<S> {
         };
 
         self.insert_event_bookeeping(&event);
-        self.storage.insert_event(event.clone());
+        self.storage.insert_event(event.clone()).unwrap();
 
         let context = EventContext::with_event(&event, &self.storage);
         for subscriber in self.event_subscribers.values_mut() {
@@ -811,9 +829,11 @@ impl<S: Storage> SyncEngine<S> {
         // drop smaller scoped entities from storage first to avoid integrity
         // issues if things go wrong
 
-        self.storage.drop_events(&events_to_delete);
-        self.storage.drop_span_events(&span_events_to_delete);
-        self.storage.drop_spans(&spans_to_delete);
+        self.storage.drop_events(&events_to_delete).unwrap();
+        self.storage
+            .drop_span_events(&span_events_to_delete)
+            .unwrap();
+        self.storage.drop_spans(&spans_to_delete).unwrap();
 
         // remove smaller scoped entities from indexes last for some efficiency
 
@@ -902,28 +922,37 @@ impl<S: Storage> SyncEngine<S> {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn copy_dataset(&self, mut to: Box<dyn Storage + Send>) {
-        let resources = self.storage.get_all_resources().collect::<Vec<_>>();
+        let resources = self
+            .storage
+            .get_all_resources()
+            .unwrap()
+            .collect::<Vec<_>>();
 
         for resource in resources {
-            to.insert_resource((*resource).clone());
+            to.insert_resource((*resource.unwrap()).clone()).unwrap();
         }
 
-        let spans = self.storage.get_all_spans().collect::<Vec<_>>();
+        let spans = self.storage.get_all_spans().unwrap().collect::<Vec<_>>();
 
         for span in spans {
-            to.insert_span((*span).clone());
+            to.insert_span((*span.unwrap()).clone()).unwrap();
         }
 
-        let span_events = self.storage.get_all_span_events().collect::<Vec<_>>();
+        let span_events = self
+            .storage
+            .get_all_span_events()
+            .unwrap()
+            .collect::<Vec<_>>();
 
         for span_event in span_events {
-            to.insert_span_event((*span_event).clone());
+            to.insert_span_event((*span_event.unwrap()).clone())
+                .unwrap();
         }
 
-        let events = self.storage.get_all_events().collect::<Vec<_>>();
+        let events = self.storage.get_all_events().unwrap().collect::<Vec<_>>();
 
         for event in events {
-            to.insert_event((*event).clone());
+            to.insert_event((*event.unwrap()).clone()).unwrap();
         }
     }
 

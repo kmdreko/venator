@@ -27,6 +27,14 @@ pub use cached::CachedStorage;
 pub use file::FileStorage;
 pub use transient::TransientStorage;
 
+#[derive(Debug)]
+pub enum StorageError {
+    NotFound,
+    Internal(String),
+}
+
+pub type StorageIter<'a, T> = Box<dyn Iterator<Item = Result<Arc<T>, StorageError>> + 'a>;
+
 /// This serves as the backing storage of resources, spans, events, and span
 /// events.
 ///
@@ -34,36 +42,53 @@ pub use transient::TransientStorage;
 /// on its "timestamp" (`timestamp` for events and span events, `created_at` for
 /// resources and spans).
 pub trait Storage {
-    fn get_resource(&self, at: Timestamp) -> Option<Arc<Resource>>;
-    fn get_span(&self, at: Timestamp) -> Option<Arc<Span>>;
-    fn get_span_event(&self, at: Timestamp) -> Option<Arc<SpanEvent>>;
-    fn get_event(&self, at: Timestamp) -> Option<Arc<Event>>;
+    fn get_resource(&self, at: Timestamp) -> Result<Arc<Resource>, StorageError>;
+    fn get_span(&self, at: Timestamp) -> Result<Arc<Span>, StorageError>;
+    fn get_span_event(&self, at: Timestamp) -> Result<Arc<SpanEvent>, StorageError>;
+    fn get_event(&self, at: Timestamp) -> Result<Arc<Event>, StorageError>;
 
-    fn get_all_resources(&self) -> Box<dyn Iterator<Item = Arc<Resource>> + '_>;
-    fn get_all_spans(&self) -> Box<dyn Iterator<Item = Arc<Span>> + '_>;
-    fn get_all_span_events(&self) -> Box<dyn Iterator<Item = Arc<SpanEvent>> + '_>;
-    fn get_all_events(&self) -> Box<dyn Iterator<Item = Arc<Event>> + '_>;
+    fn get_all_resources(&self) -> Result<StorageIter<'_, Resource>, StorageError>;
+    fn get_all_spans(&self) -> Result<StorageIter<'_, Span>, StorageError>;
+    fn get_all_span_events(&self) -> Result<StorageIter<'_, SpanEvent>, StorageError>;
+    fn get_all_events(&self) -> Result<StorageIter<'_, Event>, StorageError>;
 
-    fn insert_resource(&mut self, resource: Resource);
-    fn insert_span(&mut self, span: Span);
-    fn insert_span_event(&mut self, span_event: SpanEvent);
-    fn insert_event(&mut self, event: Event);
+    fn insert_resource(&mut self, resource: Resource) -> Result<(), StorageError>;
+    fn insert_span(&mut self, span: Span) -> Result<(), StorageError>;
+    fn insert_span_event(&mut self, span_event: SpanEvent) -> Result<(), StorageError>;
+    fn insert_event(&mut self, event: Event) -> Result<(), StorageError>;
 
-    fn update_span_closed(&mut self, at: Timestamp, closed: Timestamp, busy: Option<u64>);
-    fn update_span_attributes(&mut self, at: Timestamp, attributes: BTreeMap<String, Value>);
+    fn update_span_closed(
+        &mut self,
+        at: Timestamp,
+        closed: Timestamp,
+        busy: Option<u64>,
+    ) -> Result<(), StorageError>;
+    fn update_span_attributes(
+        &mut self,
+        at: Timestamp,
+        attributes: BTreeMap<String, Value>,
+    ) -> Result<(), StorageError>;
     fn update_span_link(
         &mut self,
         at: Timestamp,
         link: FullSpanId,
         attributes: BTreeMap<String, Value>,
-    );
-    fn update_span_parents(&mut self, parent_key: SpanKey, spans: &[SpanKey]);
-    fn update_event_parents(&mut self, parent_key: SpanKey, events: &[EventKey]);
+    ) -> Result<(), StorageError>;
+    fn update_span_parents(
+        &mut self,
+        parent_key: SpanKey,
+        spans: &[SpanKey],
+    ) -> Result<(), StorageError>;
+    fn update_event_parents(
+        &mut self,
+        parent_key: SpanKey,
+        events: &[EventKey],
+    ) -> Result<(), StorageError>;
 
-    fn drop_resources(&mut self, resources: &[Timestamp]);
-    fn drop_spans(&mut self, spans: &[Timestamp]);
-    fn drop_span_events(&mut self, span_events: &[Timestamp]);
-    fn drop_events(&mut self, events: &[Timestamp]);
+    fn drop_resources(&mut self, resources: &[Timestamp]) -> Result<(), StorageError>;
+    fn drop_spans(&mut self, spans: &[Timestamp]) -> Result<(), StorageError>;
+    fn drop_span_events(&mut self, span_events: &[Timestamp]) -> Result<(), StorageError>;
+    fn drop_events(&mut self, events: &[Timestamp]) -> Result<(), StorageError>;
 
     #[doc(hidden)]
     #[allow(private_interfaces)]
