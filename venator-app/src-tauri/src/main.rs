@@ -364,8 +364,8 @@ impl Args {
         } else {
             DatasetConfig::Default(
                 directories::ProjectDirs::from("", "", "Venator")
-                    .map(|dirs| dirs.data_dir().to_path_buf().join("local.db"))
-                    .unwrap_or(PathBuf::from("local.db")),
+                    .map(|dirs| dirs.data_dir().to_path_buf().join("default.db"))
+                    .unwrap_or(PathBuf::from("default.db")),
             )
         }
     }
