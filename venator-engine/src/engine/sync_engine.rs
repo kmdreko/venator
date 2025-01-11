@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
+use anyhow::{anyhow, Context, Error as AnyError};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tracing::instrument;
 
@@ -19,8 +20,6 @@ use crate::{
     SubscriptionResponse, Timestamp, UpdateSpanEvent, ValueOperator,
 };
 
-use super::EngineInsertError;
-
 /// Provides the core engine functionality.
 pub struct SyncEngine<S> {
     pub(crate) storage: S,
@@ -36,7 +35,7 @@ pub struct SyncEngine<S> {
 }
 
 impl<S: Storage> SyncEngine<S> {
-    pub fn new(storage: S) -> SyncEngine<S> {
+    pub fn new(storage: S) -> Result<SyncEngine<S>, AnyError> {
         let mut engine = SyncEngine {
             storage,
             span_indexes: SpanIndexes::new(),
@@ -55,44 +54,100 @@ impl<S: Storage> SyncEngine<S> {
         let resources = engine
             .storage
             .get_all_resources()
-            .unwrap()
+            .context("failed to load resources")?
             .collect::<Vec<_>>();
 
         for resource in resources {
-            engine.insert_resource_bookeeping(&resource.unwrap());
+            let resource = resource.context("failed to load resource")?;
+            engine.insert_resource_bookeeping(&resource);
         }
 
-        if let Some(indexes) = engine
+        let indexes_result = engine
             .storage
             .as_index_storage()
-            .and_then(|s| s.get_indexes())
-        {
-            let (span_indexes, span_event_indexes, event_indexes) = indexes;
+            .and_then(|s| s.get_indexes().transpose());
 
-            engine.span_indexes = span_indexes;
-            engine.span_event_indexes = span_event_indexes;
-            engine.event_indexes = event_indexes;
-        } else {
-            let spans = engine.storage.get_all_spans().unwrap().collect::<Vec<_>>();
+        match indexes_result {
+            Some(Ok(indexes)) => {
+                tracing::debug!("loaded indexes from storage");
 
-            for span in spans {
-                engine.insert_span_bookeeping(&span.unwrap());
+                let (span_indexes, span_event_indexes, event_indexes) = indexes;
+
+                engine.span_indexes = span_indexes;
+                engine.span_event_indexes = span_event_indexes;
+                engine.event_indexes = event_indexes;
             }
+            Some(Err(err)) => {
+                tracing::debug!(?err, "warn failed to load indexes from storage");
 
-            let span_events = engine
-                .storage
-                .get_all_span_events()
-                .unwrap()
-                .collect::<Vec<_>>();
+                let spans = engine
+                    .storage
+                    .get_all_spans()
+                    .context("failed to load spans")?
+                    .collect::<Vec<_>>();
 
-            for span_event in span_events {
-                engine.insert_span_event_bookeeping(&span_event.unwrap());
+                for span in spans {
+                    let span = span.context("failed to load span")?;
+                    engine.insert_span_bookeeping(&span);
+                }
+
+                let span_events = engine
+                    .storage
+                    .get_all_span_events()
+                    .context("failed to load span events")?
+                    .collect::<Vec<_>>();
+
+                for span_event in span_events {
+                    let span_event = span_event.context("failed to load span event")?;
+                    engine.insert_span_event_bookeeping(&span_event);
+                }
+
+                let events = engine
+                    .storage
+                    .get_all_events()
+                    .context("failed to load events")?
+                    .collect::<Vec<_>>();
+
+                for event in events {
+                    let event = event.context("failed to load event")?;
+                    engine.insert_event_bookeeping(&event);
+                }
             }
+            None => {
+                tracing::debug!("no indexes from storage");
 
-            let events = engine.storage.get_all_events().unwrap().collect::<Vec<_>>();
+                let spans = engine
+                    .storage
+                    .get_all_spans()
+                    .context("failed to load spans")?
+                    .collect::<Vec<_>>();
 
-            for event in events {
-                engine.insert_event_bookeeping(&event.unwrap());
+                for span in spans {
+                    let span = span.context("failed to load span")?;
+                    engine.insert_span_bookeeping(&span);
+                }
+
+                let span_events = engine
+                    .storage
+                    .get_all_span_events()
+                    .context("failed to load span events")?
+                    .collect::<Vec<_>>();
+
+                for span_event in span_events {
+                    let span_event = span_event.context("failed to load span event")?;
+                    engine.insert_span_event_bookeeping(&span_event);
+                }
+
+                let events = engine
+                    .storage
+                    .get_all_events()
+                    .context("failed to load events")?
+                    .collect::<Vec<_>>();
+
+                for event in events {
+                    let event = event.context("failed to load event")?;
+                    engine.insert_event_bookeeping(&event);
+                }
             }
         }
 
@@ -113,11 +168,11 @@ impl<S: Storage> SyncEngine<S> {
                 engine
                     .storage
                     .update_span_closed(span_key, at, None)
-                    .unwrap();
+                    .context("failed to close span")?;
             }
         }
 
-        engine
+        Ok(engine)
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -127,7 +182,12 @@ impl<S: Storage> SyncEngine<S> {
         let limit = query.limit;
         IndexedEventFilterIterator::new(query, self)
             .take(limit)
-            .map(|event_key| self.storage.get_event(event_key).unwrap())
+            .filter_map(|event_key| {
+                self.storage
+                    .get_event(event_key)
+                    .inspect_err(|err| tracing::warn!(?err, "failed to load event"))
+                    .ok()
+            })
             .map(|event| EventContext::with_event(&event, &self.storage).render())
             .collect()
     }
@@ -151,7 +211,12 @@ impl<S: Storage> SyncEngine<S> {
         let limit = query.limit;
         IndexedSpanFilterIterator::new(query, self)
             .take(limit)
-            .map(|span_key| self.storage.get_span(span_key).unwrap())
+            .filter_map(|span_key| {
+                self.storage
+                    .get_span(span_key)
+                    .inspect_err(|err| tracing::warn!(?err, "failed to load span"))
+                    .ok()
+            })
             .map(|span| SpanContext::with_span(&span, &self.storage).render())
             .collect()
     }
@@ -192,10 +257,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn insert_resource(
-        &mut self,
-        resource: NewResource,
-    ) -> Result<ResourceKey, EngineInsertError> {
+    pub fn insert_resource(&mut self, resource: NewResource) -> Result<ResourceKey, AnyError> {
         tracing::debug!(?resource, "inserting resource");
 
         if let Some((key, _)) = self
@@ -215,7 +277,9 @@ impl<S: Storage> SyncEngine<S> {
         };
 
         self.insert_resource_bookeeping(&resource);
-        self.storage.insert_resource(resource).unwrap();
+        self.storage
+            .insert_resource(resource)
+            .context("failed to insert resource")?;
 
         Ok(resource_key)
     }
@@ -225,10 +289,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn disconnect_tracing_instance(
-        &mut self,
-        instance_id: InstanceId,
-    ) -> Result<(), EngineInsertError> {
+    pub fn disconnect_tracing_instance(&mut self, instance_id: InstanceId) -> Result<(), AnyError> {
         tracing::debug!(instance_id, "disconnecting tracing instance");
 
         let at = now();
@@ -249,7 +310,9 @@ impl<S: Storage> SyncEngine<S> {
 
         for span_key in open_spans {
             self.span_indexes.update_with_closed(span_key, at);
-            self.storage.update_span_closed(span_key, at, None).unwrap();
+            self.storage
+                .update_span_closed(span_key, at, None)
+                .context("failed to close span")?;
         }
 
         Ok(())
@@ -259,7 +322,7 @@ impl<S: Storage> SyncEngine<S> {
     pub fn insert_span_event(
         &mut self,
         mut new_span_event: NewSpanEvent,
-    ) -> Result<SpanEventKey, EngineInsertError> {
+    ) -> Result<SpanEventKey, AnyError> {
         tracing::debug!(span_event = ?new_span_event, "inserting span event");
 
         let span_event_key =
@@ -269,7 +332,7 @@ impl<S: Storage> SyncEngine<S> {
         match new_span_event.kind {
             NewSpanEventKind::Create(new_create_event) => {
                 if self.span_indexes.ids.contains_key(&new_span_event.span_id) {
-                    return Err(EngineInsertError::DuplicateSpanId);
+                    return Err(anyhow::anyhow!("duplicate span id"));
                 }
 
                 // parent may not yet exist, that is ok
@@ -320,16 +383,20 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 let (child_spans, child_events) = self.insert_span_bookeeping(&span);
-                self.storage.insert_span(span.clone()).unwrap();
+                self.storage
+                    .insert_span(span.clone())
+                    .context("failed to insert span")?;
                 self.storage
                     .update_span_parents(span.key(), &child_spans)
-                    .unwrap();
+                    .context("failed to update span parents")?;
                 self.storage
                     .update_event_parents(span.key(), &child_events)
-                    .unwrap();
+                    .context("failed to update event parents")?;
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event).unwrap();
+                self.storage
+                    .insert_span_event(span_event)
+                    .context("failed to insert span event")?;
 
                 if !self.event_subscribers.is_empty() {
                     let root = SpanContext::with_span(&span, &self.storage).trace_root();
@@ -397,7 +464,7 @@ impl<S: Storage> SyncEngine<S> {
                     .ids
                     .get(&new_span_event.span_id)
                     .copied()
-                    .ok_or(EngineInsertError::UnknownSpanId)?;
+                    .ok_or(anyhow!("unknown span id"))?;
 
                 let span = SpanContext::new(span_key, &self.storage);
                 let trace = span.trace_root();
@@ -462,10 +529,12 @@ impl<S: Storage> SyncEngine<S> {
 
                 self.storage
                     .update_span_attributes(span_key, new_update_event.attributes)
-                    .unwrap();
+                    .context("failed to update span attributes")?;
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event).unwrap();
+                self.storage
+                    .insert_span_event(span_event)
+                    .context("failed to insert span event")?;
 
                 if !self.event_subscribers.is_empty() {
                     let descendent_events = self
@@ -527,10 +596,10 @@ impl<S: Storage> SyncEngine<S> {
                     .ids
                     .get(&new_span_event.span_id)
                     .copied()
-                    .ok_or(EngineInsertError::UnknownSpanId)?;
+                    .ok_or(anyhow!("unknown span id"))?;
 
                 let FullSpanId::Tracing(instance_id, _) = new_span_event.span_id else {
-                    return Err(EngineInsertError::InvalidSpanIdKind);
+                    return Err(anyhow!("invalid span kind, expected tracing"));
                 };
 
                 let follows_span_id = FullSpanId::Tracing(instance_id, new_follows_event.follows);
@@ -539,7 +608,7 @@ impl<S: Storage> SyncEngine<S> {
                     .ids
                     .get(&follows_span_id)
                     .copied()
-                    .ok_or(EngineInsertError::UnknownSpanId)?;
+                    .ok_or(anyhow!("unknown span id"))?;
 
                 // TODO: check against circular following
                 // TODO: check against duplicates
@@ -554,10 +623,12 @@ impl<S: Storage> SyncEngine<S> {
 
                 self.storage
                     .update_span_link(span_key, follows_span_id, BTreeMap::new())
-                    .unwrap();
+                    .context("failed to update span link")?;
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event).unwrap();
+                self.storage
+                    .insert_span_event(span_event)
+                    .context("failed to insert span event")?;
             }
             NewSpanEventKind::Enter(new_enter_event) => {
                 let span_key = self
@@ -565,7 +636,7 @@ impl<S: Storage> SyncEngine<S> {
                     .ids
                     .get(&new_span_event.span_id)
                     .copied()
-                    .ok_or(EngineInsertError::UnknownSpanId)?;
+                    .ok_or(anyhow!("unknown span id"))?;
 
                 let span_event = SpanEvent {
                     timestamp: new_span_event.timestamp,
@@ -576,7 +647,9 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event).unwrap();
+                self.storage
+                    .insert_span_event(span_event)
+                    .context("failed to insert span event")?;
             }
             NewSpanEventKind::Exit => {
                 let span_key = self
@@ -584,7 +657,7 @@ impl<S: Storage> SyncEngine<S> {
                     .ids
                     .get(&new_span_event.span_id)
                     .copied()
-                    .ok_or(EngineInsertError::UnknownSpanId)?;
+                    .ok_or(anyhow!("unknown span id"))?;
 
                 let span_event = SpanEvent {
                     timestamp: new_span_event.timestamp,
@@ -593,7 +666,9 @@ impl<S: Storage> SyncEngine<S> {
                 };
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event).unwrap();
+                self.storage
+                    .insert_span_event(span_event)
+                    .context("failed to insert span event")?;
             }
             NewSpanEventKind::Close(new_close_event) => {
                 let span_key = self
@@ -601,7 +676,7 @@ impl<S: Storage> SyncEngine<S> {
                     .ids
                     .get(&new_span_event.span_id)
                     .copied()
-                    .ok_or(EngineInsertError::UnknownSpanId)?;
+                    .ok_or(anyhow!("unknown span id"))?;
 
                 let busy = if let Some(busy) = new_close_event.busy {
                     Some(busy)
@@ -609,7 +684,10 @@ impl<S: Storage> SyncEngine<S> {
                     let mut busy = 0;
                     let mut last_enter = None;
                     for span_event_key in &self.span_event_indexes.spans[&span_key] {
-                        let span_event = self.storage.get_span_event(*span_event_key).unwrap();
+                        let Ok(span_event) = self.storage.get_span_event(*span_event_key) else {
+                            tracing::warn!("failed to get span event, ignoring");
+                            continue;
+                        };
                         match &span_event.kind {
                             SpanEventKind::Enter(_) => {
                                 last_enter = Some(span_event.timestamp);
@@ -642,10 +720,12 @@ impl<S: Storage> SyncEngine<S> {
 
                 self.storage
                     .update_span_closed(span_key, new_span_event.timestamp, busy)
-                    .unwrap();
+                    .context("failed to close span")?;
 
                 self.insert_span_event_bookeeping(&span_event);
-                self.storage.insert_span_event(span_event).unwrap();
+                self.storage
+                    .insert_span_event(span_event)
+                    .context("failed to insert span event")?;
             }
         }
 
@@ -721,7 +801,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn insert_event(&mut self, mut new_event: NewEvent) -> Result<(), EngineInsertError> {
+    pub fn insert_event(&mut self, mut new_event: NewEvent) -> Result<(), AnyError> {
         let event_key = get_unique_timestamp(new_event.timestamp, &self.event_indexes.all);
         new_event.timestamp = event_key;
 
@@ -746,7 +826,9 @@ impl<S: Storage> SyncEngine<S> {
         };
 
         self.insert_event_bookeeping(&event);
-        self.storage.insert_event(event.clone()).unwrap();
+        self.storage
+            .insert_event(event.clone())
+            .context("failed to insert event")?;
 
         let context = EventContext::with_event(&event, &self.storage);
         for subscriber in self.event_subscribers.values_mut() {
@@ -764,7 +846,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn delete(&mut self, filter: DeleteFilter) -> DeleteMetrics {
+    pub fn delete(&mut self, filter: DeleteFilter) -> Result<DeleteMetrics, AnyError> {
         // TODO: clean up resources as well
 
         let root_spans =
@@ -810,11 +892,11 @@ impl<S: Storage> SyncEngine<S> {
             .collect::<Vec<SpanEventKey>>();
 
         if filter.dry_run {
-            return DeleteMetrics {
+            return Ok(DeleteMetrics {
                 spans: spans_from_root_spans.len(),
                 span_events: span_events.len(),
                 events: root_events.len() + events_from_root_spans.len(),
-            };
+            });
         }
 
         let mut spans_to_delete = spans_from_root_spans;
@@ -829,11 +911,15 @@ impl<S: Storage> SyncEngine<S> {
         // drop smaller scoped entities from storage first to avoid integrity
         // issues if things go wrong
 
-        self.storage.drop_events(&events_to_delete).unwrap();
+        self.storage
+            .drop_events(&events_to_delete)
+            .context("failed to drop events")?;
         self.storage
             .drop_span_events(&span_events_to_delete)
-            .unwrap();
-        self.storage.drop_spans(&spans_to_delete).unwrap();
+            .context("failed to drop span events")?;
+        self.storage
+            .drop_spans(&spans_to_delete)
+            .context("failed to drop spans")?;
 
         // remove smaller scoped entities from indexes last for some efficiency
 
@@ -841,11 +927,11 @@ impl<S: Storage> SyncEngine<S> {
         self.remove_span_events_bookeeping(&span_events_to_delete);
         self.remove_events_bookeeping(&events_to_delete);
 
-        DeleteMetrics {
+        Ok(DeleteMetrics {
             spans: spans_to_delete.len(),
             span_events: span_events_to_delete.len(),
             events: events_to_delete.len(),
-        }
+        })
     }
 
     fn get_root_spans_in_range_filter(
@@ -921,54 +1007,82 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn copy_dataset(&self, mut to: Box<dyn Storage + Send>) {
+    pub fn copy_dataset(
+        &self,
+        mut target_storage: Box<dyn Storage + Send>,
+    ) -> Result<(), AnyError> {
         let resources = self
             .storage
             .get_all_resources()
-            .unwrap()
+            .context("failed to get resources")?
             .collect::<Vec<_>>();
 
         for resource in resources {
-            to.insert_resource((*resource.unwrap()).clone()).unwrap();
+            let resource = resource.context("failed to get resource")?;
+            target_storage
+                .insert_resource((*resource).clone())
+                .context("failed to insert resource")?;
         }
 
-        let spans = self.storage.get_all_spans().unwrap().collect::<Vec<_>>();
+        let spans = self
+            .storage
+            .get_all_spans()
+            .context("failed to get spans")?
+            .collect::<Vec<_>>();
 
         for span in spans {
-            to.insert_span((*span.unwrap()).clone()).unwrap();
+            let span = span.context("failed to get span")?;
+            target_storage
+                .insert_span((*span).clone())
+                .context("failed to insert span")?;
         }
 
         let span_events = self
             .storage
             .get_all_span_events()
-            .unwrap()
+            .context("failed to get span events")?
             .collect::<Vec<_>>();
 
         for span_event in span_events {
-            to.insert_span_event((*span_event.unwrap()).clone())
-                .unwrap();
+            let span_event = span_event.context("failed to get span event")?;
+            target_storage
+                .insert_span_event((*span_event).clone())
+                .context("failed to insert span event")?;
         }
 
-        let events = self.storage.get_all_events().unwrap().collect::<Vec<_>>();
+        let events = self
+            .storage
+            .get_all_events()
+            .context("failed to get events")?
+            .collect::<Vec<_>>();
 
         for event in events {
-            to.insert_event((*event.unwrap()).clone()).unwrap();
+            let event = event.context("failed to get event")?;
+            target_storage
+                .insert_event((*event).clone())
+                .context("failed to insert event")?;
         }
+
+        Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn subscribe_to_spans(
         &mut self,
         filter: Vec<FilterPredicate>,
-    ) -> (
-        SubscriptionId,
-        UnboundedReceiver<SubscriptionResponse<SpanView>>,
-    ) {
+    ) -> Result<
+        (
+            SubscriptionId,
+            UnboundedReceiver<SubscriptionResponse<SpanView>>,
+        ),
+        AnyError,
+    > {
         let mut filter = BasicSpanFilter::And(
             filter
                 .into_iter()
-                .map(|p| BasicSpanFilter::from_predicate(p, &self.span_indexes.ids).unwrap())
-                .collect(),
+                .map(|p| BasicSpanFilter::from_predicate(p, &self.span_indexes.ids))
+                .collect::<Result<_, _>>()
+                .context("invalid span filter")?,
         );
         filter.simplify();
 
@@ -980,7 +1094,7 @@ impl<S: Storage> SyncEngine<S> {
         self.span_subscribers
             .insert(id, SpanSubscription::new(filter, sender));
 
-        (id, receiver)
+        Ok((id, receiver))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -992,15 +1106,19 @@ impl<S: Storage> SyncEngine<S> {
     pub fn subscribe_to_events(
         &mut self,
         filter: Vec<FilterPredicate>,
-    ) -> (
-        SubscriptionId,
-        UnboundedReceiver<SubscriptionResponse<EventView>>,
-    ) {
+    ) -> Result<
+        (
+            SubscriptionId,
+            UnboundedReceiver<SubscriptionResponse<EventView>>,
+        ),
+        AnyError,
+    > {
         let mut filter = BasicEventFilter::And(
             filter
                 .into_iter()
-                .map(|p| BasicEventFilter::from_predicate(p, &self.span_indexes.ids).unwrap())
-                .collect(),
+                .map(|p| BasicEventFilter::from_predicate(p, &self.span_indexes.ids))
+                .collect::<Result<_, _>>()
+                .context("invalid event filter")?,
         );
         filter.simplify();
 
@@ -1012,7 +1130,7 @@ impl<S: Storage> SyncEngine<S> {
         self.event_subscribers
             .insert(id, EventSubscription::new(filter, sender));
 
-        (id, receiver)
+        Ok((id, receiver))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -1021,14 +1139,17 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn save(&mut self) {
+    pub fn save(&mut self) -> Result<(), AnyError> {
         if let Some(s) = self.storage.as_index_storage_mut() {
             s.update_indexes(
                 &self.span_indexes,
                 &self.span_event_indexes,
                 &self.event_indexes,
-            );
+            )
+            .context("failed to update indexes")?;
         }
+
+        Ok(())
     }
 }
 
@@ -1075,7 +1196,7 @@ mod tests {
 
     #[test]
     fn test_event_filters() {
-        let mut engine = SyncEngine::new(TransientStorage::new());
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
 
         let resource_key = engine
             .insert_resource(NewResource {
@@ -1132,7 +1253,7 @@ mod tests {
 
     #[test]
     fn test_span_filters() {
-        let mut engine = SyncEngine::new(TransientStorage::new());
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
 
         let resource_key = engine
             .insert_resource(NewResource {
@@ -1224,7 +1345,7 @@ mod tests {
 
     #[test]
     fn event_found_with_resource_attribute() {
-        let mut engine = SyncEngine::new(TransientStorage::new());
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
 
         let resource_key = engine
             .insert_resource(NewResource {
@@ -1275,7 +1396,7 @@ mod tests {
 
     #[test]
     fn event_found_with_inherent_attribute() {
-        let mut engine = SyncEngine::new(TransientStorage::new());
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
 
         let resource_key = engine
             .insert_resource(NewResource {
@@ -1326,7 +1447,7 @@ mod tests {
 
     #[test]
     fn event_found_with_span_attribute() {
-        let mut engine = SyncEngine::new(TransientStorage::new());
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
 
         let resource_key = engine
             .insert_resource(NewResource {
@@ -1401,7 +1522,7 @@ mod tests {
 
     #[test]
     fn event_found_with_nonindexed_updated_span_attribute() {
-        let mut engine = SyncEngine::new(TransientStorage::new());
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
 
         let resource_key = engine
             .insert_resource(NewResource {
@@ -1486,7 +1607,7 @@ mod tests {
 
     #[test]
     fn event_found_with_indexed_updated_span_attribute() {
-        let mut engine = SyncEngine::new(TransientStorage::new());
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
 
         let resource_key = engine
             .insert_resource(NewResource {

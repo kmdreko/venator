@@ -687,11 +687,13 @@ impl Storage for FileStorage {
 
 impl IndexStorage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)> {
+    fn get_indexes(
+        &self,
+    ) -> Result<Option<(SpanIndexes, SpanEventIndexes, EventIndexes)>, StorageError> {
         use bincode::DefaultOptions;
 
         if self.index_state == IndexState::Stale {
-            return None;
+            return Ok(None);
         }
 
         let span_index_data: Vec<u8> = self
@@ -699,7 +701,7 @@ impl IndexStorage for FileStorage {
             .query_row("SELECT data FROM indexes WHERE kind = 'spans'", (), |row| {
                 row.get(0)
             })
-            .unwrap();
+            .map_err(FileStorageError::Query)?;
 
         let span_event_index_data: Vec<u8> = self
             .connection
@@ -708,7 +710,7 @@ impl IndexStorage for FileStorage {
                 (),
                 |row| row.get(0),
             )
-            .unwrap();
+            .map_err(FileStorageError::Query)?;
 
         let event_index_data: Vec<u8> = self
             .connection
@@ -717,7 +719,7 @@ impl IndexStorage for FileStorage {
                 (),
                 |row| row.get(0),
             )
-            .unwrap();
+            .map_err(FileStorageError::Query)?;
 
         let bincode_options = DefaultOptions::new().with_fixint_encoding();
 
@@ -725,7 +727,7 @@ impl IndexStorage for FileStorage {
         let span_event_indexes = bincode_options.deserialize(&span_event_index_data).unwrap();
         let event_indexes = bincode_options.deserialize(&event_index_data).unwrap();
 
-        Some((span_indexes, span_event_indexes, event_indexes))
+        Ok(Some((span_indexes, span_event_indexes, event_indexes)))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
@@ -734,7 +736,7 @@ impl IndexStorage for FileStorage {
         span_indexes: &SpanIndexes,
         span_event_indexes: &SpanEventIndexes,
         event_indexes: &EventIndexes,
-    ) {
+    ) -> Result<(), StorageError> {
         use bincode::DefaultOptions;
 
         let bincode_options = DefaultOptions::new().with_fixint_encoding();
@@ -758,6 +760,8 @@ impl IndexStorage for FileStorage {
             .unwrap();
 
         tx.commit().unwrap();
+
+        Ok(())
     }
 }
 

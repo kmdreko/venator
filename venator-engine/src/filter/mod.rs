@@ -7,6 +7,7 @@
 //! - validated by calling [`validate_event_filter`] or [`validate_span_filter`]
 //! - put in a [`Query`] to be passed to the engine query methods
 
+use std::error::Error as StdError;
 use std::fmt::{Display, Error as FmtError, Formatter};
 
 use serde::Deserialize;
@@ -96,6 +97,8 @@ impl Display for InputError {
         }
     }
 }
+
+impl StdError for InputError {}
 
 pub(crate) struct FileFilter {
     name: ValueStringComparison,

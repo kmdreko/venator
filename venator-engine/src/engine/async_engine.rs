@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::time::Instant;
 
+use anyhow::Error as AnyError;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{self, Sender as OneshotSender};
 use tracing::instrument;
@@ -13,7 +14,7 @@ use crate::{
     SubscriptionResponse,
 };
 
-use super::{EngineInsertError, SyncEngine};
+use super::SyncEngine;
 
 /// Provides the core engine functionality with an async interface.
 ///
@@ -34,7 +35,7 @@ impl AsyncEngine {
             mpsc::unbounded_channel::<(tracing::Span, EngineCommand)>();
 
         std::thread::spawn(move || {
-            let mut engine = SyncEngine::new(storage);
+            let mut engine = SyncEngine::new(storage).unwrap();
 
             let mut last_check = Instant::now();
             let mut computed_ms_since_last_check: u128 = 0;
@@ -111,11 +112,11 @@ impl AsyncEngine {
                         let _ = sender.send(res);
                     }
                     EngineCommand::Delete(filter, sender) => {
-                        let metrics = engine.delete(filter);
+                        let metrics = engine.delete(filter).unwrap();
                         let _ = sender.send(metrics);
                     }
                     EngineCommand::SpanSubscribe(filter, sender) => {
-                        let res = engine.subscribe_to_spans(filter);
+                        let res = engine.subscribe_to_spans(filter).unwrap();
                         let _ = sender.send(res);
                     }
                     EngineCommand::SpanUnsubscribe(id, sender) => {
@@ -123,7 +124,7 @@ impl AsyncEngine {
                         let _ = sender.send(());
                     }
                     EngineCommand::EventSubscribe(filter, sender) => {
-                        let res = engine.subscribe_to_events(filter);
+                        let res = engine.subscribe_to_events(filter).unwrap();
                         let _ = sender.send(res);
                     }
                     EngineCommand::EventUnsubscribe(id, sender) => {
@@ -131,7 +132,7 @@ impl AsyncEngine {
                         let _ = sender.send(());
                     }
                     EngineCommand::CopyDataset(to, sender) => {
-                        engine.copy_dataset(to);
+                        engine.copy_dataset(to).unwrap();
                         let _ = sender.send(());
                     }
                     EngineCommand::GetStatus(sender) => {
@@ -148,7 +149,7 @@ impl AsyncEngine {
                         });
                     }
                     EngineCommand::Save(sender) => {
-                        engine.save();
+                        engine.save().unwrap();
                         let _ = sender.send(());
                     }
                 }
@@ -233,7 +234,7 @@ impl AsyncEngine {
     pub fn insert_resource(
         &self,
         resource: NewResource,
-    ) -> impl Future<Output = Result<ResourceKey, EngineInsertError>> {
+    ) -> impl Future<Output = Result<ResourceKey, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.insert_sender.send((
             tracing::Span::current(),
@@ -246,7 +247,7 @@ impl AsyncEngine {
     pub fn disconnect_tracing_instance(
         &self,
         id: InstanceId,
-    ) -> impl Future<Output = Result<(), EngineInsertError>> {
+    ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.insert_sender.send((
             tracing::Span::current(),
@@ -259,7 +260,7 @@ impl AsyncEngine {
     pub fn insert_span_event(
         &self,
         span_event: NewSpanEvent,
-    ) -> impl Future<Output = Result<SpanKey, EngineInsertError>> {
+    ) -> impl Future<Output = Result<SpanKey, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.insert_sender.send((
             tracing::Span::current(),
@@ -269,10 +270,7 @@ impl AsyncEngine {
     }
 
     #[instrument(skip_all)]
-    pub fn insert_event(
-        &self,
-        event: NewEvent,
-    ) -> impl Future<Output = Result<(), EngineInsertError>> {
+    pub fn insert_event(&self, event: NewEvent) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.insert_sender.send((
             tracing::Span::current(),
@@ -383,16 +381,10 @@ enum EngineCommand {
     QueryEvent(Query, OneshotSender<Vec<EventView>>),
     QueryEventCount(Query, OneshotSender<usize>),
     QueryStats(OneshotSender<StatsView>),
-    InsertResource(
-        NewResource,
-        OneshotSender<Result<ResourceKey, EngineInsertError>>,
-    ),
-    DisconnectTracingInstance(InstanceId, OneshotSender<Result<(), EngineInsertError>>),
-    InsertSpanEvent(
-        NewSpanEvent,
-        OneshotSender<Result<SpanKey, EngineInsertError>>,
-    ),
-    InsertEvent(NewEvent, OneshotSender<Result<(), EngineInsertError>>),
+    InsertResource(NewResource, OneshotSender<Result<ResourceKey, AnyError>>),
+    DisconnectTracingInstance(InstanceId, OneshotSender<Result<(), AnyError>>),
+    InsertSpanEvent(NewSpanEvent, OneshotSender<Result<SpanKey, AnyError>>),
+    InsertEvent(NewEvent, OneshotSender<Result<(), AnyError>>),
     Delete(DeleteFilter, OneshotSender<DeleteMetrics>),
 
     SpanSubscribe(

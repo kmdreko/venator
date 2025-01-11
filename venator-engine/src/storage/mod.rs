@@ -11,6 +11,8 @@
 //! implementation must rebuild indexes based on `get_all_*` calls on startup.
 
 use std::collections::BTreeMap;
+use std::error::Error as StdError;
+use std::fmt::{Display, Error as FmtError, Formatter};
 use std::sync::Arc;
 
 mod cached;
@@ -27,11 +29,22 @@ pub use cached::CachedStorage;
 pub use file::FileStorage;
 pub use transient::TransientStorage;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StorageError {
     NotFound,
     Internal(String),
 }
+
+impl Display for StorageError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            StorageError::NotFound => write!(f, "not found"),
+            StorageError::Internal(s) => write!(f, "internal: {s}"),
+        }
+    }
+}
+
+impl StdError for StorageError {}
 
 pub type StorageIter<'a, T> = Box<dyn Iterator<Item = Result<Arc<T>, StorageError>> + 'a>;
 
@@ -104,11 +117,13 @@ pub trait Storage {
 }
 
 pub(crate) trait IndexStorage {
-    fn get_indexes(&self) -> Option<(SpanIndexes, SpanEventIndexes, EventIndexes)>;
+    fn get_indexes(
+        &self,
+    ) -> Result<Option<(SpanIndexes, SpanEventIndexes, EventIndexes)>, StorageError>;
     fn update_indexes(
         &mut self,
         span_indexes: &SpanIndexes,
         span_event_indexes: &SpanEventIndexes,
         event_indexes: &EventIndexes,
-    );
+    ) -> Result<(), StorageError>;
 }
