@@ -1075,6 +1075,10 @@ function App() {
         let updated_column_datas = [...current_column_datas];
 
         let defs = current_column_datas[current_selected_screen].columns;
+        if (i >= defs.length) {
+            return;
+        }
+
         defs.splice(i, 1, def as any);
 
         let current_columns_widths = current_column_datas[current_selected_screen].columnWidths;
