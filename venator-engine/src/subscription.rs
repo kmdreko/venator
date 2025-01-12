@@ -3,7 +3,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::context::{EventContext, SpanContext};
 use crate::filter::{BasicEventFilter, BasicSpanFilter, BoundSearch};
 use crate::models::EventKey;
-use crate::{EventView, SpanKey, SpanView, Storage, Timestamp};
+use crate::{ComposedEvent, SpanKey, ComposedSpan, Storage, Timestamp};
 
 pub type SubscriptionId = usize;
 pub type Subscriber<T> = (SubscriptionId, UnboundedReceiver<SubscriptionResponse<T>>);
@@ -15,14 +15,14 @@ pub enum SubscriptionResponse<T> {
 
 pub(crate) struct EventSubscription {
     filter: BasicEventFilter,
-    sender: UnboundedSender<SubscriptionResponse<EventView>>,
+    sender: UnboundedSender<SubscriptionResponse<ComposedEvent>>,
     cache: Vec<EventKey>,
 }
 
 impl EventSubscription {
     pub(crate) fn new(
         filter: BasicEventFilter,
-        sender: UnboundedSender<SubscriptionResponse<EventView>>,
+        sender: UnboundedSender<SubscriptionResponse<ComposedEvent>>,
     ) -> EventSubscription {
         EventSubscription {
             filter,
@@ -70,14 +70,14 @@ impl EventSubscription {
 
 pub(crate) struct SpanSubscription {
     filter: BasicSpanFilter,
-    sender: UnboundedSender<SubscriptionResponse<SpanView>>,
+    sender: UnboundedSender<SubscriptionResponse<ComposedSpan>>,
     cache: Vec<SpanKey>,
 }
 
 impl SpanSubscription {
     pub(crate) fn new(
         filter: BasicSpanFilter,
-        sender: UnboundedSender<SubscriptionResponse<SpanView>>,
+        sender: UnboundedSender<SubscriptionResponse<ComposedSpan>>,
     ) -> SpanSubscription {
         SpanSubscription {
             filter,

@@ -14,9 +14,9 @@ use crate::models::{CloseSpanEvent, EnterSpanEvent, EventKey, FollowsSpanEvent};
 use crate::storage::Storage;
 use crate::subscription::{EventSubscription, SpanSubscription, Subscriber};
 use crate::{
-    CreateSpanEvent, DeleteFilter, DeleteMetrics, Event, EventView, FullSpanId, InstanceId,
+    CreateSpanEvent, DeleteFilter, DeleteMetrics, Event, ComposedEvent, FullSpanId, InstanceId,
     NewEvent, NewResource, NewSpanEvent, NewSpanEventKind, Resource, ResourceKey, Span, SpanEvent,
-    SpanEventKey, SpanEventKind, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
+    SpanEventKey, SpanEventKind, SpanKey, ComposedSpan, DatasetStats, SubscriptionId, Timestamp,
     UpdateSpanEvent, ValueOperator,
 };
 
@@ -176,7 +176,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn query_event(&self, query: Query) -> Vec<EventView> {
+    pub fn query_event(&self, query: Query) -> Vec<ComposedEvent> {
         tracing::debug!(?query, "querying for events");
 
         let limit = query.limit;
@@ -205,7 +205,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn query_span(&self, query: Query) -> Vec<SpanView> {
+    pub fn query_span(&self, query: Query) -> Vec<ComposedSpan> {
         tracing::debug!(?query, "querying for spans");
 
         let limit = query.limit;
@@ -240,7 +240,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn query_stats(&self) -> StatsView {
+    pub fn query_stats(&self) -> DatasetStats {
         tracing::debug!("querying for stats");
 
         let event_start = self.event_indexes.all.first().copied();
@@ -248,7 +248,7 @@ impl<S: Storage> SyncEngine<S> {
         let span_start = self.span_indexes.all.first().copied();
         let span_end = self.span_indexes.all.last().copied(); // TODO: not technically right, but maybe okay
 
-        StatsView {
+        DatasetStats {
             start: crate::filter::merge(event_start, span_start, Ord::min),
             end: crate::filter::merge(event_end, span_end, Ord::max),
             total_events: self.event_indexes.all.len(),
@@ -1070,7 +1070,7 @@ impl<S: Storage> SyncEngine<S> {
     pub fn subscribe_to_spans(
         &mut self,
         filter: Vec<FilterPredicate>,
-    ) -> Result<Subscriber<SpanView>, AnyError> {
+    ) -> Result<Subscriber<ComposedSpan>, AnyError> {
         let mut filter = BasicSpanFilter::And(
             filter
                 .into_iter()
@@ -1100,7 +1100,7 @@ impl<S: Storage> SyncEngine<S> {
     pub fn subscribe_to_events(
         &mut self,
         filter: Vec<FilterPredicate>,
-    ) -> Result<Subscriber<EventView>, AnyError> {
+    ) -> Result<Subscriber<ComposedEvent>, AnyError> {
         let mut filter = BasicEventFilter::And(
             filter
                 .into_iter()

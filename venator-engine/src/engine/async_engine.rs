@@ -11,8 +11,9 @@ use crate::filter::{FilterPredicate, Query};
 use crate::storage::Storage;
 use crate::subscription::Subscriber;
 use crate::{
-    DeleteFilter, DeleteMetrics, EngineStatusView, EventView, InstanceId, NewEvent, NewResource,
-    NewSpanEvent, ResourceKey, SpanEvent, SpanKey, SpanView, StatsView, SubscriptionId,
+    ComposedEvent, ComposedSpan, DatasetStats, DeleteFilter, DeleteMetrics, EngineStatus,
+    InstanceId, NewEvent, NewResource, NewSpanEvent, ResourceKey, SpanEvent, SpanKey,
+    SubscriptionId,
 };
 
 use super::SyncEngine;
@@ -145,7 +146,7 @@ impl AsyncEngine {
 
                         let load = computed_ms as f64 / elapsed_ms as f64;
 
-                        let _ = sender.send(EngineStatusView {
+                        let _ = sender.send(EngineStatus {
                             load: load.min(1.0) * 100.0,
                         });
                     }
@@ -175,7 +176,7 @@ impl AsyncEngine {
     pub fn query_span(
         &self,
         query: Query,
-    ) -> impl Future<Output = Result<Vec<SpanView>, AnyError>> {
+    ) -> impl Future<Output = Result<Vec<ComposedSpan>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
@@ -215,7 +216,7 @@ impl AsyncEngine {
     pub fn query_event(
         &self,
         query: Query,
-    ) -> impl Future<Output = Result<Vec<EventView>, AnyError>> {
+    ) -> impl Future<Output = Result<Vec<ComposedEvent>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
@@ -237,7 +238,7 @@ impl AsyncEngine {
 
     // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_stats(&self) -> impl Future<Output = Result<StatsView, AnyError>> {
+    pub fn query_stats(&self) -> impl Future<Output = Result<DatasetStats, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -311,7 +312,7 @@ impl AsyncEngine {
     pub fn subscribe_to_spans(
         &self,
         filter: Vec<FilterPredicate>,
-    ) -> impl Future<Output = Result<Subscriber<SpanView>, AnyError>> {
+    ) -> impl Future<Output = Result<Subscriber<ComposedSpan>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
@@ -337,7 +338,7 @@ impl AsyncEngine {
     pub fn subscribe_to_events(
         &self,
         filter: Vec<FilterPredicate>,
-    ) -> impl Future<Output = Result<Subscriber<EventView>, AnyError>> {
+    ) -> impl Future<Output = Result<Subscriber<ComposedEvent>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self.query_sender.send((
             tracing::Span::current(),
@@ -373,7 +374,7 @@ impl AsyncEngine {
     }
 
     #[instrument(skip_all)]
-    pub fn get_status(&self) -> impl Future<Output = Result<EngineStatusView, AnyError>> {
+    pub fn get_status(&self) -> impl Future<Output = Result<EngineStatus, AnyError>> {
         let (sender, receiver) = oneshot::channel();
         let _ = self
             .query_sender
@@ -392,12 +393,12 @@ impl AsyncEngine {
 }
 
 enum EngineCommand {
-    QuerySpan(Query, OneshotSender<Vec<SpanView>>),
+    QuerySpan(Query, OneshotSender<Vec<ComposedSpan>>),
     QuerySpanCount(Query, OneshotSender<usize>),
     QuerySpanEvent(Query, OneshotSender<Vec<SpanEvent>>),
-    QueryEvent(Query, OneshotSender<Vec<EventView>>),
+    QueryEvent(Query, OneshotSender<Vec<ComposedEvent>>),
     QueryEventCount(Query, OneshotSender<usize>),
-    QueryStats(OneshotSender<StatsView>),
+    QueryStats(OneshotSender<DatasetStats>),
     InsertResource(NewResource, OneshotSender<Result<ResourceKey, AnyError>>),
     DisconnectTracingInstance(InstanceId, OneshotSender<Result<(), AnyError>>),
     InsertSpanEvent(NewSpanEvent, OneshotSender<Result<SpanKey, AnyError>>),
@@ -406,17 +407,17 @@ enum EngineCommand {
 
     SpanSubscribe(
         Vec<FilterPredicate>,
-        OneshotSender<Result<Subscriber<SpanView>, AnyError>>,
+        OneshotSender<Result<Subscriber<ComposedSpan>, AnyError>>,
     ),
     SpanUnsubscribe(SubscriptionId, OneshotSender<()>),
     EventSubscribe(
         Vec<FilterPredicate>,
-        OneshotSender<Result<Subscriber<EventView>, AnyError>>,
+        OneshotSender<Result<Subscriber<ComposedEvent>, AnyError>>,
     ),
     EventUnsubscribe(SubscriptionId, OneshotSender<()>),
 
     CopyDataset(Box<dyn Storage + Send>, OneshotSender<Result<(), AnyError>>),
-    GetStatus(OneshotSender<EngineStatusView>),
+    GetStatus(OneshotSender<EngineStatus>),
 
     Save(OneshotSender<Result<(), AnyError>>),
 }

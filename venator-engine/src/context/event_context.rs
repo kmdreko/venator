@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use crate::storage::Storage;
 use crate::{
-    AncestorView, AttributeSourceView, AttributeTypeView, AttributeView, Event, EventKey,
-    EventView, FullSpanId, Resource, Span, Timestamp, TraceRoot, Value,
+    Ancestor, Attribute, AttributeSource, ComposedEvent, Event, EventKey, FullSpanId, Resource,
+    Span, Timestamp, TraceRoot, Value,
 };
 
 use super::RefOrDeferredArc;
@@ -171,19 +171,14 @@ where
         attributes.into_iter()
     }
 
-    pub(crate) fn render(&self) -> EventView {
+    pub(crate) fn render(&self) -> ComposedEvent {
         let event = self.event();
 
-        let mut attributes =
-            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
+        let mut attributes = BTreeMap::<String, (AttributeSource, Value)>::new();
         for (attribute, value) in &self.event().attributes {
             attributes.insert(
                 attribute.to_owned(),
-                (
-                    AttributeSourceView::Inherent,
-                    value.to_string(),
-                    value.to_type_view(),
-                ),
+                (AttributeSource::Inherent, value.clone()),
             );
         }
         for parent in self.parents() {
@@ -191,13 +186,7 @@ where
                 if !attributes.contains_key(attribute) {
                     attributes.insert(
                         attribute.to_owned(),
-                        (
-                            AttributeSourceView::Span {
-                                span_id: parent.id.to_string(),
-                            },
-                            value.to_string(),
-                            value.to_type_view(),
-                        ),
+                        (AttributeSource::Span { span_id: parent.id }, value.clone()),
                     );
                 }
             }
@@ -206,22 +195,18 @@ where
             if !attributes.contains_key(attribute) {
                 attributes.insert(
                     attribute.to_owned(),
-                    (
-                        AttributeSourceView::Resource,
-                        value.to_string(),
-                        value.to_type_view(),
-                    ),
+                    (AttributeSource::Resource, value.clone()),
                 );
             }
         }
 
-        EventView {
+        ComposedEvent {
             kind: event.kind,
             ancestors: {
                 let mut ancestors = self
                     .parents()
-                    .map(|parent| AncestorView {
-                        id: parent.id.to_string(),
+                    .map(|parent| Ancestor {
+                        id: parent.id,
                         name: parent.name.clone(),
                     })
                     .collect::<Vec<_>>();
@@ -231,7 +216,7 @@ where
             },
             timestamp: event.timestamp,
             level: event.level.into_simple_level(),
-            content: event.content.to_string(),
+            content: event.content.clone(),
             namespace: event.namespace.clone(),
             function: event.function.clone(),
             file: match (&event.file_name, event.file_line) {
@@ -241,10 +226,9 @@ where
             },
             attributes: attributes
                 .into_iter()
-                .map(|(name, (kind, value, typ))| AttributeView {
+                .map(|(name, (kind, value))| Attribute {
                     name,
                     value,
-                    typ,
                     source: kind,
                 })
                 .collect(),

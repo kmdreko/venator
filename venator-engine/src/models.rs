@@ -37,8 +37,6 @@ pub type SpanId = u64;
 
 pub type TraceId = u128;
 
-pub type FullSpanIdView = String;
-
 #[derive(Debug)]
 pub struct FullSpanIdParseError;
 
@@ -142,6 +140,15 @@ pub struct SourceKindConvertError;
 pub enum SourceKind {
     Tracing,
     Opentelemetry,
+}
+
+impl Display for SourceKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        match self {
+            SourceKind::Tracing => write!(f, "tracing"),
+            SourceKind::Opentelemetry => write!(f, "opentelemetry"),
+        }
+    }
 }
 
 impl TryFrom<i32> for SourceKind {
@@ -454,17 +461,17 @@ impl Event {
     }
 }
 
-#[derive(Clone, Serialize)]
-pub struct EventView {
+#[derive(Clone)]
+pub struct ComposedEvent {
     pub kind: SourceKind,
-    pub ancestors: Vec<AncestorView>, // in root-first order
+    pub ancestors: Vec<Ancestor>, // in root-first order
     pub timestamp: Timestamp,
-    pub content: String,
+    pub content: Value,
     pub namespace: Option<String>,
     pub function: Option<String>,
     pub level: SimpleLevel,
     pub file: Option<String>,
-    pub attributes: Vec<AttributeView>,
+    pub attributes: Vec<Attribute>,
 }
 
 #[derive(Debug, Clone)]
@@ -493,13 +500,19 @@ impl Span {
     pub fn key(&self) -> SpanKey {
         self.created_at
     }
+
+    // gets the duration of the span in microseconds if closed
+    pub fn duration(&self) -> Option<u64> {
+        self.closed_at
+            .map(|closed_at| closed_at.get().saturating_sub(self.created_at.get()))
+    }
 }
 
-#[derive(Clone, Serialize)]
-pub struct SpanView {
+#[derive(Clone)]
+pub struct ComposedSpan {
     pub kind: SourceKind,
-    pub id: FullSpanIdView,
-    pub ancestors: Vec<AncestorView>, // in root-first order
+    pub id: FullSpanId,
+    pub ancestors: Vec<Ancestor>, // in root-first order
     pub created_at: Timestamp,
     pub closed_at: Option<Timestamp>,
     pub busy: Option<u64>,
@@ -509,12 +522,12 @@ pub struct SpanView {
     pub level: SimpleLevel,
     pub file: Option<String>,
     pub links: Vec<(FullSpanId, BTreeMap<String, Value>)>,
-    pub attributes: Vec<AttributeView>,
+    pub attributes: Vec<Attribute>,
 }
 
 #[derive(Clone, Serialize)]
-pub struct AncestorView {
-    pub id: FullSpanIdView,
+pub struct Ancestor {
+    pub id: FullSpanId,
     pub name: String,
 }
 
@@ -531,24 +544,6 @@ pub enum Value {
     Bytes(Vec<u8>),
     Array(Vec<Value>),
     Object(BTreeMap<String, Value>),
-}
-
-impl Value {
-    pub fn to_type_view(&self) -> AttributeTypeView {
-        match self {
-            Value::Null => AttributeTypeView::Null,
-            Value::F64(_) => AttributeTypeView::F64,
-            Value::I64(_) => AttributeTypeView::I64,
-            Value::U64(_) => AttributeTypeView::U64,
-            Value::I128(_) => AttributeTypeView::I128,
-            Value::U128(_) => AttributeTypeView::U128,
-            Value::Bool(_) => AttributeTypeView::Bool,
-            Value::Str(_) => AttributeTypeView::String,
-            Value::Bytes(_) => AttributeTypeView::Bytes,
-            Value::Array(_) => AttributeTypeView::Array,
-            Value::Object(_) => AttributeTypeView::Object,
-        }
-    }
 }
 
 impl Display for Value {
@@ -590,50 +585,21 @@ impl ValueOperator {
     }
 }
 
-#[derive(Clone, Serialize)]
-pub struct AttributeView {
+#[derive(Clone)]
+pub struct Attribute {
     pub name: String,
-    pub value: String,
-    #[serde(rename = "type")]
-    pub typ: AttributeTypeView,
-    #[serde(flatten)]
-    pub source: AttributeSourceView,
+    pub value: Value,
+    pub source: AttributeSource,
 }
 
-#[derive(Copy, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AttributeTypeView {
-    Null,
-    F64,
-    I64,
-    U64,
-    I128,
-    U128,
-    Bool,
-    String,
-    Bytes,
-    Array,
-    Object,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "snake_case", tag = "source")]
-pub enum AttributeSourceView {
+#[derive(Clone)]
+pub enum AttributeSource {
     Resource,
-    Span { span_id: FullSpanIdView },
+    Span { span_id: FullSpanId },
     Inherent,
 }
 
-impl Span {
-    // gets the duration of the span in microseconds if closed
-    pub fn duration(&self) -> Option<u64> {
-        self.closed_at
-            .map(|closed_at| closed_at.get().saturating_sub(self.created_at.get()))
-    }
-}
-
-#[derive(Serialize)]
-pub struct StatsView {
+pub struct DatasetStats {
     pub start: Option<Timestamp>,
     pub end: Option<Timestamp>,
     pub total_spans: usize,
@@ -653,6 +619,6 @@ pub struct DeleteMetrics {
     pub events: usize,
 }
 
-pub struct EngineStatusView {
+pub struct EngineStatus {
     pub load: f64,
 }

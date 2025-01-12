@@ -13,12 +13,11 @@ mod subscription;
 use storage::Storage;
 
 pub use models::{
-    AncestorView, AttributeSourceView, AttributeTypeView, AttributeView, CreateSpanEvent,
-    DeleteFilter, DeleteMetrics, EngineStatusView, Event, EventKey, EventView, FullSpanId,
+    Ancestor, Attribute, AttributeSource, ComposedEvent, ComposedSpan, CreateSpanEvent,
+    DatasetStats, DeleteFilter, DeleteMetrics, EngineStatus, Event, EventKey, FullSpanId,
     InstanceId, Level, LevelConvertError, NewCloseSpanEvent, NewCreateSpanEvent, NewEnterSpanEvent,
     NewEvent, NewFollowsSpanEvent, NewResource, NewSpanEvent, NewSpanEventKind, NewUpdateSpanEvent,
     Resource, ResourceKey, SourceKind, Span, SpanEvent, SpanEventKey, SpanEventKind, SpanId,
-    SpanKey, SpanView, StatsView, Timestamp, TraceId, TraceRoot, UpdateSpanEvent, Value,
-    ValueOperator,
+    SpanKey, Timestamp, TraceId, TraceRoot, UpdateSpanEvent, Value, ValueOperator,
 };
 pub use subscription::{SubscriptionId, SubscriptionResponse};

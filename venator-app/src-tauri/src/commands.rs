@@ -8,13 +8,11 @@ use venator_engine::engine::AsyncEngine;
 use venator_engine::filter::{
     validate_event_filter, validate_span_filter, FilterPredicate, Order, Query,
 };
-use venator_engine::{
-    DeleteFilter, EventView, SpanView, StatsView, SubscriptionId, SubscriptionResponse, Timestamp,
-};
+use venator_engine::{DeleteFilter, SubscriptionId, SubscriptionResponse, Timestamp};
 
 use crate::views::{
-    DeleteMetricsView, FilterPredicateResultView, InputView, Session, StatusView,
-    SubscriptionResponseView,
+    DatasetStatsView, DeleteMetricsView, EventView, FilterPredicateResultView, InputView, Session,
+    SpanView, StatusView, SubscriptionResponseView,
 };
 use crate::{DatasetConfig, IngressState, SessionPersistence};
 
@@ -39,7 +37,7 @@ async fn get_events(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(events)
+    Ok(events.into_iter().map(EventView::from).collect())
 }
 
 #[tauri::command]
@@ -107,7 +105,7 @@ async fn get_spans(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(spans)
+    Ok(spans.into_iter().map(SpanView::from).collect())
 }
 
 #[tauri::command]
@@ -176,8 +174,12 @@ async fn delete_entities(
 }
 
 #[tauri::command]
-async fn get_stats(engine: State<'_, AsyncEngine>) -> Result<StatsView, String> {
-    engine.query_stats().await.map_err(|e| e.to_string())
+async fn get_stats(engine: State<'_, AsyncEngine>) -> Result<DatasetStatsView, String> {
+    engine
+        .query_stats()
+        .await
+        .map_err(|e| e.to_string())
+        .map(|s| s.into())
 }
 
 #[tauri::command]
@@ -194,7 +196,9 @@ async fn subscribe_to_spans(
     tokio::spawn(async move {
         while let Some(response) = receiver.recv().await {
             let response = match response {
-                SubscriptionResponse::Add(span) => SubscriptionResponseView::Add(span),
+                SubscriptionResponse::Add(span) => {
+                    SubscriptionResponseView::Add(SpanView::from(span))
+                }
                 SubscriptionResponse::Remove(span_key) => {
                     SubscriptionResponseView::Remove(span_key)
                 }
@@ -233,7 +237,9 @@ async fn subscribe_to_events(
     tokio::spawn(async move {
         while let Some(response) = receiver.recv().await {
             let response = match response {
-                SubscriptionResponse::Add(event) => SubscriptionResponseView::Add(event),
+                SubscriptionResponse::Add(event) => {
+                    SubscriptionResponseView::Add(EventView::from(event))
+                }
                 SubscriptionResponse::Remove(event_key) => {
                     SubscriptionResponseView::Remove(event_key)
                 }

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use crate::storage::Storage;
 use crate::{
-    AncestorView, AttributeSourceView, AttributeTypeView, AttributeView, FullSpanId, Resource,
-    Span, SpanKey, SpanView, Timestamp, TraceRoot, Value,
+    Ancestor, Attribute, AttributeSource, ComposedSpan, FullSpanId, Resource, Span, SpanKey,
+    Timestamp, TraceRoot, Value,
 };
 
 use super::RefOrDeferredArc;
@@ -180,19 +180,14 @@ where
         attributes.into_iter()
     }
 
-    pub(crate) fn render(&self) -> SpanView {
+    pub(crate) fn render(&self) -> ComposedSpan {
         let span = self.span();
 
-        let mut attributes =
-            BTreeMap::<String, (AttributeSourceView, String, AttributeTypeView)>::new();
+        let mut attributes = BTreeMap::<String, (AttributeSource, Value)>::new();
         for (attribute, value) in &self.span().attributes {
             attributes.insert(
                 attribute.to_owned(),
-                (
-                    AttributeSourceView::Inherent,
-                    value.to_string(),
-                    value.to_type_view(),
-                ),
+                (AttributeSource::Inherent, value.clone()),
             );
         }
         for parent in self.parents() {
@@ -200,13 +195,7 @@ where
                 if !attributes.contains_key(attribute) {
                     attributes.insert(
                         attribute.to_owned(),
-                        (
-                            AttributeSourceView::Span {
-                                span_id: parent.id.to_string(),
-                            },
-                            value.to_string(),
-                            value.to_type_view(),
-                        ),
+                        (AttributeSource::Span { span_id: parent.id }, value.clone()),
                     );
                 }
             }
@@ -215,23 +204,19 @@ where
             if !attributes.contains_key(attribute) {
                 attributes.insert(
                     attribute.to_owned(),
-                    (
-                        AttributeSourceView::Resource,
-                        value.to_string(),
-                        value.to_type_view(),
-                    ),
+                    (AttributeSource::Resource, value.clone()),
                 );
             }
         }
 
-        SpanView {
+        ComposedSpan {
             kind: span.kind,
-            id: span.id.to_string(),
+            id: span.id,
             ancestors: {
                 let mut ancestors = self
                     .parents()
-                    .map(|parent| AncestorView {
-                        id: parent.id.to_string(),
+                    .map(|parent| Ancestor {
+                        id: parent.id,
                         name: parent.name.clone(),
                     })
                     .collect::<Vec<_>>();
@@ -254,10 +239,9 @@ where
             links: span.links.clone(),
             attributes: attributes
                 .into_iter()
-                .map(|(name, (kind, value, typ))| AttributeView {
+                .map(|(name, (kind, value))| Attribute {
                     name,
                     value,
-                    typ,
                     source: kind,
                 })
                 .collect(),
