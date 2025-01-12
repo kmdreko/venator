@@ -313,7 +313,6 @@ impl From<DatasetStats> for DatasetStatsView {
 pub(crate) struct StatusView {
     pub ingress_message: String,
     pub ingress_error: Option<String>,
-    pub ingress_connections: usize,
     pub ingress_bytes_per_second: f64,
     pub dataset_name: String,
     pub engine_load: f64,

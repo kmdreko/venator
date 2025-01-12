@@ -1552,11 +1552,9 @@ function App() {
                         <span style="padding: 0 8px;" title={s().ingress_error}>{s().ingress_message}</span>
                     </span>
                     <span class="statusbar-region">
-                        <span style="padding: 0 8px;">{formatBytesPerSecond(s().ingress_bytes_per_second)}</span>
+                        <span style="display: inline-block; padding: 0 8px; width: 75px; text-align: right;">{formatBytesPerSecond(s().ingress_bytes_per_second)}</span>
                         -
-                        <span style="padding: 0 8px;" title={s().ingress_error}>connections: {s().ingress_connections}</span>
-                        -
-                        <span style="padding: 0 8px;">load: {s().engine_load.toFixed(1)}%</span>
+                        <span style="display: inline-block; padding: 0 8px; width: 75px;">load: {s().engine_load.toFixed(1)}%</span>
                     </span>
                 </>}
             </Show>

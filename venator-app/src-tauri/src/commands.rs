@@ -297,14 +297,14 @@ async fn get_status(
     dataset: State<'_, DatasetConfig>,
     ingress: State<'_, Option<Arc<IngressState>>>,
 ) -> Result<StatusView, String> {
-    let ((ingress_message, ingress_error), (connections, bytes_per_second)) = match &*ingress {
+    let ((ingress_message, ingress_error), bytes_per_second) = match &*ingress {
         Some(ingress) => {
             let status = ingress.get_status();
-            let (connections, bytes, seconds) = ingress.get_and_reset_metrics();
+            let (bytes, seconds) = ingress.get_and_reset_metrics();
 
-            (status, (connections, bytes as f64 / seconds))
+            (status, bytes as f64 / seconds)
         }
-        None => (("not listening".into(), None), (0, 0.0)),
+        None => (("not listening".into(), None), 0.0),
     };
 
     let dataset_name = match &*dataset {
@@ -319,7 +319,6 @@ async fn get_status(
         ingress_message,
         ingress_error,
         dataset_name,
-        ingress_connections: connections,
         ingress_bytes_per_second: bytes_per_second,
         engine_load: engine_status.load,
     })

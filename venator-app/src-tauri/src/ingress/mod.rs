@@ -5,11 +5,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use axum::body::{Bytes, HttpBody};
+use axum::body::{Body, Bytes, HttpBody};
 use axum::extract::{Request, State};
 use axum::middleware::{from_fn_with_state, Next};
 use axum::response::Response;
 use axum::routing::post;
+use axum::BoxError;
 use http_body::Frame;
 use tokio::net::TcpListener;
 use tonic::service::Routes;
@@ -26,7 +27,6 @@ pub(crate) struct IngressState {
     engine: AsyncEngine,
 
     last_check: Mutex<Instant>,
-    num_connections: AtomicUsize,
     num_bytes: AtomicUsize,
 
     // Only one tracing instance for a given ID is allowed at a time, so this
@@ -41,7 +41,6 @@ impl IngressState {
             error: OnceLock::new(),
             engine,
             last_check: Mutex::new(Instant::now()),
-            num_connections: AtomicUsize::new(0),
             num_bytes: AtomicUsize::new(0),
             tracing_instances: Mutex::new(HashSet::new()),
         }
@@ -64,7 +63,7 @@ impl IngressState {
         }
     }
 
-    pub(crate) fn get_and_reset_metrics(&self) -> (usize, usize, f64) {
+    pub(crate) fn get_and_reset_metrics(&self) -> (usize, f64) {
         let now = Instant::now();
         let last = std::mem::replace(
             &mut *self.last_check.lock().unwrap_or_else(|p| p.into_inner()),
@@ -72,16 +71,25 @@ impl IngressState {
         );
         let elapsed = (now - last).as_secs_f64();
 
-        let num_connections = self.num_connections.load(Ordering::Relaxed);
         let num_bytes = self.num_bytes.swap(0, Ordering::Relaxed);
 
-        (num_connections, num_bytes, elapsed)
+        (num_bytes, elapsed)
     }
 }
 
 struct IngressBody<B> {
     state: Arc<IngressState>,
     inner: B,
+}
+
+impl<B> IngressBody<B> {
+    fn wrap(state: Arc<IngressState>, inner: B) -> Body
+    where
+        B: HttpBody<Data = Bytes> + Unpin + Send + 'static,
+        B::Error: Into<BoxError>,
+    {
+        Body::new(IngressBody { state, inner })
+    }
 }
 
 impl<B> HttpBody for IngressBody<B>
@@ -114,15 +122,7 @@ async fn ingress_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    ::tracing::info!("client connected");
-    state.num_connections.fetch_add(1, Ordering::Relaxed);
-
-    let response = next.run(request).await;
-
-    ::tracing::info!("client disconnected");
-    state.num_connections.fetch_sub(1, Ordering::Relaxed);
-
-    response
+    next.run(request.map(|b| IngressBody::wrap(state, b))).await
 }
 
 pub fn launch_ingress_thread(engine: AsyncEngine, bind: String) -> Arc<IngressState> {
