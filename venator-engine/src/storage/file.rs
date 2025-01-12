@@ -745,21 +745,26 @@ impl IndexStorage for FileStorage {
         let span_event_index_data = bincode_options.serialize(span_event_indexes).unwrap();
         let event_index_data = bincode_options.serialize(event_indexes).unwrap();
 
-        let tx = self.connection.transaction().unwrap();
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
 
         let mut stmt = tx
             .prepare("UPDATE indexes SET data = ?2 WHERE kind = ?1")
-            .unwrap();
-        stmt.execute(("spans", span_index_data)).unwrap();
+            .map_err(FileStorageError::Prepare)?;
+        stmt.execute(("spans", span_index_data))
+            .map_err(FileStorageError::Update)?;
         stmt.execute(("span_events", span_event_index_data))
-            .unwrap();
-        stmt.execute(("events", event_index_data)).unwrap();
+            .map_err(FileStorageError::Update)?;
+        stmt.execute(("events", event_index_data))
+            .map_err(FileStorageError::Update)?;
         drop(stmt);
 
         tx.execute("UPDATE meta SET indexes = 'FRESH' WHERE id = 1", ())
-            .unwrap();
+            .map_err(FileStorageError::Update)?;
 
-        tx.commit().unwrap();
+        tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())
     }
