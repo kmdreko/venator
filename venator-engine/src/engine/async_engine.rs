@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::time::Instant;
 
 use anyhow::{Context, Error as AnyError};
@@ -58,7 +59,7 @@ impl AsyncEngine {
                 let _entered_span = tracing_span.enter();
 
                 let cmd_start = Instant::now();
-                match cmd {
+                let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| match cmd {
                     EngineCommand::QuerySpan(query, sender) => {
                         let spans = engine.query_span(query);
                         let _ = sender.send(spans);
@@ -152,7 +153,12 @@ impl AsyncEngine {
                         let res = engine.save();
                         let _ = sender.send(res);
                     }
+                }));
+
+                if let Err(err) = panic_result {
+                    tracing::error!("engine call panicked: {err:?}");
                 }
+
                 let cmd_elapsed = cmd_start.elapsed().as_millis();
                 computed_ms_since_last_check += cmd_elapsed;
             }

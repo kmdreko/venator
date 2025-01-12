@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{anyhow, Context, Error as AnyError};
-use tokio::sync::mpsc::{self, UnboundedReceiver};
+use tokio::sync::mpsc::{self};
 use tracing::instrument;
 
 use crate::context::{EventContext, SpanContext};
@@ -12,12 +12,12 @@ use crate::filter::{
 use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{CloseSpanEvent, EnterSpanEvent, EventKey, FollowsSpanEvent};
 use crate::storage::Storage;
-use crate::subscription::{EventSubscription, SpanSubscription};
+use crate::subscription::{EventSubscription, SpanSubscription, Subscriber};
 use crate::{
     CreateSpanEvent, DeleteFilter, DeleteMetrics, Event, EventView, FullSpanId, InstanceId,
     NewEvent, NewResource, NewSpanEvent, NewSpanEventKind, Resource, ResourceKey, Span, SpanEvent,
-    SpanEventKey, SpanEventKind, SpanKey, SpanView, StatsView, SubscriptionId,
-    SubscriptionResponse, Timestamp, UpdateSpanEvent, ValueOperator,
+    SpanEventKey, SpanEventKind, SpanKey, SpanView, StatsView, SubscriptionId, Timestamp,
+    UpdateSpanEvent, ValueOperator,
 };
 
 /// Provides the core engine functionality.
@@ -1070,13 +1070,7 @@ impl<S: Storage> SyncEngine<S> {
     pub fn subscribe_to_spans(
         &mut self,
         filter: Vec<FilterPredicate>,
-    ) -> Result<
-        (
-            SubscriptionId,
-            UnboundedReceiver<SubscriptionResponse<SpanView>>,
-        ),
-        AnyError,
-    > {
+    ) -> Result<Subscriber<SpanView>, AnyError> {
         let mut filter = BasicSpanFilter::And(
             filter
                 .into_iter()
@@ -1106,13 +1100,7 @@ impl<S: Storage> SyncEngine<S> {
     pub fn subscribe_to_events(
         &mut self,
         filter: Vec<FilterPredicate>,
-    ) -> Result<
-        (
-            SubscriptionId,
-            UnboundedReceiver<SubscriptionResponse<EventView>>,
-        ),
-        AnyError,
-    > {
+    ) -> Result<Subscriber<EventView>, AnyError> {
         let mut filter = BasicEventFilter::And(
             filter
                 .into_iter()
