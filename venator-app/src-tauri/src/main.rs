@@ -1,334 +1,22 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 
 use anyhow::Error as AnyError;
 use clap::{ArgAction, Parser};
-use serde::{Deserialize, Serialize};
-use tauri::ipc::Channel;
-use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager, State, WindowEvent};
+use tauri::menu::{Menu, MenuBuilder, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
 use venator_engine::engine::AsyncEngine;
-use venator_engine::filter::{
-    validate_event_filter, validate_span_filter, FallibleFilterPredicate, FilterPredicate,
-    FilterPredicateSingle, FilterPropertyKind, InputError, Order, Query, ValuePredicate,
-};
 use venator_engine::storage::{CachedStorage, FileStorage, TransientStorage};
-use venator_engine::{
-    DeleteFilter, DeleteMetrics, EventView, SpanView, StatsView, SubscriptionId,
-    SubscriptionResponse, Timestamp,
-};
 
+mod commands;
 mod ingress;
+mod views;
 
 use ingress::{launch_ingress_thread, IngressState};
-
-#[tauri::command]
-async fn get_events(
-    engine: State<'_, AsyncEngine>,
-    filter: Vec<FilterPredicate>,
-    order: Order,
-    previous: Option<Timestamp>,
-    start: Option<Timestamp>,
-    end: Option<Timestamp>,
-) -> Result<Vec<EventView>, String> {
-    let events = engine
-        .query_event(Query {
-            filter,
-            order,
-            limit: 50,
-            start: start.unwrap_or(Timestamp::MIN),
-            end: end.unwrap_or(Timestamp::MAX),
-            previous,
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(events)
-}
-
-#[tauri::command]
-async fn get_event_count(
-    engine: State<'_, AsyncEngine>,
-    filter: Vec<FilterPredicate>,
-    start: Timestamp,
-    end: Timestamp,
-) -> Result<usize, String> {
-    let events = engine
-        .query_event_count(Query {
-            filter,
-            order: Order::Asc, // this doesn't matter
-            limit: 20,         // this doesn't matter
-            start,
-            end,
-            previous: None,
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(events)
-}
-
-#[tauri::command]
-async fn parse_event_filter(
-    _engine: State<'_, AsyncEngine>,
-    filter: &str,
-) -> Result<Vec<InputView>, ()> {
-    match FilterPredicate::parse(filter) {
-        Ok(predicates) => Ok(predicates
-            .into_iter()
-            .map(|p| {
-                let text = p.to_string();
-                InputView::from(validate_event_filter(p).map_err(|e| (e, text)))
-            })
-            .collect()),
-        Err(err) => Ok(vec![InputView {
-            result: FilterPredicateResultView::Invalid {
-                text: filter.to_owned(),
-                error: err.to_string(),
-            },
-        }]),
-    }
-}
-
-#[tauri::command]
-async fn get_spans(
-    engine: State<'_, AsyncEngine>,
-    filter: Vec<FilterPredicate>,
-    order: Order,
-    previous: Option<Timestamp>,
-    start: Option<Timestamp>,
-    end: Option<Timestamp>,
-) -> Result<Vec<SpanView>, String> {
-    let spans = engine
-        .query_span(Query {
-            filter,
-            order,
-            limit: 50,
-            start: start.unwrap_or(Timestamp::MIN),
-            end: end.unwrap_or(Timestamp::MAX),
-            previous,
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(spans)
-}
-
-#[tauri::command]
-async fn get_span_count(
-    engine: State<'_, AsyncEngine>,
-    filter: Vec<FilterPredicate>,
-    start: Timestamp,
-    end: Timestamp,
-) -> Result<usize, String> {
-    let spans = engine
-        .query_span_count(Query {
-            filter,
-            order: Order::Asc, // this doesn't matter
-            limit: 20,         // this doesn't matter
-            start,
-            end,
-            previous: None,
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(spans)
-}
-
-#[tauri::command]
-async fn parse_span_filter(
-    _engine: State<'_, AsyncEngine>,
-    filter: &str,
-) -> Result<Vec<InputView>, ()> {
-    match FilterPredicate::parse(filter) {
-        Ok(predicates) => Ok(predicates
-            .into_iter()
-            .map(|p| {
-                let text = p.to_string();
-                InputView::from(validate_span_filter(p).map_err(|e| (e, text)))
-            })
-            .collect()),
-        Err(err) => Ok(vec![InputView {
-            result: FilterPredicateResultView::Invalid {
-                text: filter.to_owned(),
-                error: err.to_string(),
-            },
-        }]),
-    }
-}
-
-#[tauri::command]
-async fn delete_entities(
-    engine: State<'_, AsyncEngine>,
-    start: Option<Timestamp>,
-    end: Option<Timestamp>,
-    inside: bool,
-    dry_run: bool,
-) -> Result<DeleteMetricsView, String> {
-    let metrics = engine
-        .delete(DeleteFilter {
-            start: start.unwrap_or(Timestamp::MIN),
-            end: end.unwrap_or(Timestamp::MAX),
-            inside,
-            dry_run,
-        })
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(metrics.into())
-}
-
-#[tauri::command]
-async fn get_stats(engine: State<'_, AsyncEngine>) -> Result<StatsView, String> {
-    engine.query_stats().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn subscribe_to_spans(
-    engine: State<'_, AsyncEngine>,
-    filter: Vec<FilterPredicate>,
-    channel: Channel<SubscriptionResponseView<SpanView>>,
-) -> Result<SubscriptionId, String> {
-    let (id, mut receiver) = engine
-        .subscribe_to_spans(filter)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    tokio::spawn(async move {
-        while let Some(response) = receiver.recv().await {
-            let response = match response {
-                SubscriptionResponse::Add(span) => SubscriptionResponseView::Add(span),
-                SubscriptionResponse::Remove(span_key) => {
-                    SubscriptionResponseView::Remove(span_key)
-                }
-            };
-            let _ = channel.send(response);
-        }
-    });
-
-    Ok(id)
-}
-
-#[tauri::command]
-async fn unsubscribe_from_spans(
-    engine: State<'_, AsyncEngine>,
-    id: SubscriptionId,
-) -> Result<(), String> {
-    engine
-        .unsubscribe_from_spans(id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn subscribe_to_events(
-    engine: State<'_, AsyncEngine>,
-    filter: Vec<FilterPredicate>,
-    channel: Channel<SubscriptionResponseView<EventView>>,
-) -> Result<SubscriptionId, String> {
-    let (id, mut receiver) = engine
-        .subscribe_to_events(filter)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    tokio::spawn(async move {
-        while let Some(response) = receiver.recv().await {
-            let response = match response {
-                SubscriptionResponse::Add(event) => SubscriptionResponseView::Add(event),
-                SubscriptionResponse::Remove(event_key) => {
-                    SubscriptionResponseView::Remove(event_key)
-                }
-            };
-            let _ = channel.send(response);
-        }
-    });
-
-    Ok(id)
-}
-
-#[tauri::command]
-async fn unsubscribe_from_events(
-    engine: State<'_, AsyncEngine>,
-    id: SubscriptionId,
-) -> Result<(), String> {
-    engine
-        .unsubscribe_from_events(id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn load_session(persist_session: State<'_, SessionPersistence>) -> Result<Session, String> {
-    if let SessionPersistence(Some(session_path)) = &*persist_session {
-        let session_file = File::open(session_path).map_err(|err| err.to_string())?;
-        let session_file = BufReader::new(session_file);
-        let session = serde_json::from_reader(session_file).map_err(|err| err.to_string())?;
-        Ok(session)
-    } else {
-        Ok(Session::default())
-    }
-}
-
-#[tauri::command]
-async fn save_session(
-    persistence: State<'_, SessionPersistence>,
-    session: Session,
-) -> Result<(), String> {
-    if let SessionPersistence(Some(session_path)) = &*persistence {
-        let session_file = File::create(session_path).map_err(|err| err.to_string())?;
-        let session_file = BufWriter::new(session_file);
-        serde_json::to_writer(session_file, &session).map_err(|err| err.to_string())?;
-        Ok(())
-    } else {
-        Ok(())
-    }
-}
-
-#[tauri::command]
-async fn get_status(
-    engine: State<'_, AsyncEngine>,
-    dataset: State<'_, DatasetConfig>,
-    ingress: State<'_, Option<Arc<IngressState>>>,
-) -> Result<StatusView, String> {
-    let ((ingress_message, ingress_error), (connections, bytes_per_second)) = match &*ingress {
-        Some(ingress) => {
-            let status = ingress.get_status();
-            let (connections, bytes, seconds) = ingress.get_and_reset_metrics();
-
-            (status, (connections, bytes as f64 / seconds))
-        }
-        None => (("not listening".into(), None), (0, 0.0)),
-    };
-
-    let dataset_name = match &*dataset {
-        DatasetConfig::Default(_) => "default dataset".to_owned(),
-        DatasetConfig::File(path) => format!("{}", path.display()),
-        DatasetConfig::Memory => ":memory:".to_owned(),
-    };
-
-    let engine_status = engine.get_status().await.map_err(|e| e.to_string())?;
-
-    Ok(StatusView {
-        ingress_message,
-        ingress_error,
-        dataset_name,
-        ingress_connections: connections,
-        ingress_bytes_per_second: bytes_per_second,
-        engine_load: engine_status.load,
-    })
-}
 
 enum DatasetConfig {
     Default(PathBuf),
@@ -469,288 +157,9 @@ fn main() -> Result<(), AnyError> {
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let handle = app.handle();
-            let menu = MenuBuilder::new(handle)
-                .item(&Submenu::with_items(
-                    handle,
-                    "File",
-                    true,
-                    &[
-                        &MenuItem::with_id(
-                            handle,
-                            "open-dataset",
-                            "Open dataset in new window",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::with_id(
-                            handle,
-                            "save-dataset-as",
-                            "Save as",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "save-as-csv",
-                            "Export view as CSV",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &MenuItem::new(handle, "Export view as ...", false, None::<&str>)?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::new(handle, "Exit", true, Some("alt+f4"))?,
-                    ],
-                )?)
-                .item(&Submenu::with_items(
-                    handle,
-                    "Edit",
-                    true,
-                    &[
-                        &MenuItem::with_id(handle, "undo", "Undo", true, Some("ctrl+z"))?,
-                        &MenuItem::with_id(handle, "redo", "Redo", true, Some("ctrl+y"))?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::with_id(
-                            handle,
-                            "focus-filter",
-                            "Go to filter",
-                            true,
-                            Some("ctrl+f"),
-                        )?,
-                    ],
-                )?)
-                .item(&Submenu::with_items(
-                    handle,
-                    "View",
-                    true,
-                    &[
-                        &MenuItem::with_id(
-                            handle,
-                            "tab-new-events",
-                            "New events tab",
-                            true,
-                            Some("ctrl+t"),
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "tab-new-spans",
-                            "New spans tab",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "tab-duplicate",
-                            "Duplicate tab",
-                            true,
-                            Some("ctrl+d"),
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "tab-close-others",
-                            "Close all other tabs",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::with_id(handle, "focus", "Focus", true, Some("ctrl+g"))?,
-                        &MenuItem::with_id(
-                            handle,
-                            "focus-all",
-                            "Focus all",
-                            true,
-                            Some("ctrl+shift+g"),
-                        )?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &MenuItem::with_id(
-                            handle,
-                            "zoom-in",
-                            "Zoom in timeframe",
-                            true,
-                            Some("ctrl+="),
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "zoom-out",
-                            "Zoom out timeframe",
-                            true,
-                            Some("ctrl+-"),
-                        )?,
-                        &PredefinedMenuItem::separator(handle)?,
-                        &Submenu::with_items(
-                            handle,
-                            "Theme",
-                            true,
-                            &[
-                                &MenuItem::with_id(
-                                    handle,
-                                    "set-theme-light",
-                                    "Light",
-                                    true,
-                                    None::<&str>,
-                                )?,
-                                &MenuItem::with_id(
-                                    handle,
-                                    "set-theme-dark",
-                                    "Dark",
-                                    true,
-                                    None::<&str>,
-                                )?,
-                            ],
-                        )?,
-                    ],
-                )?)
-                .item(&Submenu::with_items(
-                    handle,
-                    "Data",
-                    true,
-                    &[
-                        &MenuItem::with_id(handle, "delete-all", "Delete all", true, None::<&str>)?,
-                        &MenuItem::with_id(
-                            handle,
-                            "delete-inside",
-                            "Delete from timeframe",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "delete-outside",
-                            "Delete outside timeframe",
-                            true,
-                            None::<&str>,
-                        )?,
-                    ],
-                )?)
-                .item(&Submenu::with_items(
-                    handle,
-                    "Help",
-                    true,
-                    &[
-                        &MenuItem::with_id(
-                            handle,
-                            "help-about",
-                            "About Venator",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "help-documentation",
-                            "Documentation",
-                            true,
-                            None::<&str>,
-                        )?,
-                        &MenuItem::with_id(
-                            handle,
-                            "help-issue",
-                            "Report an issue",
-                            true,
-                            None::<&str>,
-                        )?,
-                    ],
-                )?)
-                .build()?;
+            let menu = build_menu(handle)?;
             app.set_menu(menu)?;
-            app.on_menu_event(|app, event| match event.id().as_ref() {
-                "open-dataset" => {
-                    use tauri_plugin_dialog::DialogExt;
-
-                    let Ok(current_exe) = std::env::current_exe() else {
-                        return;
-                    };
-
-                    app.dialog().file().pick_file(move |file_path| {
-                        let Some(path) = file_path else { return };
-                        let Some(path) = path.as_path() else { return };
-
-                        Command::new(current_exe)
-                            .arg("-d")
-                            .arg(path)
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()
-                            .expect("could not spawn new process");
-                    });
-                }
-                "save-dataset-as" => {
-                    let engine = app.state::<AsyncEngine>().inner().clone();
-
-                    app.dialog().file().save_file(move |file_path| {
-                        let Some(path) = file_path else { return };
-                        let Some(path) = path.as_path() else { return };
-
-                        let new_storage = FileStorage::new(path);
-
-                        // we have no need for the result, and the command is
-                        // executed regardless if we poll
-                        #[allow(clippy::let_underscore_future)]
-                        let _ = engine.copy_dataset(Box::new(new_storage));
-                    });
-                }
-                "save-as-csv" => {
-                    let _ = app.emit("save-as-csv-clicked", ());
-                }
-                "undo" => {
-                    let _ = app.emit("undo-clicked", ());
-                }
-                "redo" => {
-                    let _ = app.emit("redo-clicked", ());
-                }
-                "tab-new-events" => {
-                    let _ = app.emit("tab-new-events-clicked", ());
-                }
-                "tab-new-spans" => {
-                    let _ = app.emit("tab-new-spans-clicked", ());
-                }
-                "tab-duplicate" => {
-                    let _ = app.emit("tab-duplicate-clicked", ());
-                }
-                "tab-close-others" => {
-                    let _ = app.emit("tab-close-others-clicked", ());
-                }
-                "focus-filter" => {
-                    let _ = app.emit("focus-filter-clicked", ());
-                }
-                "zoom-in" => {
-                    let _ = app.emit("zoom-in-clicked", ());
-                }
-                "zoom-out" => {
-                    let _ = app.emit("zoom-out-clicked", ());
-                }
-                "focus" => {
-                    let _ = app.emit("focus-clicked", ());
-                }
-                "focus-all" => {
-                    let _ = app.emit("focus-all-clicked", ());
-                }
-                "set-theme-light" => {
-                    let _ = app.emit("set-theme-light-clicked", ());
-                }
-                "set-theme-dark" => {
-                    let _ = app.emit("set-theme-dark-clicked", ());
-                }
-                "delete-all" => {
-                    let _ = app.emit("delete-all-clicked", ());
-                }
-                "delete-inside" => {
-                    let _ = app.emit("delete-inside-clicked", ());
-                }
-                "delete-outside" => {
-                    let _ = app.emit("delete-outside-clicked", ());
-                }
-                "help-about" => {
-                    let _ = open::that("https://github.com/kmdreko/venator");
-                }
-                "help-documentation" => {
-                    let _ = open::that("https://github.com/kmdreko/venator/tree/main/docs");
-                }
-                "help-issue" => {
-                    let _ = open::that("https://github.com/kmdreko/venator/issues");
-                }
-                _ => {}
-            });
+            app.on_menu_event(handle_menu_event);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -763,27 +172,244 @@ fn main() -> Result<(), AnyError> {
         .manage(dataset)
         .manage(ingress)
         .manage(SessionPersistence(persist_session))
-        .invoke_handler(tauri::generate_handler![
-            get_events,
-            get_event_count,
-            parse_event_filter,
-            get_spans,
-            get_span_count,
-            parse_span_filter,
-            delete_entities,
-            get_stats,
-            subscribe_to_spans,
-            unsubscribe_from_spans,
-            subscribe_to_events,
-            unsubscribe_from_events,
-            get_status,
-            save_session,
-            load_session,
-        ])
+        .invoke_handler(crate::commands::handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 
     Ok(())
+}
+
+fn build_menu(handle: &AppHandle) -> Result<Menu<Wry>, Box<dyn std::error::Error>> {
+    Ok(MenuBuilder::new(handle)
+        .item(&Submenu::with_items(
+            handle,
+            "File",
+            true,
+            &[
+                &MenuItem::with_id(
+                    handle,
+                    "open-dataset",
+                    "Open dataset in new window",
+                    true,
+                    None::<&str>,
+                )?,
+                &PredefinedMenuItem::separator(handle)?,
+                &MenuItem::with_id(handle, "save-dataset-as", "Save as", true, None::<&str>)?,
+                &MenuItem::with_id(
+                    handle,
+                    "save-as-csv",
+                    "Export view as CSV",
+                    true,
+                    None::<&str>,
+                )?,
+                &MenuItem::new(handle, "Export view as ...", false, None::<&str>)?,
+                &PredefinedMenuItem::separator(handle)?,
+                &MenuItem::new(handle, "Exit", true, Some("alt+f4"))?,
+            ],
+        )?)
+        .item(&Submenu::with_items(
+            handle,
+            "Edit",
+            true,
+            &[
+                &MenuItem::with_id(handle, "undo", "Undo", true, Some("ctrl+z"))?,
+                &MenuItem::with_id(handle, "redo", "Redo", true, Some("ctrl+y"))?,
+                &PredefinedMenuItem::separator(handle)?,
+                &MenuItem::with_id(handle, "focus-filter", "Go to filter", true, Some("ctrl+f"))?,
+            ],
+        )?)
+        .item(&Submenu::with_items(
+            handle,
+            "View",
+            true,
+            &[
+                &MenuItem::with_id(
+                    handle,
+                    "tab-new-events",
+                    "New events tab",
+                    true,
+                    Some("ctrl+t"),
+                )?,
+                &MenuItem::with_id(handle, "tab-new-spans", "New spans tab", true, None::<&str>)?,
+                &MenuItem::with_id(
+                    handle,
+                    "tab-duplicate",
+                    "Duplicate tab",
+                    true,
+                    Some("ctrl+d"),
+                )?,
+                &MenuItem::with_id(
+                    handle,
+                    "tab-close-others",
+                    "Close all other tabs",
+                    true,
+                    None::<&str>,
+                )?,
+                &PredefinedMenuItem::separator(handle)?,
+                &MenuItem::with_id(handle, "focus", "Focus", true, Some("ctrl+g"))?,
+                &MenuItem::with_id(handle, "focus-all", "Focus all", true, Some("ctrl+shift+g"))?,
+                &PredefinedMenuItem::separator(handle)?,
+                &MenuItem::with_id(handle, "zoom-in", "Zoom in timeframe", true, Some("ctrl+="))?,
+                &MenuItem::with_id(
+                    handle,
+                    "zoom-out",
+                    "Zoom out timeframe",
+                    true,
+                    Some("ctrl+-"),
+                )?,
+                &PredefinedMenuItem::separator(handle)?,
+                &Submenu::with_items(
+                    handle,
+                    "Theme",
+                    true,
+                    &[
+                        &MenuItem::with_id(handle, "set-theme-light", "Light", true, None::<&str>)?,
+                        &MenuItem::with_id(handle, "set-theme-dark", "Dark", true, None::<&str>)?,
+                    ],
+                )?,
+            ],
+        )?)
+        .item(&Submenu::with_items(
+            handle,
+            "Data",
+            true,
+            &[
+                &MenuItem::with_id(handle, "delete-all", "Delete all", true, None::<&str>)?,
+                &MenuItem::with_id(
+                    handle,
+                    "delete-inside",
+                    "Delete from timeframe",
+                    true,
+                    None::<&str>,
+                )?,
+                &MenuItem::with_id(
+                    handle,
+                    "delete-outside",
+                    "Delete outside timeframe",
+                    true,
+                    None::<&str>,
+                )?,
+            ],
+        )?)
+        .item(&Submenu::with_items(
+            handle,
+            "Help",
+            true,
+            &[
+                &MenuItem::with_id(handle, "help-about", "About Venator", true, None::<&str>)?,
+                &MenuItem::with_id(
+                    handle,
+                    "help-documentation",
+                    "Documentation",
+                    true,
+                    None::<&str>,
+                )?,
+                &MenuItem::with_id(handle, "help-issue", "Report an issue", true, None::<&str>)?,
+            ],
+        )?)
+        .build()?)
+}
+
+fn handle_menu_event(app: &AppHandle<Wry>, event: MenuEvent) {
+    match event.id().as_ref() {
+        "open-dataset" => {
+            use tauri_plugin_dialog::DialogExt;
+
+            let Ok(current_exe) = std::env::current_exe() else {
+                return;
+            };
+
+            app.dialog().file().pick_file(move |file_path| {
+                let Some(path) = file_path else { return };
+                let Some(path) = path.as_path() else { return };
+
+                Command::new(current_exe)
+                    .arg("-d")
+                    .arg(path)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .expect("could not spawn new process");
+            });
+        }
+        "save-dataset-as" => {
+            let engine = app.state::<AsyncEngine>().inner().clone();
+
+            app.dialog().file().save_file(move |file_path| {
+                let Some(path) = file_path else { return };
+                let Some(path) = path.as_path() else { return };
+
+                let new_storage = FileStorage::new(path);
+
+                // we have no need for the result, and the command is
+                // executed regardless if we poll
+                #[allow(clippy::let_underscore_future)]
+                let _ = engine.copy_dataset(Box::new(new_storage));
+            });
+        }
+        "save-as-csv" => {
+            let _ = app.emit("save-as-csv-clicked", ());
+        }
+        "undo" => {
+            let _ = app.emit("undo-clicked", ());
+        }
+        "redo" => {
+            let _ = app.emit("redo-clicked", ());
+        }
+        "tab-new-events" => {
+            let _ = app.emit("tab-new-events-clicked", ());
+        }
+        "tab-new-spans" => {
+            let _ = app.emit("tab-new-spans-clicked", ());
+        }
+        "tab-duplicate" => {
+            let _ = app.emit("tab-duplicate-clicked", ());
+        }
+        "tab-close-others" => {
+            let _ = app.emit("tab-close-others-clicked", ());
+        }
+        "focus-filter" => {
+            let _ = app.emit("focus-filter-clicked", ());
+        }
+        "zoom-in" => {
+            let _ = app.emit("zoom-in-clicked", ());
+        }
+        "zoom-out" => {
+            let _ = app.emit("zoom-out-clicked", ());
+        }
+        "focus" => {
+            let _ = app.emit("focus-clicked", ());
+        }
+        "focus-all" => {
+            let _ = app.emit("focus-all-clicked", ());
+        }
+        "set-theme-light" => {
+            let _ = app.emit("set-theme-light-clicked", ());
+        }
+        "set-theme-dark" => {
+            let _ = app.emit("set-theme-dark-clicked", ());
+        }
+        "delete-all" => {
+            let _ = app.emit("delete-all-clicked", ());
+        }
+        "delete-inside" => {
+            let _ = app.emit("delete-inside-clicked", ());
+        }
+        "delete-outside" => {
+            let _ = app.emit("delete-outside-clicked", ());
+        }
+        "help-about" => {
+            let _ = open::that("https://github.com/kmdreko/venator");
+        }
+        "help-documentation" => {
+            let _ = open::that("https://github.com/kmdreko/venator/tree/main/docs");
+        }
+        "help-issue" => {
+            let _ = open::that("https://github.com/kmdreko/venator/issues");
+        }
+        _ => {}
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -793,125 +419,4 @@ async fn shutdown(engine: &AsyncEngine) {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct InputView {
-    #[serde(flatten)]
-    result: FilterPredicateResultView,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "input", rename_all = "camelCase")]
-enum FilterPredicateResultView {
-    Valid(FilterPredicateView),
-    Invalid { text: String, error: String },
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(
-    tag = "predicate_kind",
-    rename_all = "camelCase",
-    content = "predicate"
-)]
-enum FilterPredicateView {
-    Single(FilterPredicateSingleView),
-    And(Vec<InputView>),
-    Or(Vec<InputView>),
-}
-
-impl From<Result<FallibleFilterPredicate, (InputError, String)>> for InputView {
-    fn from(result: Result<FallibleFilterPredicate, (InputError, String)>) -> Self {
-        match result {
-            Ok(FallibleFilterPredicate::Single(single)) => InputView {
-                result: FilterPredicateResultView::Valid(FilterPredicateView::Single(
-                    FilterPredicateSingleView::from(single),
-                )),
-            },
-            Ok(FallibleFilterPredicate::And(predicates)) => InputView {
-                result: FilterPredicateResultView::Valid(FilterPredicateView::And(
-                    predicates.into_iter().map(InputView::from).collect(),
-                )),
-            },
-            Ok(FallibleFilterPredicate::Or(predicates)) => InputView {
-                result: FilterPredicateResultView::Valid(FilterPredicateView::Or(
-                    predicates.into_iter().map(InputView::from).collect(),
-                )),
-            },
-            Err((err, text)) => InputView {
-                result: FilterPredicateResultView::Invalid {
-                    text,
-                    error: err.to_string(),
-                },
-            },
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-struct FilterPredicateSingleView {
-    text: String,
-    property_kind: Option<FilterPropertyKind>,
-    property: String,
-    #[serde(flatten)]
-    value: ValuePredicate,
-}
-
-impl From<FilterPredicateSingle> for FilterPredicateSingleView {
-    fn from(inner: FilterPredicateSingle) -> FilterPredicateSingleView {
-        FilterPredicateSingleView {
-            text: inner.to_string(),
-            property_kind: inner.property_kind,
-            property: inner.property,
-            value: inner.value,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct StatusView {
-    ingress_message: String,
-    ingress_error: Option<String>,
-    ingress_connections: usize,
-    ingress_bytes_per_second: f64,
-    dataset_name: String,
-    engine_load: f64,
-}
-
-#[derive(Serialize)]
-pub struct DeleteMetricsView {
-    spans: usize,
-    span_events: usize,
-    events: usize,
-}
-
-impl From<DeleteMetrics> for DeleteMetricsView {
-    fn from(metrics: DeleteMetrics) -> Self {
-        DeleteMetricsView {
-            spans: metrics.spans,
-            span_events: metrics.span_events,
-            events: metrics.events,
-        }
-    }
-}
-
 struct SessionPersistence(Option<PathBuf>);
-
-#[derive(Default, Serialize, Deserialize)]
-struct Session {
-    tabs: Vec<SessionTab>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct SessionTab {
-    kind: String,
-    start: Timestamp,
-    end: Timestamp,
-    filter: String,
-    columns: Vec<String>,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(tag = "kind", content = "entity", rename_all = "snake_case")]
-enum SubscriptionResponseView<T> {
-    Add(T),
-    Remove(Timestamp),
-}
