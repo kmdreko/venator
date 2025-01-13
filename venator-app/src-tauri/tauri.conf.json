@@ -1,6 +1,6 @@
 {
   "identifier": "com.kmdreko.venator",
-  "productName": "venator",
+  "productName": "Venator",
   "version": "0.2.2",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "Venator (BETA)",
+        "title": "Venator",
         "width": 1280,
         "height": 720,
         "theme": "Dark"
@@ -24,7 +24,7 @@
   "bundle": {
     "publisher": "kmdreko",
     "shortDescription": "Venator",
-    "longDescription": "A log and trace viewer for Rust tracing",
+    "longDescription": "A log and trace viewer for Rust tracing and OpenTelemetry",
     "active": true,
     "targets": "all",
     "icon": [
