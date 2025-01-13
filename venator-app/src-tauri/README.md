@@ -1,11 +1,10 @@
-The Venator application is for recording, viewing, and filtering logs and spans
-from Rust programs instrumented with the tracing crate.
+<img alt="venator logo" height=170 src="icons/icon.png">
 
-This is currently in a "beta" state; bugs and quirks are to be expected but
-functionality should be complete. Bug reports and future feature requests are
-welcome.
+The Venator application capable of recording, viewing, and filtering logs and
+spans from either Rust programs instrumented with the tracing crate or from
+programs that export OpenTelemetry data.
 
-Installation:
+## Install with Cargo:
 
 ```
 cargo install venator-app

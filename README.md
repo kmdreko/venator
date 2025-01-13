@@ -6,11 +6,27 @@
   </picture>
 </p>
 
-Venator is a library and GUI application for recording, viewing, and filtering logs and spans from Rust programs instrumented with the tracing crate. It is purpose-built for rapid local development.
+Venator is a application for recording, viewing, and filtering logs and spans
+from programs instrumented with the Rust tracing crate or using OpenTelemetry.
+It is purpose-built for rapid local development.
 
-This is currently in a "beta" state; bugs and quirks are to be expected but functionality should be complete. Bug reports and future feature requests are welcome.
+## Installation
+
+### With Cargo:
+
+Compiling and installing `venator` source with Cargo requires Rust 1.76 or newer:
+
+```
+cargo install venator-app
+```
+
+### With Pre-built Binaries:
+
+TBD
 
 ## Usage
+
+### Using Rust Tracing:
 
 In your instrumented program:
 
@@ -25,15 +41,13 @@ use venator::Venator;
 Venator::default().install();
 ```
 
-Installing the Venator app (Rust 1.76 or newer):
+See the [documentation](https://docs.rs/venator/latest/venator/) for more.
 
-```
-cargo install venator-app
-```
+### Using OpenTelemetry:
 
-```
-venator
-```
+Configure your program's OpenTelemetry SDK to export logs and traces to
+`127.0.0.1:8362` (the default for Venator) and to use GRPC or HTTP with binary
+encoding.
 
 ## Screenshots:
 

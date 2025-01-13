@@ -6,7 +6,7 @@ description = "A tracing layer for exporting logs and spans to the Venator app"
 readme = "README.md"
 repository = "https://github.com/kmdreko/venator"
 license = "MIT"
-keywords = ["tracing"]
+keywords = ["logging", "tracing", "profiling"]
 
 [dependencies]
 bincode = { version = "1.3.3", default-features = false }

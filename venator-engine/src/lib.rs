@@ -1,6 +1,4 @@
-//! The "engine" crate represents the core functionality to injest, store,
-//! index, and query the events and spans. It does not provide functionality
-//! outside of its Rust API.
+#![doc = include_str!("../README.md")]
 
 mod context;
 pub mod engine;

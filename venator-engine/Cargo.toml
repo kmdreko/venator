@@ -6,7 +6,7 @@ description = "The core functionality that drives the Venator app"
 readme = "README.md"
 repository = "https://github.com/kmdreko/venator"
 license = "MIT"
-keywords = ["tracing"]
+keywords = ["logging", "tracing", "opentelemetry", "profiling"]
 
 [features]
 default = []

@@ -2,11 +2,11 @@
 name = "venator-app"
 version = "0.2.2"
 edition = "2021"
-description = "A log and trace viewer for Rust tracing"
+description = "A log and trace viewer for Rust tracing and OpenTelemetry"
 readme = "README.md"
 repository = "https://github.com/kmdreko/venator"
 license = "MIT"
-keywords = ["tracing"]
+keywords = ["logging", "tracing", "opentelemetry", "profiling"]
 include = ["/src", "/build.rs", "/tauri.conf.json", "/icons", "/gen", "/capabilities", "/dist"]
 
 [[bin]]
