@@ -5,25 +5,25 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::extract::{FromRequest, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use opentelemetry::proto::collector::logs::v1::logs_service_server::{
+use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::{
     LogsService, LogsServiceServer,
 };
-use opentelemetry::proto::collector::logs::v1::{
+use opentelemetry_proto::tonic::collector::logs::v1::{
     ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
-use opentelemetry::proto::collector::metrics::v1::metrics_service_server::{
+use opentelemetry_proto::tonic::collector::metrics::v1::metrics_service_server::{
     MetricsService, MetricsServiceServer,
 };
-use opentelemetry::proto::collector::metrics::v1::{
+use opentelemetry_proto::tonic::collector::metrics::v1::{
     ExportMetricsServiceRequest, ExportMetricsServiceResponse,
 };
-use opentelemetry::proto::collector::trace::v1::trace_service_server::{
+use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::{
     TraceService, TraceServiceServer,
 };
-use opentelemetry::proto::collector::trace::v1::{
+use opentelemetry_proto::tonic::collector::trace::v1::{
     ExportTraceServiceRequest, ExportTraceServiceResponse,
 };
-use opentelemetry::proto::common::v1::{AnyValue, KeyValue};
+use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue};
 use prost::bytes::{Bytes, BytesMut};
 use tonic::{async_trait, Request, Response, Status};
 
@@ -34,52 +34,6 @@ use venator_engine::{
 };
 
 use super::IngressState;
-
-mod opentelemetry {
-    pub mod proto {
-        pub mod collector {
-            pub mod logs {
-                #[path = "../../../../../otel/opentelemetry.proto.collector.logs.v1.rs"]
-                pub mod v1;
-            }
-
-            pub mod metrics {
-                #[path = "../../../../../otel/opentelemetry.proto.collector.metrics.v1.rs"]
-                pub mod v1;
-            }
-
-            pub mod trace {
-                #[path = "../../../../../otel/opentelemetry.proto.collector.trace.v1.rs"]
-                pub mod v1;
-            }
-        }
-
-        pub mod common {
-            #[path = "../../../../otel/opentelemetry.proto.common.v1.rs"]
-            pub mod v1;
-        }
-
-        pub mod logs {
-            #[path = "../../../../otel/opentelemetry.proto.logs.v1.rs"]
-            pub mod v1;
-        }
-
-        pub mod metrics {
-            #[path = "../../../../otel/opentelemetry.proto.metrics.v1.rs"]
-            pub mod v1;
-        }
-
-        pub mod resource {
-            #[path = "../../../../otel/opentelemetry.proto.resource.v1.rs"]
-            pub mod v1;
-        }
-
-        pub mod trace {
-            #[path = "../../../../otel/opentelemetry.proto.trace.v1.rs"]
-            pub mod v1;
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Protobuf<T>(pub T);
@@ -480,7 +434,7 @@ fn conv_value_map(key_values: &[KeyValue]) -> BTreeMap<String, Value> {
 }
 
 fn conv_value(any_value: &AnyValue) -> Value {
-    use opentelemetry::proto::common::v1::any_value::Value as AnyValue;
+    use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
 
     let any_value = any_value.value.as_ref();
 

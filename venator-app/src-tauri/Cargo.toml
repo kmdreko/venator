@@ -15,7 +15,6 @@ path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2.0.1", features = [] }
-# tonic-build = "0.12.3"
 
 [dependencies]
 anyhow = "1.0.95"
@@ -26,6 +25,7 @@ directories = "5.0.1"
 futures = { version = "0.3.31", default-features = false }
 http-body = "1.0.1"
 open = "5.3.0"
+opentelemetry-proto = { version = "0.27.0", features = ["gen-tonic-messages", "logs", "metrics", "trace"] }
 prost = "0.13.3"
 tauri = { version = "2.0.1", features = [] }
 tauri-plugin-clipboard-manager = "2.0.1"
