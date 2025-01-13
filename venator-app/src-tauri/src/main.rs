@@ -67,12 +67,12 @@ impl Args {
         }
 
         if cfg!(debug_assertions) {
-            DatasetConfig::Default(PathBuf::from("local.db"))
+            DatasetConfig::Default(PathBuf::from("local.vena.db"))
         } else {
             DatasetConfig::Default(
                 directories::ProjectDirs::from("", "", "Venator")
-                    .map(|dirs| dirs.data_dir().to_path_buf().join("default.db"))
-                    .unwrap_or(PathBuf::from("default.db")),
+                    .map(|dirs| dirs.data_dir().to_path_buf().join("default.vena.db"))
+                    .unwrap_or(PathBuf::from("default.vena.db")),
             )
         }
     }
