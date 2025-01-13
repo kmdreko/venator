@@ -5,7 +5,7 @@ spans to the [Venator app](https://crates.io/crates/venator-app).
 
 ```toml
 [dependencies]
-venator = "0.2.0"
+venator = "1.0.0"
 ```
 
 Install it as the global subscriber:

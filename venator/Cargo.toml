@@ -1,6 +1,6 @@
 [package]
 name = "venator"
-version = "0.2.0"
+version = "1.0.0"
 edition = "2021"
 description = "A tracing layer for exporting logs and spans to the Venator app"
 readme = "README.md"

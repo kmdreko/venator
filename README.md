@@ -36,7 +36,7 @@ In your instrumented program:
 
 ```toml
 [dependencies]
-venator = "0.2.0"
+venator = "1.0.0"
 ```
 
 ```rust

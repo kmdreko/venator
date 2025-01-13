@@ -1,6 +1,6 @@
 [package]
 name = "venator-app"
-version = "0.2.2"
+version = "1.0.0"
 edition = "2021"
 description = "A log and trace viewer for Rust tracing and OpenTelemetry"
 readme = "README.md"
@@ -39,7 +39,7 @@ tonic = "0.12.3"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["json"] }
 
-venator-engine = { version = "0.2.1", features = ["persist"] }
+venator-engine = { version = "0.3.0", features = ["persist"] }
 
 [features]
 default = ["custom-protocol"]
