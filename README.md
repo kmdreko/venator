@@ -10,6 +10,10 @@ Venator is a application for recording, viewing, and filtering logs and spans
 from programs instrumented with the Rust tracing crate or using OpenTelemetry.
 It is purpose-built for rapid local development.
 
+<picture>
+  <img alt="demo" src="docs/images/screenshot-demo-light.png">
+</picture>
+
 ## Installation
 
 ### With Cargo:
@@ -49,20 +53,26 @@ Configure your program's OpenTelemetry SDK to export logs and traces to
 `127.0.0.1:8362` (the default for Venator) and to use GRPC or HTTP with binary
 encoding.
 
-## Screenshots:
+## Features:
+
+Events can be viewed narrowed by timespan and filtered by attributes, level, and
+other properties. The table of records can include columns of custom properties.
+The graph shows the counts by level at each bar.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-events-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/screenshot-events-light.png">
   <img alt="screenshots of events screen" src="docs/images/screenshot-events-light.png">
 </picture>
+
+Spans can likewise be narrowed by timespan and filter. A detail pane can show
+all the properties of selected events and spans. The graph shows spans layered
+hierarchically.
+
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-spans-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/screenshot-spans-light.png">
   <img alt="screenshots of spans screen" src="docs/images/screenshot-spans-light.png">
 </picture>
+
+Traces can be viewed that show both events and spans within a single execution.
+
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-traces-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/screenshot-traces-light.png">
   <img alt="screenshots of trace screen" src="docs/images/screenshot-traces-light.png">
 </picture>
