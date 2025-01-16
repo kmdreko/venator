@@ -14,9 +14,9 @@ use crate::models::{CloseSpanEvent, EnterSpanEvent, EventKey, FollowsSpanEvent};
 use crate::storage::Storage;
 use crate::subscription::{EventSubscription, SpanSubscription, Subscriber};
 use crate::{
-    CreateSpanEvent, DeleteFilter, DeleteMetrics, Event, ComposedEvent, FullSpanId, InstanceId,
-    NewEvent, NewResource, NewSpanEvent, NewSpanEventKind, Resource, ResourceKey, Span, SpanEvent,
-    SpanEventKey, SpanEventKind, SpanKey, ComposedSpan, DatasetStats, SubscriptionId, Timestamp,
+    ComposedEvent, ComposedSpan, CreateSpanEvent, DatasetStats, DeleteFilter, DeleteMetrics, Event,
+    FullSpanId, InstanceId, NewEvent, NewResource, NewSpanEvent, NewSpanEventKind, Resource,
+    ResourceKey, Span, SpanEvent, SpanEventKey, SpanEventKind, SpanKey, SubscriptionId, Timestamp,
     UpdateSpanEvent, ValueOperator,
 };
 
@@ -171,6 +171,10 @@ impl<S: Storage> SyncEngine<S> {
                     .context("failed to close span")?;
             }
         }
+
+        tracing::info!("loaded {} spans", engine.span_indexes.all.len());
+        tracing::info!("loaded {} span events", engine.span_event_indexes.all.len());
+        tracing::info!("loaded {} events", engine.event_indexes.all.len());
 
         Ok(engine)
     }

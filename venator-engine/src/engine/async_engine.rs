@@ -178,10 +178,7 @@ impl AsyncEngine {
         query: Query,
     ) -> impl Future<Output = Result<Vec<ComposedSpan>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::QuerySpan(query, sender),
-        ));
+        self.emit_query(EngineCommand::QuerySpan(query, sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -189,10 +186,7 @@ impl AsyncEngine {
     #[instrument(skip_all)]
     pub fn query_span_count(&self, query: Query) -> impl Future<Output = Result<usize, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::QuerySpanCount(query, sender),
-        ));
+        self.emit_query(EngineCommand::QuerySpanCount(query, sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -204,10 +198,7 @@ impl AsyncEngine {
         query: Query,
     ) -> impl Future<Output = Result<Vec<SpanEvent>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::QuerySpanEvent(query, sender),
-        ));
+        self.emit_query(EngineCommand::QuerySpanEvent(query, sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -218,10 +209,7 @@ impl AsyncEngine {
         query: Query,
     ) -> impl Future<Output = Result<Vec<ComposedEvent>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::QueryEvent(query, sender),
-        ));
+        self.emit_query(EngineCommand::QueryEvent(query, sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -229,10 +217,7 @@ impl AsyncEngine {
     #[instrument(skip_all)]
     pub fn query_event_count(&self, query: Query) -> impl Future<Output = Result<usize, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::QueryEventCount(query, sender),
-        ));
+        self.emit_query(EngineCommand::QueryEventCount(query, sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -240,9 +225,7 @@ impl AsyncEngine {
     #[instrument(skip_all)]
     pub fn query_stats(&self) -> impl Future<Output = Result<DatasetStats, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send((tracing::Span::current(), EngineCommand::QueryStats(sender)));
+        self.emit_query(EngineCommand::QueryStats(sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -252,10 +235,7 @@ impl AsyncEngine {
         resource: NewResource,
     ) -> impl Future<Output = Result<ResourceKey, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.insert_sender.send((
-            tracing::Span::current(),
-            EngineCommand::InsertResource(resource, sender),
-        ));
+        self.emit_insert(EngineCommand::InsertResource(resource, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
@@ -265,10 +245,7 @@ impl AsyncEngine {
         id: InstanceId,
     ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.insert_sender.send((
-            tracing::Span::current(),
-            EngineCommand::DisconnectTracingInstance(id, sender),
-        ));
+        self.emit_insert(EngineCommand::DisconnectTracingInstance(id, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
@@ -278,20 +255,14 @@ impl AsyncEngine {
         span_event: NewSpanEvent,
     ) -> impl Future<Output = Result<SpanKey, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.insert_sender.send((
-            tracing::Span::current(),
-            EngineCommand::InsertSpanEvent(span_event, sender),
-        ));
+        self.emit_insert(EngineCommand::InsertSpanEvent(span_event, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
     pub fn insert_event(&self, event: NewEvent) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.insert_sender.send((
-            tracing::Span::current(),
-            EngineCommand::InsertEvent(event, sender),
-        ));
+        self.emit_insert(EngineCommand::InsertEvent(event, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
@@ -301,10 +272,7 @@ impl AsyncEngine {
         filter: DeleteFilter,
     ) -> impl Future<Output = Result<DeleteMetrics, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.insert_sender.send((
-            tracing::Span::current(),
-            EngineCommand::Delete(filter, sender),
-        ));
+        self.emit_insert(EngineCommand::Delete(filter, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
@@ -314,10 +282,7 @@ impl AsyncEngine {
         filter: Vec<FilterPredicate>,
     ) -> impl Future<Output = Result<Subscriber<ComposedSpan>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::SpanSubscribe(filter, sender),
-        ));
+        self.emit_query(EngineCommand::SpanSubscribe(filter, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
@@ -327,10 +292,7 @@ impl AsyncEngine {
         id: SubscriptionId,
     ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::SpanUnsubscribe(id, sender),
-        ));
+        self.emit_query(EngineCommand::SpanUnsubscribe(id, sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -340,10 +302,7 @@ impl AsyncEngine {
         filter: Vec<FilterPredicate>,
     ) -> impl Future<Output = Result<Subscriber<ComposedEvent>, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::EventSubscribe(filter, sender),
-        ));
+        self.emit_query(EngineCommand::EventSubscribe(filter, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
@@ -353,10 +312,7 @@ impl AsyncEngine {
         id: SubscriptionId,
     ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::EventUnsubscribe(id, sender),
-        ));
+        self.emit_query(EngineCommand::EventUnsubscribe(id, sender));
         async move { receiver.await.context("failed to get result") }
     }
 
@@ -366,29 +322,34 @@ impl AsyncEngine {
         to: Box<dyn Storage + Send>,
     ) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.query_sender.send((
-            tracing::Span::current(),
-            EngineCommand::CopyDataset(to, sender),
-        ));
+        self.emit_query(EngineCommand::CopyDataset(to, sender));
         async move { receiver.await.context("failed to get result")? }
     }
 
     #[instrument(skip_all)]
     pub fn get_status(&self) -> impl Future<Output = Result<EngineStatus, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .query_sender
-            .send((tracing::Span::current(), EngineCommand::GetStatus(sender)));
+        self.emit_query(EngineCommand::GetStatus(sender));
         async move { receiver.await.context("failed to get result") }
     }
 
     #[instrument(skip_all)]
     pub fn save(&self) -> impl Future<Output = Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        let _ = self
-            .insert_sender
-            .send((tracing::Span::current(), EngineCommand::Save(sender)));
+        self.emit_insert(EngineCommand::Save(sender));
         async move { receiver.await.context("failed to get result")? }
+    }
+
+    fn emit_query(&self, command: EngineCommand) {
+        // ignore errors, any issue sending the commend will resurface an error
+        // when the command's receiver awaits the response
+        let _ = self.query_sender.send((tracing::Span::current(), command));
+    }
+
+    fn emit_insert(&self, command: EngineCommand) {
+        // ignore errors, any issue sending the commend will resurface an error
+        // when the command's receiver awaits the response
+        let _ = self.insert_sender.send((tracing::Span::current(), command));
     }
 }
 
