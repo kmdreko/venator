@@ -69,10 +69,9 @@ pub(super) async fn post_tracing_handler(
         instances.remove(&id);
     }
 
-    // we have no need for the result, and the disconnect is executed
-    // regardless if we poll
+    // we await sending the disconnect, but we don't need to await the response
     #[allow(clippy::let_underscore_future)]
-    let _ = state.engine.disconnect_tracing_instance(id);
+    let _ = state.engine.disconnect_tracing_instance(id).await;
 
     Ok(())
 }
@@ -115,8 +114,12 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
         attributes: conv_value_map(handshake.attributes),
     };
 
-    let resource_key = match engine.insert_resource(resource).await {
-        Ok(key) => key,
+    let resource_key = match engine.insert_resource(resource).await.await {
+        Ok(Ok(key)) => key,
+        Ok(Err(err)) => {
+            tracing::warn!("failed to insert connection: {err:?}");
+            return;
+        }
         Err(err) => {
             tracing::warn!("failed to insert connection: {err:?}");
             return;
@@ -137,10 +140,6 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
             tracing::warn!("failed to read message: {err:?}");
             break;
         }
-
-        // stats
-        //     .bytes_since_last_check
-        //     .fetch_add(length as usize + 2, Ordering::Relaxed);
 
         let msg: Message = match deserializer.deserialize_from(buffer.as_slice()) {
             Ok(message) => message,
@@ -183,10 +182,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     }),
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(span_event);
+                let _ = engine.insert_span_event(span_event).await;
             }
             MessageData::Update(update_data) => {
                 let Some(span_id) = msg.span_id else {
@@ -202,10 +201,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     }),
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(span_event);
+                let _ = engine.insert_span_event(span_event).await;
             }
             MessageData::Follows(follows_data) => {
                 let Some(span_id) = msg.span_id else {
@@ -221,10 +220,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     }),
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(span_event);
+                let _ = engine.insert_span_event(span_event).await;
             }
             MessageData::Enter(enter_data) => {
                 let Some(span_id) = msg.span_id else {
@@ -240,10 +239,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     }),
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(span_event);
+                let _ = engine.insert_span_event(span_event).await;
             }
             MessageData::Exit => {
                 let Some(span_id) = msg.span_id else {
@@ -257,10 +256,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     kind: NewSpanEventKind::Exit,
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(span_event);
+                let _ = engine.insert_span_event(span_event).await;
             }
             MessageData::Close => {
                 let Some(span_id) = msg.span_id else {
@@ -274,10 +273,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     kind: NewSpanEventKind::Close(NewCloseSpanEvent { busy: None }),
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(span_event);
+                let _ = engine.insert_span_event(span_event).await;
             }
             MessageData::Event(event) => {
                 let Ok(level) = Level::from_tracing_level(event.level) else {
@@ -307,10 +306,10 @@ async fn handle_tracing_stream<S: AsyncRead + Unpin>(
                     attributes,
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_event(event);
+                let _ = engine.insert_event(event).await;
             }
         };
     }

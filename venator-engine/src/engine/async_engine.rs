@@ -1,10 +1,9 @@
-use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::time::Instant;
 
 use anyhow::{Context, Error as AnyError};
-use tokio::sync::mpsc::{self, UnboundedSender};
-use tokio::sync::oneshot::{self, Sender as OneshotSender};
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::oneshot::{self, Receiver as OneshotReceiver, Sender as OneshotSender};
 use tracing::instrument;
 
 use crate::filter::{FilterPredicate, Query};
@@ -21,20 +20,19 @@ use super::SyncEngine;
 /// Provides the core engine functionality with an async interface.
 ///
 /// Internally this wraps a `SyncEngine` in a thread and coordinates with it via
-/// message passing. As such, all the methods are cancel safe (i.e. an insert
-/// call will complete whether it is polled or not).
+/// message passing.
 #[derive(Clone)]
 pub struct AsyncEngine {
-    insert_sender: UnboundedSender<(tracing::Span, EngineCommand)>,
-    query_sender: UnboundedSender<(tracing::Span, EngineCommand)>,
+    insert_sender: Sender<(tracing::Span, EngineCommand)>,
+    query_sender: Sender<(tracing::Span, EngineCommand)>,
 }
 
 impl AsyncEngine {
     pub fn new<S: Storage + Send + 'static>(storage: S) -> Result<AsyncEngine, AnyError> {
         let (insert_sender, mut insert_receiver) =
-            mpsc::unbounded_channel::<(tracing::Span, EngineCommand)>();
+            mpsc::channel::<(tracing::Span, EngineCommand)>(10000);
         let (query_sender, mut query_receiver) =
-            mpsc::unbounded_channel::<(tracing::Span, EngineCommand)>();
+            mpsc::channel::<(tracing::Span, EngineCommand)>(10000);
 
         let mut engine = SyncEngine::new(storage)?;
 
@@ -42,21 +40,24 @@ impl AsyncEngine {
             let mut last_check = Instant::now();
             let mut computed_ms_since_last_check: u128 = 0;
 
-            let mut recv = || {
+            fn recv(
+                query: &mut Receiver<(tracing::Span, EngineCommand)>,
+                insert: &mut Receiver<(tracing::Span, EngineCommand)>,
+            ) -> Option<(tracing::Span, EngineCommand)> {
                 futures::executor::block_on(async {
                     tokio::select! {
                         biased;
-                        msg = query_receiver.recv() => {
+                        msg = query.recv() => {
                             msg
                         }
-                        msg = insert_receiver.recv() => {
+                        msg = insert.recv() => {
                             msg
                         }
                     }
                 })
-            };
+            }
 
-            while let Some((tracing_span, cmd)) = recv() {
+            while let Some((tracing_span, cmd)) = recv(&mut query_receiver, &mut insert_receiver) {
                 let _entered_span = tracing_span.enter();
 
                 let cmd_start = Instant::now();
@@ -150,8 +151,38 @@ impl AsyncEngine {
                             load: load.min(1.0) * 100.0,
                         });
                     }
-                    EngineCommand::Save(sender) => {
-                        let res = engine.save();
+                    EngineCommand::Shutdown(sender) => {
+                        // The shutdown process first prevents further inserts
+                        // and handles the existing ones. And since the insert
+                        // receiver is no longer receiving commands, it will
+                        // exit the loop and therefore shut down the engine
+                        // after any followup query commands have been handled.
+                        insert_receiver.close();
+
+                        while let Some((tracing_span, cmd)) = insert_receiver.blocking_recv() {
+                            let _entered_span = tracing_span.enter();
+                            match cmd {
+                                EngineCommand::InsertResource(resource, sender) => {
+                                    let res = engine.insert_resource(resource);
+                                    let _ = sender.send(res);
+                                }
+                                EngineCommand::DisconnectTracingInstance(instance_id, sender) => {
+                                    let res = engine.disconnect_tracing_instance(instance_id);
+                                    let _ = sender.send(res);
+                                }
+                                EngineCommand::InsertSpanEvent(span_event, sender) => {
+                                    let res = engine.insert_span_event(span_event);
+                                    let _ = sender.send(res);
+                                }
+                                EngineCommand::InsertEvent(event, sender) => {
+                                    let res = engine.insert_event(event);
+                                    let _ = sender.send(res);
+                                }
+                                _ => tracing::warn!("ignoring unexpected command on shutdown"),
+                            }
+                        }
+
+                        let res = engine.shutdown();
                         let _ = sender.send(res);
                     }
                 }));
@@ -171,185 +202,183 @@ impl AsyncEngine {
         })
     }
 
-    // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_span(
-        &self,
-        query: Query,
-    ) -> impl Future<Output = Result<Vec<ComposedSpan>, AnyError>> {
+    pub async fn query_span(&self, query: Query) -> Result<Vec<ComposedSpan>, AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::QuerySpan(query, sender));
-        async move { receiver.await.context("failed to get result") }
+        self.emit_query(EngineCommand::QuerySpan(query, sender))
+            .await;
+        receiver.await.context("failed to get result")
     }
 
-    // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_span_count(&self, query: Query) -> impl Future<Output = Result<usize, AnyError>> {
+    pub async fn query_span_count(&self, query: Query) -> Result<usize, AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::QuerySpanCount(query, sender));
-        async move { receiver.await.context("failed to get result") }
+        self.emit_query(EngineCommand::QuerySpanCount(query, sender))
+            .await;
+        receiver.await.context("failed to get result")
     }
 
-    // The query is executed even if the returned future is not awaited
-    #[instrument(skip_all)]
     #[doc(hidden)]
-    pub fn query_span_event(
-        &self,
-        query: Query,
-    ) -> impl Future<Output = Result<Vec<SpanEvent>, AnyError>> {
-        let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::QuerySpanEvent(query, sender));
-        async move { receiver.await.context("failed to get result") }
-    }
-
-    // The query is executed even if the returned future is not awaited
     #[instrument(skip_all)]
-    pub fn query_event(
-        &self,
-        query: Query,
-    ) -> impl Future<Output = Result<Vec<ComposedEvent>, AnyError>> {
+    pub async fn query_span_event(&self, query: Query) -> Result<Vec<SpanEvent>, AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::QueryEvent(query, sender));
-        async move { receiver.await.context("failed to get result") }
-    }
-
-    // The query is executed even if the returned future is not awaited
-    #[instrument(skip_all)]
-    pub fn query_event_count(&self, query: Query) -> impl Future<Output = Result<usize, AnyError>> {
-        let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::QueryEventCount(query, sender));
-        async move { receiver.await.context("failed to get result") }
-    }
-
-    // The query is executed even if the returned future is not awaited
-    #[instrument(skip_all)]
-    pub fn query_stats(&self) -> impl Future<Output = Result<DatasetStats, AnyError>> {
-        let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::QueryStats(sender));
-        async move { receiver.await.context("failed to get result") }
+        self.emit_query(EngineCommand::QuerySpanEvent(query, sender))
+            .await;
+        receiver.await.context("failed to get result")
     }
 
     #[instrument(skip_all)]
-    pub fn insert_resource(
+    pub async fn query_event(&self, query: Query) -> Result<Vec<ComposedEvent>, AnyError> {
+        let (sender, receiver) = oneshot::channel();
+        self.emit_query(EngineCommand::QueryEvent(query, sender))
+            .await;
+        receiver.await.context("failed to get result")
+    }
+
+    #[instrument(skip_all)]
+    pub async fn query_event_count(&self, query: Query) -> Result<usize, AnyError> {
+        let (sender, receiver) = oneshot::channel();
+        self.emit_query(EngineCommand::QueryEventCount(query, sender))
+            .await;
+        receiver.await.context("failed to get result")
+    }
+
+    #[instrument(skip_all)]
+    pub async fn query_stats(&self) -> Result<DatasetStats, AnyError> {
+        let (sender, receiver) = oneshot::channel();
+        self.emit_query(EngineCommand::QueryStats(sender)).await;
+        receiver.await.context("failed to get result")
+    }
+
+    #[instrument(skip_all)]
+    #[allow(clippy::async_yields_async)]
+    pub async fn insert_resource(
         &self,
         resource: NewResource,
-    ) -> impl Future<Output = Result<ResourceKey, AnyError>> {
+    ) -> OneshotReceiver<Result<ResourceKey, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_insert(EngineCommand::InsertResource(resource, sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_insert(EngineCommand::InsertResource(resource, sender))
+            .await;
+        receiver
     }
 
     #[instrument(skip_all)]
-    pub fn disconnect_tracing_instance(
+    #[allow(clippy::async_yields_async)]
+    pub async fn disconnect_tracing_instance(
         &self,
         id: InstanceId,
-    ) -> impl Future<Output = Result<(), AnyError>> {
+    ) -> OneshotReceiver<Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_insert(EngineCommand::DisconnectTracingInstance(id, sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_insert(EngineCommand::DisconnectTracingInstance(id, sender))
+            .await;
+        receiver
     }
 
     #[instrument(skip_all)]
-    pub fn insert_span_event(
+    #[allow(clippy::async_yields_async)]
+    pub async fn insert_span_event(
         &self,
         span_event: NewSpanEvent,
-    ) -> impl Future<Output = Result<SpanKey, AnyError>> {
+    ) -> OneshotReceiver<Result<SpanKey, AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_insert(EngineCommand::InsertSpanEvent(span_event, sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_insert(EngineCommand::InsertSpanEvent(span_event, sender))
+            .await;
+        receiver
     }
 
     #[instrument(skip_all)]
-    pub fn insert_event(&self, event: NewEvent) -> impl Future<Output = Result<(), AnyError>> {
+    #[allow(clippy::async_yields_async)]
+    pub async fn insert_event(&self, event: NewEvent) -> OneshotReceiver<Result<(), AnyError>> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_insert(EngineCommand::InsertEvent(event, sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_insert(EngineCommand::InsertEvent(event, sender))
+            .await;
+        receiver
     }
 
     #[instrument(skip_all)]
-    pub fn delete(
-        &self,
-        filter: DeleteFilter,
-    ) -> impl Future<Output = Result<DeleteMetrics, AnyError>> {
+    pub async fn delete(&self, filter: DeleteFilter) -> Result<DeleteMetrics, AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_insert(EngineCommand::Delete(filter, sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_insert(EngineCommand::Delete(filter, sender))
+            .await;
+        receiver.await.context("failed to get result")?
     }
 
     #[instrument(skip_all)]
-    pub fn subscribe_to_spans(
-        &self,
-        filter: Vec<FilterPredicate>,
-    ) -> impl Future<Output = Result<Subscriber<ComposedSpan>, AnyError>> {
-        let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::SpanSubscribe(filter, sender));
-        async move { receiver.await.context("failed to get result")? }
-    }
-
-    #[instrument(skip_all)]
-    pub fn unsubscribe_from_spans(
-        &self,
-        id: SubscriptionId,
-    ) -> impl Future<Output = Result<(), AnyError>> {
-        let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::SpanUnsubscribe(id, sender));
-        async move { receiver.await.context("failed to get result") }
-    }
-
-    #[instrument(skip_all)]
-    pub fn subscribe_to_events(
+    pub async fn subscribe_to_spans(
         &self,
         filter: Vec<FilterPredicate>,
-    ) -> impl Future<Output = Result<Subscriber<ComposedEvent>, AnyError>> {
+    ) -> Result<Subscriber<ComposedSpan>, AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::EventSubscribe(filter, sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_query(EngineCommand::SpanSubscribe(filter, sender))
+            .await;
+        receiver.await.context("failed to get result")?
     }
 
     #[instrument(skip_all)]
-    pub fn unsubscribe_from_events(
+    pub async fn unsubscribe_from_spans(&self, id: SubscriptionId) -> Result<(), AnyError> {
+        let (sender, receiver) = oneshot::channel();
+        self.emit_query(EngineCommand::SpanUnsubscribe(id, sender))
+            .await;
+        receiver.await.context("failed to get result")
+    }
+
+    #[instrument(skip_all)]
+    pub async fn subscribe_to_events(
         &self,
-        id: SubscriptionId,
-    ) -> impl Future<Output = Result<(), AnyError>> {
+        filter: Vec<FilterPredicate>,
+    ) -> Result<Subscriber<ComposedEvent>, AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::EventUnsubscribe(id, sender));
-        async move { receiver.await.context("failed to get result") }
+        self.emit_query(EngineCommand::EventSubscribe(filter, sender))
+            .await;
+        receiver.await.context("failed to get result")?
     }
 
     #[instrument(skip_all)]
-    pub fn copy_dataset(
-        &self,
-        to: Box<dyn Storage + Send>,
-    ) -> impl Future<Output = Result<(), AnyError>> {
+    pub async fn unsubscribe_from_events(&self, id: SubscriptionId) -> Result<(), AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::CopyDataset(to, sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_query(EngineCommand::EventUnsubscribe(id, sender))
+            .await;
+        receiver.await.context("failed to get result")
     }
 
     #[instrument(skip_all)]
-    pub fn get_status(&self) -> impl Future<Output = Result<EngineStatus, AnyError>> {
+    pub async fn copy_dataset(&self, to: Box<dyn Storage + Send>) -> Result<(), AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_query(EngineCommand::GetStatus(sender));
-        async move { receiver.await.context("failed to get result") }
+        self.emit_query(EngineCommand::CopyDataset(to, sender))
+            .await;
+        receiver.await.context("failed to get result")?
     }
 
     #[instrument(skip_all)]
-    pub fn save(&self) -> impl Future<Output = Result<(), AnyError>> {
+    pub async fn get_status(&self) -> Result<EngineStatus, AnyError> {
         let (sender, receiver) = oneshot::channel();
-        self.emit_insert(EngineCommand::Save(sender));
-        async move { receiver.await.context("failed to get result")? }
+        self.emit_query(EngineCommand::GetStatus(sender)).await;
+        receiver.await.context("failed to get result")
     }
 
-    fn emit_query(&self, command: EngineCommand) {
+    #[instrument(skip_all)]
+    pub async fn shutdown(&self) -> Result<(), AnyError> {
+        let (sender, receiver) = oneshot::channel();
+        self.emit_insert(EngineCommand::Shutdown(sender)).await;
+        receiver.await.context("failed to get result")?
+    }
+
+    async fn emit_query(&self, command: EngineCommand) {
         // ignore errors, any issue sending the commend will resurface an error
         // when the command's receiver awaits the response
-        let _ = self.query_sender.send((tracing::Span::current(), command));
+        let _ = self
+            .query_sender
+            .send((tracing::Span::current(), command))
+            .await;
     }
 
-    fn emit_insert(&self, command: EngineCommand) {
+    async fn emit_insert(&self, command: EngineCommand) {
         // ignore errors, any issue sending the commend will resurface an error
         // when the command's receiver awaits the response
-        let _ = self.insert_sender.send((tracing::Span::current(), command));
+        let _ = self
+            .insert_sender
+            .send((tracing::Span::current(), command))
+            .await;
     }
 }
 
@@ -380,5 +409,5 @@ enum EngineCommand {
     CopyDataset(Box<dyn Storage + Send>, OneshotSender<Result<(), AnyError>>),
     GetStatus(OneshotSender<EngineStatus>),
 
-    Save(OneshotSender<Result<(), AnyError>>),
+    Shutdown(OneshotSender<Result<(), AnyError>>),
 }

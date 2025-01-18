@@ -170,8 +170,12 @@ async fn process_logs_request(
         let resource = NewResource {
             attributes: resource_attributes,
         };
-        let resource_key = match engine.insert_resource(resource).await {
-            Ok(key) => key,
+        let resource_key = match engine.insert_resource(resource).await.await {
+            Ok(Ok(key)) => key,
+            Ok(Err(err)) => {
+                tracing::warn!(?err, "could not insert resource");
+                continue;
+            }
             Err(err) => {
                 tracing::warn!(?err, "could not insert resource");
                 continue;
@@ -231,10 +235,10 @@ async fn process_logs_request(
                     attributes,
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_event(event);
+                let _ = engine.insert_event(event).await;
             }
         }
     }
@@ -268,8 +272,12 @@ async fn process_trace_request(
         let resource = NewResource {
             attributes: resource_attributes,
         };
-        let resource_key = match engine.insert_resource(resource).await {
-            Ok(key) => key,
+        let resource_key = match engine.insert_resource(resource).await.await {
+            Ok(Ok(key)) => key,
+            Ok(Err(err)) => {
+                tracing::warn!(?err, "could not insert resource");
+                continue;
+            }
             Err(err) => {
                 tracing::warn!(?err, "could not insert resource");
                 continue;
@@ -348,10 +356,10 @@ async fn process_trace_request(
                     }),
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(create_span_event);
+                let _ = engine.insert_span_event(create_span_event).await;
 
                 let close_span_event = NewSpanEvent {
                     timestamp: Timestamp::new(closed_timestamp)
@@ -360,10 +368,10 @@ async fn process_trace_request(
                     kind: NewSpanEventKind::Close(NewCloseSpanEvent { busy }),
                 };
 
-                // we have no need for the result, and the insert is
-                // executed regardless if we poll
+                // we await sending the event, but we don't need to await the
+                // response
                 #[allow(clippy::let_underscore_future)]
-                let _ = engine.insert_span_event(close_span_event);
+                let _ = engine.insert_span_event(close_span_event).await;
 
                 for event in &span.events {
                     let timestamp = event.time_unix_nano / 1000;
@@ -404,10 +412,10 @@ async fn process_trace_request(
                         attributes,
                     };
 
-                    // we have no need for the result, and the insert is
-                    // executed regardless if we poll
+                    // we await sending the event, but we don't need to await
+                    // the response
                     #[allow(clippy::let_underscore_future)]
-                    let _ = engine.insert_event(event);
+                    let _ = engine.insert_event(event).await;
                 }
             }
         }

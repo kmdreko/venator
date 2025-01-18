@@ -414,7 +414,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, event: MenuEvent) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn shutdown(engine: &AsyncEngine) {
-    if let Err(err) = engine.save().await {
+    if let Err(err) = engine.shutdown().await {
         tracing::error!(?err, "failed to save");
     }
 }

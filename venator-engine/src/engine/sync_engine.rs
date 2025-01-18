@@ -1131,7 +1131,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn save(&mut self) -> Result<(), AnyError> {
+    pub fn shutdown(&mut self) -> Result<(), AnyError> {
         if let Some(s) = self.storage.as_index_storage_mut() {
             s.update_indexes(
                 &self.span_indexes,
