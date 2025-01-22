@@ -5,7 +5,7 @@ import { EventCountGraph } from "../components/event-count-graph";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { Event, Input, parseEventFilter, Timestamp } from '../invoke';
-import { Counts, PartialEventCountFilter, PartialFilter, Timespan } from "../models";
+import { Counts, PartialCountFilter, PartialFilter, Timespan } from "../models";
 import { ColumnDef, CONTENT, parseEventColumn, Table } from "../components/table";
 
 import './events-screen.css';
@@ -27,7 +27,7 @@ export type EventsScreenProps = {
     columnRemove: (i: number) => void,
 
     getEvents: (filter: PartialFilter) => Promise<Event[]>,
-    getEventCounts: (filter: PartialEventCountFilter, wait?: boolean, cache?: boolean) => Promise<Counts | null>,
+    getEventCounts: (filter: PartialCountFilter, wait?: boolean, cache?: boolean) => Promise<Counts | null>,
 
     live: boolean,
     setLive: (live: boolean) => void,

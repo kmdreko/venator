@@ -13,7 +13,7 @@ export type PartialFilter = {
     previous?: Timestamp;
 };
 
-export type PartialEventCountFilter = {
+export type PartialCountFilter = {
     start: Timestamp;
     end: Timestamp;
 };

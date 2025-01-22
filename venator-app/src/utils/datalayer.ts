@@ -1,5 +1,5 @@
-import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getSpans, Input, Span, SpanFilter, subscribeToEvents, subscribeToSpans, SubscriptionResponse, Timestamp, unsubscribeFromEvents, unsubscribeFromSpans } from "../invoke";
-import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedSpan, Timespan } from "../models";
+import { Event, EventFilter, FilterPredicate, FullSpanId, getEventCount, getEvents, getSpanCount, getSpans, Input, Span, SpanFilter, subscribeToEvents, subscribeToSpans, SubscriptionResponse, Timestamp, unsubscribeFromEvents, unsubscribeFromSpans } from "../invoke";
+import { Counts, PaginationFilter, PartialCountFilter, PartialFilter, PositionedSpan, Timespan } from "../models";
 import { Channel } from "@tauri-apps/api/core";
 
 type IsVolatile = boolean;
@@ -285,7 +285,7 @@ export class EventDataLayer {
         }
     }
 
-    getEventCounts = async (filter: PartialEventCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> => {
+    getEventCounts = async (filter: PartialCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> => {
         let key = `${filter.start}-${filter.end}`;
 
         // the latest second should not be considered reliable
@@ -416,6 +416,9 @@ export class SpanDataLayer {
     // this may have spans prior to `#range[0]` but they will overlap `#range`
     #spans: Span[];
 
+    // the cached event counts by "{start}-{end}" and level
+    #counts: { [range: string]: [Counts, IsVolatile] };
+
     #slots: Timespan[][];
     #slotmap: { [span_id: FullSpanId]: number };
 
@@ -428,6 +431,7 @@ export class SpanDataLayer {
         this.#filter = filter.filter(f => f.input == 'valid');
         this.#range = [0, 0];
         this.#spans = [];
+        this.#counts = {};
         this.#slots = [];
         this.#slotmap = {};
         this.#expandStartTask = null;
@@ -474,6 +478,37 @@ export class SpanDataLayer {
             level: span.level,
             slot: this.#slotmap[span.id],
         }))
+    }
+
+    getSpanCounts = async (filter: PartialCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> => {
+        let key = `${filter.start}-${filter.end}`;
+
+        // the latest second should not be considered reliable
+        let inVolatileRange = filter.end >= Date.now() * 1000 - 1000000;
+
+        if (this.#counts[key] != undefined && !this.#counts[key][1]) {
+            return this.#counts[key][0];
+        }
+
+        if (wait === false) {
+            return this.#counts[key] != undefined ? this.#counts[key][0] : null;
+        }
+
+        let counts = await Promise.all([
+            getSpanCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "TRACE"] } }], ...filter }),
+            getSpanCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "DEBUG"] } }], ...filter }),
+            getSpanCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "INFO"] } }], ...filter }),
+            getSpanCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "WARN"] } }], ...filter }),
+            getSpanCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "ERROR"] } }], ...filter }),
+            getSpanCount({ filter: [...this.#filter, { predicate_kind: 'single', predicate: { text: '', property: "level", value_kind: 'comparison', value: ['Eq', "FATAL"] } }], ...filter }),
+        ]);
+
+        // cache if enabled
+        if (cache == undefined || cache == true) {
+            this.#counts[key] = [counts, inVolatileRange];
+        }
+
+        return counts;
     }
 
     getSpans = async (filter: PartialFilter, wait?: boolean): Promise<Span[] | null> => {

@@ -4,7 +4,7 @@ import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { EventsScreen } from "./screens/events-screen";
 import { AppStatus, deleteEntities, Event, getEvents, getSpans, getStats, getStatus, Input, loadSession, parseEventFilter, parseSpanFilter, saveSession, Session, SessionTab, Span, Timestamp, ValidFilterPredicate } from "./invoke";
 import { batch, createSignal, Match, onMount, Show, Switch } from "solid-js";
-import { Counts, PaginationFilter, PartialEventCountFilter, PartialFilter, PositionedSpan, Timespan } from "./models";
+import { Counts, PaginationFilter, PartialCountFilter, PartialFilter, PositionedSpan, Timespan } from "./models";
 import { SpansScreen } from "./screens/spans-screen";
 import { EventDataLayer, SpanDataLayer, TraceDataLayer } from "./utils/datalayer";
 import { NavigationContext } from "./context/navigation";
@@ -585,12 +585,16 @@ function App() {
         return await screen.store.getEvents(filter);
     }
 
-    async function getAndCacheEventCounts(screen: EventsScreenData, filter: PartialEventCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> {
+    async function getAndCacheEventCounts(screen: EventsScreenData, filter: PartialCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> {
         return await screen.store.getEventCounts(filter, wait, cache);
     }
 
     async function getAndCacheSpans(screen: SpansScreenData, filter: PartialFilter, wait?: boolean): Promise<Span[] | null> {
         return await screen.store.getSpans(filter, wait);
+    }
+
+    async function getAndCacheSpanCounts(screen: SpansScreenData, filter: PartialCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> {
+        return await screen.store.getSpanCounts(filter, wait, cache);
     }
 
     async function getAndCachePositionedSpans(screen: SpansScreenData, filter: PartialFilter, wait?: boolean): Promise<PositionedSpan[] | null> {
@@ -1504,6 +1508,7 @@ function App() {
 
                                 getSpans={(f, w) => getAndCacheSpans(getCurrentScreen() as SpansScreenData, f, w)}
                                 getPositionedSpans={(f, w) => getAndCachePositionedSpans(getCurrentScreen() as SpansScreenData, f, w)}
+                                getSpanCounts={(f, w) => getAndCacheSpanCounts(getCurrentScreen() as SpansScreenData, f, w)}
 
                                 live={(getCurrentScreen() as EventsScreenData).live}
                                 setLive={setScreenLive}

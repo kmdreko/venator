@@ -1,6 +1,6 @@
 import { batch, createEffect, createSignal, For, Show, untrack } from "solid-js";
 import { Event, Input } from "../invoke";
-import { Counts, PartialEventCountFilter, Timespan } from "../models";
+import { Counts, PartialCountFilter, Timespan } from "../models";
 import { GraphContainer } from "./graph-container";
 
 import "./event-count-graph.css";
@@ -11,7 +11,7 @@ export type EventCountGraphProps = {
     updateTimespan: (new_timespan: Timespan) => void,
     hoveredRow: Event | null,
 
-    getEventCounts: (filter: PartialEventCountFilter, wait?: boolean, cache?: boolean) => Promise<Counts | null>,
+    getEventCounts: (filter: PartialCountFilter, wait?: boolean, cache?: boolean) => Promise<Counts | null>,
 
     setCount: (count: [number, boolean]) => void,
 };

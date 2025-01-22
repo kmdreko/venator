@@ -4,7 +4,7 @@ import { SpanDetailPane } from "../components/detail-pane";
 import { FilterInput } from "../components/filter-input";
 import { ScreenHeader } from "../components/screen-header";
 import { Input, parseSpanFilter, Span, Timestamp } from '../invoke';
-import { PartialFilter, PositionedSpan, Timespan } from "../models";
+import { Counts, PartialCountFilter, PartialFilter, PositionedSpan, Timespan } from "../models";
 import { ColumnDef, INHERENT, parseSpanColumn, Table } from "../components/table";
 import { SpanGraph } from "../components/span-graph";
 
@@ -28,6 +28,7 @@ export type SpansScreenProps = {
 
     getSpans: (filter: PartialFilter, wait?: boolean) => Promise<Span[] | null>,
     getPositionedSpans: (filter: PartialFilter, wait?: boolean) => Promise<PositionedSpan[] | null>,
+    getSpanCounts: (filter: PartialCountFilter, wait?: boolean, cache?: boolean) => Promise<Counts | null>,
 
     live: boolean,
     setLive: (live: boolean) => void,
@@ -98,6 +99,7 @@ export function SpansScreen(props: SpansScreenProps) {
             timespan={props.timespan}
             updateTimespan={props.setTimespan}
             getPositionedSpans={props.getPositionedSpans}
+            getSpanCounts={props.getSpanCounts}
             setCount={setCount}
             hoveredRow={hoveredRow()}
         />
