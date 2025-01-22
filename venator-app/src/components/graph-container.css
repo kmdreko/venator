@@ -69,6 +69,7 @@
 
     background-color: gray;
     opacity: 50%;
+    pointer-events: none;
 }
 
 .graph-selection {
