@@ -101,24 +101,29 @@ export function GraphContainer(props: GraphContainerProps) {
         e.preventDefault();
     }
 
-    let move_requested: number | null;
-    let prev_mouse_pos: [number, number] | null;
-    function mousedrag(this: HTMLElement, e: MouseEvent) {
+    let grab_listener: any;
+    function ongrab(this: HTMLElement, e: MouseEvent) {
         let self = this;
 
-        if (move_requested != null) {
+        e.preventDefault();
+
+        grab_listener = (e: MouseEvent) => ongrabmove(e, self.offsetWidth)
+        document.addEventListener('mousemove', grab_listener);
+        document.addEventListener('mouseup', ongrabrelease);
+    }
+
+    let prev_mouse_pos: [number, number] | null;
+    let dragRequested: number | null;
+    function ongrabmove(e: MouseEvent, offsetWidth: number) {
+        if (dragRequested != null)
+            return;
+
+        if ((e.buttons & 4) == 0) {
             return;
         }
 
-        move_requested = requestAnimationFrame(() => {
-            move_requested = null;
-
-            e.preventDefault();
-
-            if ((e.buttons & 4) == 0) {
-                prev_mouse_pos = null;
-                return;
-            }
+        dragRequested = requestAnimationFrame(() => {
+            dragRequested = null;
 
             if (!prev_mouse_pos) {
                 prev_mouse_pos = [e.screenX, e.screenY];
@@ -131,12 +136,17 @@ export function GraphContainer(props: GraphContainerProps) {
 
             let [start, end] = props.timespan;
             let duration = end - start;
-            let timespan_shift = -(delta_x / self.offsetWidth) * duration;
+            let timespan_shift = -(delta_x / offsetWidth) * duration;
             let new_start = start + timespan_shift;
             let new_end = end + timespan_shift;
 
             props.updateTimespan([new_start, new_end]);
-        })
+        });
+    }
+
+    function ongrabrelease(_e: MouseEvent) {
+        document.removeEventListener('mousemove', grab_listener);
+        document.removeEventListener('mouseup', ongrabrelease);
     }
 
     let mouse_set_requested: number | null;
@@ -212,7 +222,7 @@ export function GraphContainer(props: GraphContainerProps) {
         props.updateTimespan(timespan);
     }
 
-    return <div class="graph-container" onwheel={wheel} onmousemove={mousedrag}>
+    return <div class="graph-container" onwheel={wheel} onmousedown={ongrab}>
         <div class="graph-stats">
             <span class="stat-name">height:</span>
             <span class="stat-value">{barHeightMax()}</span>
