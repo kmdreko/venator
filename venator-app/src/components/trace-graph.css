@@ -2,7 +2,6 @@
     min-width: 1px;
     height: 4px;
     position: absolute;
-    z-index: 1;
 }
 
 .trace-graph-bar.level-0 {
