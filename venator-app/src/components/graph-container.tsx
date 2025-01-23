@@ -107,6 +107,7 @@ export function GraphContainer(props: GraphContainerProps) {
 
         e.preventDefault();
 
+        prev_mouse_pos = null;
         grab_listener = (e: MouseEvent) => ongrabmove(e, self.offsetWidth)
         document.addEventListener('mousemove', grab_listener);
         document.addEventListener('mouseup', ongrabrelease);
