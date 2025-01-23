@@ -168,21 +168,34 @@ impl OwnedValue {
         // This is a bit weird, but its probably the best way to create metadata
         // for the field (required for recording) without any side-effects.
 
-        use tracing::callsite::DefaultCallsite;
-        use tracing::metadata::Kind;
-        use tracing::{callsite2, Callsite};
+        use tracing::callsite::Callsite;
+        use tracing::field::FieldSet;
+        use tracing::metadata::{Kind, Level, Metadata};
+        use tracing::subscriber::Interest;
+        use tracing_core::identify_callsite;
 
-        static __CALLSITE: DefaultCallsite = callsite2!(
-            name: "dummy",
-            kind: Kind::SPAN,
-            fields: dummy
+        struct NoopCallsite(&'static Metadata<'static>);
+        impl Callsite for NoopCallsite {
+            fn set_interest(&self, _: Interest) {}
+            fn metadata(&self) -> &Metadata<'_> {
+                self.0
+            }
+        }
+
+        static CALLSITE: NoopCallsite = NoopCallsite(&META);
+        static META: Metadata<'static> = Metadata::new(
+            "dummy",
+            "dummy",
+            Level::TRACE,
+            None,
+            None,
+            None,
+            FieldSet::new(&["dummy"], identify_callsite!(&CALLSITE)),
+            Kind::SPAN,
         );
 
         let mut visitor = OwnedVisitor { value: None };
-        v.record(
-            &"dummy".as_field(__CALLSITE.metadata()).unwrap(),
-            &mut visitor,
-        );
+        v.record(&"dummy".as_field(&META).unwrap(), &mut visitor);
         visitor.value
     }
 }

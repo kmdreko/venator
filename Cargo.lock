@@ -5340,6 +5340,7 @@ dependencies = [
  "serde",
  "thread-id",
  "tracing",
+ "tracing-core",
  "tracing-subscriber",
 ]
 
