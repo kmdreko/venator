@@ -65,7 +65,9 @@ where
         }
     }
 
+    #[cfg(feature = "record-128s")]
     fn record_i128(&mut self, field: &Field, value: i128) {
+        // default feature "record-128s" requires tracing v0.1.36+
         if self.state.is_ok() {
             self.state = self
                 .serializer
@@ -73,7 +75,9 @@ where
         }
     }
 
+    #[cfg(feature = "record-128s")]
     fn record_u128(&mut self, field: &Field, value: u128) {
+        // default feature "record-128s" requires tracing v0.1.36+
         if self.state.is_ok() {
             self.state = self
                 .serializer
@@ -145,7 +149,9 @@ enum Value<'a> {
     F64(f64),
     I64(i64),
     U64(u64),
+    #[allow(unused)] // may be unused when "record-128s" is disabled
     I128(i128),
+    #[allow(unused)] // may be unused when "record-128s" is disabled
     U128(u128),
     Bool(bool),
     Str(&'a str),
@@ -157,7 +163,9 @@ pub(crate) enum OwnedValue {
     F64(f64),
     I64(i64),
     U64(u64),
+    #[allow(unused)] // may be unused when "record-128s" is disabled
     I128(i128),
+    #[allow(unused)] // may be unused when "record-128s" is disabled
     U128(u128),
     Bool(bool),
     Str(String),
@@ -233,11 +241,15 @@ impl Visit for OwnedVisitor {
         self.value = Some(OwnedValue::U64(value));
     }
 
+    #[cfg(feature = "record-128s")]
     fn record_i128(&mut self, _field: &Field, value: i128) {
+        // default feature "record-128s" requires tracing v0.1.36+
         self.value = Some(OwnedValue::I128(value));
     }
 
+    #[cfg(feature = "record-128s")]
     fn record_u128(&mut self, _field: &Field, value: u128) {
+        // default feature "record-128s" requires tracing v0.1.36+
         self.value = Some(OwnedValue::U128(value));
     }
 
