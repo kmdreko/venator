@@ -574,7 +574,7 @@ export class SpanDataLayer {
                 let startIndex = partitionPointSpansLower(this.#spans, filter.previous ?? 0);
                 let endIndex = partitionPointSpansUpper(this.#spans, filter.end);
                 if (endIndex - startIndex >= 50) {
-                    return this.#spans.slice(startIndex, startIndex + 50);
+                    return this.#getSpansInCache(filter);
                 }
 
                 if (wait === false) {
@@ -674,13 +674,22 @@ export class SpanDataLayer {
                 cachedSpans.reverse();
             }
 
-            let endOfRange = cachedSpans[cachedSpans.length - 1].created_at;
+            let startOfRange;
+            let endOfRange;
+            if (filter.order == 'asc') {
+                startOfRange = filter.start;
+                endOfRange = cachedSpans[cachedSpans.length - 1].created_at;
+            } else {
+                startOfRange = cachedSpans[0].created_at;
+                endOfRange = filter.end;
+            }
+
             if (endOfRange <= filter.start) {
                 // don't start new cache with this set
                 return spans;
             }
 
-            this.#range = [filter.start, endOfRange];
+            this.#range = [startOfRange, endOfRange];
             this.#spans = cachedSpans;
             this.#slots = [];
             this.#slotmap = {};
