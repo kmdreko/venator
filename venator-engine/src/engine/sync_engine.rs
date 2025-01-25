@@ -851,8 +851,6 @@ impl<S: Storage> SyncEngine<S> {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn delete(&mut self, filter: DeleteFilter) -> Result<DeleteMetrics, AnyError> {
-        // TODO: clean up resources as well
-
         let root_spans =
             self.get_root_spans_in_range_filter(filter.start, filter.end, filter.inside);
         let root_events =
@@ -930,6 +928,35 @@ impl<S: Storage> SyncEngine<S> {
         self.remove_spans_bookeeping(&spans_to_delete);
         self.remove_span_events_bookeeping(&span_events_to_delete);
         self.remove_events_bookeeping(&events_to_delete);
+
+        let resources_to_delete = self
+            .resources
+            .keys()
+            .copied()
+            .filter(|resource_key| {
+                let used_by_spans = self
+                    .span_indexes
+                    .resources
+                    .get(resource_key)
+                    .is_some_and(|r| !r.is_empty());
+
+                let used_by_events = self
+                    .event_indexes
+                    .resources
+                    .get(resource_key)
+                    .is_some_and(|r| !r.is_empty());
+
+                !used_by_spans && !used_by_events
+            })
+            .collect::<Vec<_>>();
+
+        self.storage
+            .drop_resources(&resources_to_delete)
+            .context("failed to drop events")?;
+
+        for resource_key in resources_to_delete {
+            self.resources.remove(&resource_key);
+        }
 
         Ok(DeleteMetrics {
             spans: spans_to_delete.len(),
