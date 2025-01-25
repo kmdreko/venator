@@ -34,7 +34,7 @@ pub enum FallibleFilterPredicate {
     Or(Vec<Result<FallibleFilterPredicate, (InputError, String)>>),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Query {
     pub filter: Vec<FilterPredicate>,
     pub order: Order,
