@@ -430,26 +430,3 @@ impl Connection {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::*;
-    use tracing::Level;
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-
-    #[test]
-    fn what_is_name_on_event_metadata() {
-        tracing_subscriber::registry::Registry::default()
-            .with(Venator::builder().build())
-            .init();
-
-        let span = tracing::span!(Level::WARN, "testsdadsad");
-        let _entered = span.entered();
-        tracing::info!("heehoo peanut!");
-        drop(_entered);
-        std::thread::sleep(Duration::from_millis(200));
-    }
-}
