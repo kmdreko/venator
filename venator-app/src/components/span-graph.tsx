@@ -36,10 +36,10 @@ export function SpanGraph(props: SpanGraphProps) {
 
     return <Switch>
         <Match when={mode() == 'individualized'}>
-            <SpanIndividualizedGraph {...props} setCount={setCount} />
+            <SpanIndividualizedGraph {...props} setCount={setCount} mode={mode()} />
         </Match>
         <Match when={mode() == 'count'}>
-            <SpanCountGraph {...props} setCount={setCount} />
+            <SpanCountGraph {...props} setCount={setCount} mode={mode()} />
         </Match>
     </Switch>;
 }
@@ -48,6 +48,8 @@ let CACHE_START_LAST = 0;
 let CACHE_START_DELAY_MS = 250;
 
 export type SpanIndividualizedGraphProps = {
+    mode: SpanGraphMode,
+
     filter: Input[],
     timespan: Timespan,
     updateTimespan: (new_timespan: Timespan) => void,
@@ -58,7 +60,7 @@ export type SpanIndividualizedGraphProps = {
     getPositionedSpans: (filter: PartialFilter, wait?: boolean) => Promise<PositionedSpan[] | null>,
 };
 
-function SpanIndividualizedGraph(props: SpanGraphProps) {
+function SpanIndividualizedGraph(props: SpanIndividualizedGraphProps) {
     const [spans, setSpans] = createSignal<PositionedSpan[]>([]);
 
     createEffect(async () => {
@@ -72,7 +74,7 @@ function SpanIndividualizedGraph(props: SpanGraphProps) {
         let primed = await props.getPositionedSpans({ order: 'asc', start, end }, false);
         if (primed == null && now < CACHE_START_LAST + CACHE_START_DELAY_MS) {
             await new Promise(resolve => setTimeout(resolve, CACHE_START_DELAY_MS));
-            if (props.timespan != current_timespan || current_filter != props.filter) {
+            if (props.timespan != current_timespan || current_filter != props.filter || props.mode != 'individualized') {
                 return;
             }
         }
@@ -82,7 +84,7 @@ function SpanIndividualizedGraph(props: SpanGraphProps) {
         CACHE_START_LAST = now;
         while (true) {
             let new_spans = (await props.getPositionedSpans({ order: 'asc', start, end, previous }))!;
-            if (props.timespan != current_timespan || current_filter != props.filter) {
+            if (props.timespan != current_timespan || current_filter != props.filter || props.mode != 'individualized') {
                 return;
             }
 
@@ -123,6 +125,8 @@ function SpanIndividualizedGraph(props: SpanGraphProps) {
 }
 
 export type SpanCountGraphProps = {
+    mode: SpanGraphMode,
+
     filter: Input[],
     timespan: Timespan,
     updateTimespan: (new_timespan: Timespan) => void,
@@ -181,7 +185,7 @@ export function SpanCountGraph(props: SpanCountGraphProps) {
                 count += partial_bar[0] + partial_bar[1] + partial_bar[2] + partial_bar[3] + partial_bar[4];
             }
 
-            if (current_timespan != props.timespan || current_filter != props.filter) {
+            if (current_timespan != props.timespan || current_filter != props.filter || props.mode != 'count') {
                 return;
             }
 
