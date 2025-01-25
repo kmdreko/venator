@@ -152,16 +152,18 @@ export function SpanCountGraph(props: SpanCountGraphProps) {
         for (let i in buckets) {
             let [start, end] = buckets[i];
             let current_bar = await props.getSpanCounts({ start, end }, false);
+            let current_overlaps = await props.getSpanCounts({ start, end: start }, false);
 
-            if (current_bar != null) {
+            if (current_bar != null && current_overlaps != null) {
                 initial_bars[i] = [initial_bars[i][0], current_bar];
 
-                let current_total = current_bar[0] + current_bar[1] + current_bar[2] + current_bar[3] + current_bar[4];
+                let current_overlap = current_overlaps[0] + current_overlaps[1] + current_overlaps[2] + current_overlaps[3] + current_overlaps[4] + current_overlaps[5];
+                let current_total = current_bar[0] + current_bar[1] + current_bar[2] + current_bar[3] + current_bar[4] + current_bar[5];
                 if (current_total > initial_height) {
                     initial_height = current_total;
                 }
 
-                initial_count += current_total;
+                initial_count += current_total - current_overlap;
             }
         }
 
@@ -177,12 +179,16 @@ export function SpanCountGraph(props: SpanCountGraphProps) {
             let [start, end] = buckets[i];
             let new_bar = (await props.getSpanCounts({ start, end }))!;
             if (start >= current_timespan[0] && end <= current_timespan[1]) {
-                count += new_bar[0] + new_bar[1] + new_bar[2] + new_bar[3] + new_bar[4];
+                let new_overlaps = (await props.getSpanCounts({ start, end: start }))!;
+                let new_overlap = new_overlaps[0] + new_overlaps[1] + new_overlaps[2] + new_overlaps[3] + new_overlaps[4] + new_overlaps[5];
+                count += new_bar[0] + new_bar[1] + new_bar[2] + new_bar[3] + new_bar[4] - new_overlap;
             } else {
                 let p_start = Math.max(start, current_timespan[0]);
                 let p_end = Math.min(end, current_timespan[1]);
                 let partial_bar = (await props.getSpanCounts({ start: p_start, end: p_end }, true, false))!;
-                count += partial_bar[0] + partial_bar[1] + partial_bar[2] + partial_bar[3] + partial_bar[4];
+                let new_overlaps = end > current_timespan[1] ? (await props.getSpanCounts({ start, end: start }))! : [0, 0, 0, 0, 0, 0];
+                let new_overlap = new_overlaps[0] + new_overlaps[1] + new_overlaps[2] + new_overlaps[3] + new_overlaps[4] + new_overlaps[5];
+                count += partial_bar[0] + partial_bar[1] + partial_bar[2] + partial_bar[3] + partial_bar[4] - new_overlap;
             }
 
             if (current_timespan != props.timespan || current_filter != props.filter || props.mode != 'count') {
