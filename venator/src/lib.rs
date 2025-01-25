@@ -26,6 +26,7 @@ use messaging::{Handshake, Message};
 pub struct VenatorBuilder {
     id: u128,
     host: Option<String>,
+    emit_enter_events: bool,
     attributes: BTreeMap<String, OwnedValue>,
 }
 
@@ -47,6 +48,31 @@ impl VenatorBuilder {
     /// ```
     pub fn with_host<H: Into<String>>(mut self, host: H) -> VenatorBuilder {
         self.host = Some(host.into());
+        self
+    }
+
+    /// This configures whether the layer emits `on_enter` and `on_exit` events
+    /// to Venator.
+    ///
+    /// This may not be desired if your case is entirely synchronous (thus
+    /// "enter" and "exit" are redundant with "create" and "close") or if  your
+    /// case is asynchronous and don't need those events (also used for "busy"
+    /// metric) and need to reduce the load.
+    ///
+    /// Setting this again will overwrite the previous value. The default is
+    /// `true`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use venator::Venator;
+    /// let venator_layer = Venator::builder()
+    ///     .with_enter_events(false)
+    ///     .build()
+    ///     .install();
+    /// ```
+    pub fn with_enter_events(mut self, emit: bool) -> VenatorBuilder {
+        self.emit_enter_events = emit;
         self
     }
 
@@ -107,6 +133,7 @@ impl VenatorBuilder {
         let connection = Connection::new(self.id, self.host, self.attributes);
 
         Venator {
+            emit_enter_events: self.emit_enter_events,
             connection: Mutex::new(connection),
         }
     }
@@ -118,6 +145,7 @@ impl VenatorBuilder {
 /// You can configure it with [`.builder()`](Venator::builder) or just use the
 /// `default()`.
 pub struct Venator {
+    emit_enter_events: bool,
     connection: Mutex<Connection>,
 }
 
@@ -132,6 +160,7 @@ impl Venator {
         VenatorBuilder {
             id: a as u128 + ((b as u128) << 64),
             host: None,
+            emit_enter_events: true,
             attributes: BTreeMap::new(),
         }
     }
@@ -218,6 +247,10 @@ where
     }
 
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
+        if !self.emit_enter_events {
+            return;
+        }
+
         let Some(span) = ctx.span(id) else {
             // this should not happen
             return;
@@ -232,6 +265,10 @@ where
     }
 
     fn on_exit(&self, id: &Id, ctx: Context<'_, S>) {
+        if !self.emit_enter_events {
+            return;
+        }
+
         let Some(span) = ctx.span(id) else {
             // this should not happen
             return;
