@@ -926,7 +926,7 @@ export class SpanDataLayer {
                         value: ['Lt', `${range[0] - duration}`],
                     },
                 }],
-                start: retrievedRange[0],
+                start: retrievedRange[0] + 1,
             });
 
             // check if fetched events are still valid for the cache
