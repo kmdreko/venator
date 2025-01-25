@@ -1678,4 +1678,44 @@ mod tests {
 
         assert_eq!(events.len(), 1);
     }
+
+    #[test]
+    fn empty_filter_returns_all_event_counts() {
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
+
+        let resource_key = engine
+            .insert_resource(NewResource {
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
+
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
+                resource_key,
+                timestamp: now.saturating_add(1),
+                span_id: None,
+                content: Value::Str("event".to_owned()),
+                namespace: None,
+                function: None,
+                level: Level::Error,
+                file_name: None,
+                file_line: None,
+                file_column: None,
+                attributes: BTreeMap::new(),
+            })
+            .unwrap();
+
+        let query = Query {
+            filter: FilterPredicate::parse("").unwrap(),
+            order: Order::Asc,
+            limit: 0,
+            start: Timestamp::MIN,
+            end: Timestamp::MAX,
+            previous: None,
+        };
+
+        assert_eq!(engine.query_event_count(query.clone()), 1)
+    }
 }

@@ -37,6 +37,7 @@ impl IndexedEventFilter<'_> {
         };
 
         match filter {
+            BasicEventFilter::All => IndexedEventFilter::Single(&event_indexes.all, None),
             BasicEventFilter::Timestamp(op, value) => match op {
                 ValueOperator::Gt => {
                     let idx = event_indexes.all.upper_bound(&value);
@@ -454,6 +455,7 @@ impl IndexedEventFilter<'_> {
 }
 
 pub(crate) enum BasicEventFilter {
+    All,
     Timestamp(ValueOperator, Timestamp),
     Level(SimpleLevel),
     Namespace(ValueStringComparison),
@@ -471,6 +473,7 @@ pub(crate) enum BasicEventFilter {
 impl BasicEventFilter {
     pub fn simplify(&mut self) {
         match self {
+            BasicEventFilter::All => {}
             BasicEventFilter::Timestamp(_, _) => {}
             BasicEventFilter::Level(_) => {}
             BasicEventFilter::Namespace(_) => {}
@@ -486,21 +489,32 @@ impl BasicEventFilter {
                     filter.simplify()
                 }
 
-                if filters.len() == 1 {
-                    let mut filters = std::mem::take(filters);
-                    let filter = filters.pop().unwrap();
-                    *self = filter;
+                match filters.len() {
+                    0 => {
+                        *self = BasicEventFilter::All;
+                    }
+                    1 => {
+                        let mut filters = std::mem::take(filters);
+                        let filter = filters.pop().unwrap();
+                        *self = filter;
+                    }
+                    _ => {}
                 }
             }
             BasicEventFilter::Or(filters) => {
                 for filter in &mut *filters {
                     filter.simplify()
                 }
-
-                if filters.len() == 1 {
-                    let mut filters = std::mem::take(filters);
-                    let filter = filters.pop().unwrap();
-                    *self = filter;
+                match filters.len() {
+                    0 => {
+                        *self = BasicEventFilter::All;
+                    }
+                    1 => {
+                        let mut filters = std::mem::take(filters);
+                        let filter = filters.pop().unwrap();
+                        *self = filter;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -918,6 +932,7 @@ impl BasicEventFilter {
     pub fn matches<S: Storage>(&self, context: &EventContext<'_, S>) -> bool {
         let event = context.event();
         match self {
+            BasicEventFilter::All => true,
             BasicEventFilter::Timestamp(op, timestamp) => op.compare(&event.timestamp, timestamp),
             BasicEventFilter::Level(level) => event.level.into_simple_level() == *level,
             BasicEventFilter::Namespace(filter) => filter.matches_opt(event.namespace.as_deref()),
