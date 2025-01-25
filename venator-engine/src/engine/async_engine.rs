@@ -134,8 +134,8 @@ impl AsyncEngine {
                         engine.unsubscribe_from_events(id);
                         let _ = sender.send(());
                     }
-                    EngineCommand::CopyDataset(to, sender) => {
-                        let res = engine.copy_dataset(to);
+                    EngineCommand::CopyDataset(mut to, sender) => {
+                        let res = engine.copy_dataset(&mut *to);
                         let _ = sender.send(res);
                     }
                     EngineCommand::GetStatus(sender) => {

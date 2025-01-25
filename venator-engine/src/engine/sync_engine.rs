@@ -1011,10 +1011,7 @@ impl<S: Storage> SyncEngine<S> {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    pub fn copy_dataset(
-        &self,
-        mut target_storage: Box<dyn Storage + Send>,
-    ) -> Result<(), AnyError> {
+    pub fn copy_dataset(&self, target_storage: &mut dyn Storage) -> Result<(), AnyError> {
         let resources = self
             .storage
             .get_all_resources()
