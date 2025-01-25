@@ -155,19 +155,19 @@ impl IndexedSpanFilter<'_> {
                 }
                 ValueStringComparison::Compare(_, _) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Function(filter)),
+                    Some(NonIndexedSpanFilter::Name(filter)),
                 ),
                 ValueStringComparison::Wildcard(_) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Function(filter)),
+                    Some(NonIndexedSpanFilter::Name(filter)),
                 ),
                 ValueStringComparison::Regex(_) => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Function(filter)),
+                    Some(NonIndexedSpanFilter::Name(filter)),
                 ),
                 ValueStringComparison::All => IndexedSpanFilter::Single(
                     &span_indexes.all,
-                    Some(NonIndexedSpanFilter::Function(filter)),
+                    Some(NonIndexedSpanFilter::Name(filter)),
                 ),
             },
             BasicSpanFilter::Namespace(filter) => match filter {
@@ -1254,7 +1254,7 @@ impl BasicSpanFilter {
 pub(crate) enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Closed(ValueOperator, Timestamp),
-    Function(ValueStringComparison),
+    Name(ValueStringComparison),
     Namespace(ValueStringComparison),
     File(FileFilter),
     Parent(SpanKey),
@@ -1273,10 +1273,11 @@ impl NonIndexedSpanFilter {
 
                 op.compare(closed_at, *value)
             }
-            NonIndexedSpanFilter::Function(filter) => filter.matches_opt(span.function.as_deref()),
+            NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
             NonIndexedSpanFilter::Namespace(filter) => {
                 filter.matches_opt(span.namespace.as_deref())
             }
+            // NonIndexedSpanFilter::Function(filter) => filter.matches_opt(span.function.as_deref()),
             NonIndexedSpanFilter::File(filter) => {
                 filter.matches(span.file_name.as_deref(), span.file_line)
             }
