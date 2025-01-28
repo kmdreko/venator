@@ -24,7 +24,7 @@ Binaries are pre-built and available in the [releases page](https://github.com/k
 
 ### With Cargo:
 
-Compiling and installing `venator` source with Cargo (requires Rust 1.76 or
+Compiling and installing `venator` from source with Cargo (requires Rust 1.76 or
 newer):
 
 ```
@@ -45,7 +45,7 @@ In your instrumented program:
 
 ```toml
 [dependencies]
-venator = "1.0.0"
+venator = "1.1.0"
 ```
 
 ```rust
