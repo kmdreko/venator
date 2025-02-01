@@ -66,9 +66,9 @@ impl FileStorage {
             (),
         );
 
-        let _ = connection.execute(r#"INSERT INTO meta VALUES (1, '0.3', 'STALE');"#, ());
+        let _ = connection.execute(r#"INSERT INTO meta VALUES (1, '0.4', 'STALE');"#, ());
 
-        let (version, index_state): (String, String) = connection
+        let (version, mut index_state): (String, String) = connection
             .query_row(
                 "SELECT version, indexes FROM meta WHERE id = 1",
                 (),
@@ -76,8 +76,21 @@ impl FileStorage {
             )
             .unwrap();
 
-        if version != "0.3" {
+        if version != "0.3" && version != "0.4" {
             panic!("cannot load database with incompatible version");
+        }
+
+        if version == "0.3" {
+            // migrating from 0.3 -> 0.4 just requires voiding the index so it
+            // will be rebuilt
+
+            index_state = "STALE".to_owned();
+            connection
+                .execute(
+                    "UPDATE meta SET indexes = 'STALE', version = '0.4' WHERE id = 1",
+                    (),
+                )
+                .unwrap();
         }
 
         let index_state = match &*index_state {

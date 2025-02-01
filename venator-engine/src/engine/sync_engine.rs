@@ -69,7 +69,7 @@ impl<S: Storage> SyncEngine<S> {
 
         match indexes_result {
             Some(Ok(indexes)) => {
-                tracing::debug!("loaded indexes from storage");
+                tracing::info!("loaded indexes from storage");
 
                 let (span_indexes, span_event_indexes, event_indexes) = indexes;
 
@@ -114,7 +114,7 @@ impl<S: Storage> SyncEngine<S> {
                 }
             }
             None => {
-                tracing::debug!("no indexes from storage");
+                tracing::warn!("no indexes from storage");
 
                 let spans = engine
                     .storage
