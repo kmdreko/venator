@@ -5064,7 +5064,7 @@ dependencies = [
 
 [[package]]
 name = "venator-app"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -5093,7 +5093,7 @@ dependencies = [
 
 [[package]]
 name = "venator-engine"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "bincode",
