@@ -78,7 +78,7 @@ impl<S: Storage> SyncEngine<S> {
                 engine.event_indexes = event_indexes;
             }
             Some(Err(err)) => {
-                tracing::debug!(?err, "warn failed to load indexes from storage");
+                tracing::warn!(?err, "failed to load indexes from storage");
 
                 let spans = engine
                     .storage
@@ -489,6 +489,7 @@ impl<S: Storage> SyncEngine<S> {
                         SpanContext::new(*key, &self.storage)
                             .parents()
                             .any(|p| p.key() == span_key)
+                            || *key == span_key // also update self
                     })
                     .collect::<Vec<_>>();
 
@@ -739,7 +740,7 @@ impl<S: Storage> SyncEngine<S> {
     fn insert_span_bookeeping(&mut self, span: &Span) -> (Vec<SpanKey>, Vec<EventKey>) {
         let span_key = span.created_at;
 
-        let spans_to_update_parent = self
+        let orphaned_spans = self
             .span_indexes
             .update_with_new_span(&SpanContext::with_span(span, &self.storage));
 
@@ -755,9 +756,10 @@ impl<S: Storage> SyncEngine<S> {
             .cloned()
             .filter(|key| *key != span_key)
             .filter(|key| {
-                SpanContext::new(*key, &self.storage)
-                    .parents()
-                    .any(|p| p.key() == span_key)
+                orphaned_spans.contains(key)
+                    || SpanContext::new(*key, &self.storage)
+                        .parents()
+                        .any(|p| orphaned_spans.contains(&p.key()))
             })
             .collect::<Vec<_>>();
 
@@ -769,7 +771,7 @@ impl<S: Storage> SyncEngine<S> {
             );
         }
 
-        let events_to_update_parent = self
+        let orphaned_events = self
             .event_indexes
             .update_with_new_span(&SpanContext::with_span(span, &self.storage));
 
@@ -782,9 +784,10 @@ impl<S: Storage> SyncEngine<S> {
             .iter()
             .cloned()
             .filter(|key| {
-                EventContext::new(*key, &self.storage)
-                    .parents()
-                    .any(|p| p.key() == span_key)
+                orphaned_events.contains(key)
+                    || EventContext::new(*key, &self.storage)
+                        .parents()
+                        .any(|p| orphaned_events.contains(&p.key()))
             })
             .collect::<Vec<_>>();
 
@@ -796,7 +799,7 @@ impl<S: Storage> SyncEngine<S> {
             );
         }
 
-        (spans_to_update_parent, events_to_update_parent)
+        (orphaned_spans, orphaned_events)
     }
 
     fn insert_span_event_bookeeping(&mut self, span_event: &SpanEvent) {
@@ -1744,5 +1747,129 @@ mod tests {
         };
 
         assert_eq!(engine.query_event_count(query.clone()), 1)
+    }
+
+    #[test]
+    fn span_found_with_updated_attribute() {
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
+
+        let resource_key = engine
+            .insert_resource(NewResource {
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
+
+        engine
+            .insert_span_event(NewSpanEvent {
+                timestamp: now(),
+                span_id: FullSpanId::Tracing(1.try_into().unwrap(), 1),
+                kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    kind: SourceKind::Tracing,
+                    resource_key,
+                    parent_id: None,
+                    name: "test".to_owned(),
+                    namespace: Some("crate::storage::tests".to_owned()),
+                    function: None,
+                    level: Level::Error,
+                    file_name: None,
+                    file_line: None,
+                    file_column: None,
+                    instrumentation_attributes: BTreeMap::default(),
+                    attributes: BTreeMap::new(),
+                }),
+            })
+            .unwrap();
+
+        let now = now();
+        engine
+            .insert_span_event(NewSpanEvent {
+                timestamp: now,
+                span_id: FullSpanId::Tracing(1.try_into().unwrap(), 1),
+                kind: NewSpanEventKind::Update(NewUpdateSpanEvent {
+                    attributes: BTreeMap::from_iter([(
+                        "attr1".to_owned(),
+                        Value::Str("C".to_owned()),
+                    )]),
+                }),
+            })
+            .unwrap();
+
+        let spans = engine.query_span(Query {
+            filter: FilterPredicate::parse("@\"attr1\": C").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(spans.len(), 1);
+    }
+
+    #[test]
+    fn span_found_with_post_parent_attribute() {
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
+
+        let resource_key = engine
+            .insert_resource(NewResource {
+                attributes: BTreeMap::from_iter([]),
+            })
+            .unwrap();
+
+        engine
+            .insert_span_event(NewSpanEvent {
+                timestamp: 1001.try_into().unwrap(),
+                span_id: FullSpanId::Opentelemetry(1, 2),
+                kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    kind: SourceKind::Opentelemetry,
+                    resource_key,
+                    parent_id: Some(FullSpanId::Opentelemetry(1, 1)),
+                    name: "test".to_owned(),
+                    namespace: Some("crate::storage::tests".to_owned()),
+                    function: None,
+                    level: Level::Error,
+                    file_name: None,
+                    file_line: None,
+                    file_column: None,
+                    instrumentation_attributes: BTreeMap::default(),
+                    attributes: BTreeMap::new(),
+                }),
+            })
+            .unwrap();
+
+        engine
+            .insert_span_event(NewSpanEvent {
+                timestamp: 1000.try_into().unwrap(),
+                span_id: FullSpanId::Opentelemetry(1, 1),
+                kind: NewSpanEventKind::Create(NewCreateSpanEvent {
+                    kind: SourceKind::Opentelemetry,
+                    resource_key,
+                    parent_id: None,
+                    name: "test".to_owned(),
+                    namespace: Some("crate::storage::tests".to_owned()),
+                    function: None,
+                    level: Level::Error,
+                    file_name: None,
+                    file_line: None,
+                    file_column: None,
+                    instrumentation_attributes: BTreeMap::default(),
+                    attributes: BTreeMap::from_iter([(
+                        "attr1".to_owned(),
+                        Value::Str("C".to_owned()),
+                    )]),
+                }),
+            })
+            .unwrap();
+
+        let spans = engine.query_span(Query {
+            filter: FilterPredicate::parse("@\"attr1\": C").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now(),
+            end: now().saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(spans.len(), 2);
     }
 }
