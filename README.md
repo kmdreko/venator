@@ -36,8 +36,8 @@ cargo install venator-app
 ### Using OpenTelemetry:
 
 Configure your program's OpenTelemetry SDK to export logs and traces to
-`127.0.0.1:8362` (Venator's default listening port) and to use GRPC or HTTP with
-binary encoding.
+`127.0.0.1:8362` (Venator's default listening port) and to use `grpc` or
+`http/protobuf`.
 
 ### Using Rust Tracing:
 
