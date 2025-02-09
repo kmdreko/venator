@@ -581,8 +581,8 @@ function App() {
         }, 2000);
     }
 
-    async function getAndCacheEvents(screen: EventsScreenData, filter: PartialFilter): Promise<Event[]> {
-        return await screen.store.getEvents(filter);
+    async function getAndCacheEvents(screen: EventsScreenData, filter: PartialFilter, wait?: boolean): Promise<Event[] | null> {
+        return await screen.store.getEvents(filter, wait);
     }
 
     async function getAndCacheEventCounts(screen: EventsScreenData, filter: PartialCountFilter, wait?: boolean, cache?: boolean): Promise<Counts | null> {
@@ -1247,19 +1247,19 @@ function App() {
         if (current_screens[current_selected_screen].kind == 'events') {
             let [start, end] = current_screens[current_selected_screen].timespan;
 
-            let start_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+            let start_events = (await getAndCacheEvents(current_screens[current_selected_screen], {
                 order: 'asc',
                 start,
                 end: null,
                 limit: 1,
-            });
+            }))!;
 
-            let end_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+            let end_events = (await getAndCacheEvents(current_screens[current_selected_screen], {
                 order: 'desc',
                 start: null,
                 end,
                 limit: 1,
-            });
+            }))!;
 
             let start_timestamp = start_events.length == 0 ? null : start_events[0].timestamp;
             let end_timestamp = end_events.length == 0 ? null : end_events[0].timestamp;
@@ -1316,19 +1316,19 @@ function App() {
         let current_screens = screens();
 
         if (current_screens[current_selected_screen].kind == 'events') {
-            let start_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+            let start_events = (await getAndCacheEvents(current_screens[current_selected_screen], {
                 order: 'asc',
                 start: null,
                 end: null,
                 limit: 1,
-            });
+            }))!;
 
-            let end_events = await getAndCacheEvents(current_screens[current_selected_screen], {
+            let end_events = (await getAndCacheEvents(current_screens[current_selected_screen], {
                 order: 'desc',
                 start: null,
                 end: null,
                 limit: 1,
-            });
+            }))!;
 
             let start_timestamp = start_events.length == 0 ? null : start_events[0].timestamp;
             let end_timestamp = end_events.length == 0 ? null : end_events[0].timestamp;

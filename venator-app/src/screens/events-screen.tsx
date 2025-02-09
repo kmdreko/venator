@@ -26,7 +26,7 @@ export type EventsScreenProps = {
     columnInsert: (i: number, def: ColumnDef<Event>) => void,
     columnRemove: (i: number) => void,
 
-    getEvents: (filter: PartialFilter) => Promise<Event[]>,
+    getEvents: (filter: PartialFilter, wait?: boolean) => Promise<Event[] | null>,
     getEventCounts: (filter: PartialCountFilter, wait?: boolean, cache?: boolean) => Promise<Counts | null>,
 
     live: boolean,
@@ -41,12 +41,12 @@ export function EventsScreen(props: EventsScreenProps) {
     const [count, setCount] = createSignal<[number, boolean]>([0, false]);
 
     async function getTimestampBefore(timestamp: Timestamp) {
-        let events = await props.getEvents({
+        let events = (await props.getEvents({
             order: 'desc',
             start: null,
             end: timestamp,
             limit: 1,
-        });
+        }))!;
 
         if (events.length == 0) {
             return null;
@@ -56,12 +56,12 @@ export function EventsScreen(props: EventsScreenProps) {
     }
 
     async function getTimestampAfter(timestamp: Timestamp) {
-        let events = await props.getEvents({
+        let events = (await props.getEvents({
             order: 'asc',
             start: timestamp,
             end: null,
             limit: 1,
-        });
+        }))!;
 
         if (events.length == 0) {
             return null;

@@ -64,9 +64,13 @@ export class EventDataLayer {
         await unsubscribeFromEvents(id);
     }
 
-    getEvents = async (filter: PartialFilter): Promise<Event[]> => {
+    getEvents = async (filter: PartialFilter, wait?: boolean): Promise<Event[] | null> => {
         // don't try to cache unbounded shenanigans
         if (filter.start == null || filter.end == null) {
+            if (wait == false) {
+                return null;
+            }
+
             return await getEvents({ filter: this.#filter, ...filter });
         }
 
@@ -109,6 +113,10 @@ export class EventDataLayer {
             // events are partially cached
 
             if (start < this.#range[0] && filter.order == 'asc') {
+                if (wait == false) {
+                    return null;
+                }
+
                 if (this.#expandStartTask != null) {
                     await this.#expandStartTask;
 
@@ -164,6 +172,10 @@ export class EventDataLayer {
             }
 
             if (end > this.#range[1] && filter.order == 'desc') {
+                if (wait == false) {
+                    return null;
+                }
+
                 if (this.#expandEndTask != null) {
                     await this.#expandEndTask;
 
@@ -229,6 +241,10 @@ export class EventDataLayer {
                     return cachedEvents;
                 }
 
+                if (wait == false) {
+                    return null;
+                }
+
                 await this.#expandStart(filter.end - filter.start);
 
                 endIndex = partitionPointEventsUpper(this.#events, end);
@@ -249,6 +265,10 @@ export class EventDataLayer {
                     return cachedEvents;
                 }
 
+                if (wait == false) {
+                    return null;
+                }
+
                 await this.#expandEnd(filter.end - filter.start);
 
                 startIndex = partitionPointEventsLower(this.#events, start);
@@ -262,6 +282,10 @@ export class EventDataLayer {
 
             return [];
         } else {
+            if (wait == false) {
+                return null;
+            }
+
             // there is no overlap, reset the cache
 
             let events = await getEvents({ filter: this.#filter, ...filter });
