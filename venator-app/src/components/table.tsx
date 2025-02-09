@@ -1,4 +1,4 @@
-import { batch, createEffect, createSignal, For, JSX, Show, useContext } from "solid-js";
+import { batch, createEffect, createSignal, For, JSX, Show, untrack, useContext } from "solid-js";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { PartialFilter, Timespan } from "../models";
 import { Event, Span, Timestamp } from "../invoke";
@@ -817,7 +817,6 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
     const [order, setOrder] = createSignal('asc' as 'asc' | 'desc');
 
     var table_wrapper: any;
-    var table_bottom: any;
 
     createEffect(async () => {
         let current_order = order();
@@ -844,10 +843,15 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
             setEntries(events);
             setStatus((events.length == 50) ? 'partial' : 'done');
         })
+
+        let t = (trailer as HTMLDivElement);
+        if (t.getBoundingClientRect().top <= document.body.clientHeight) {
+            setTimeout(loadMore, 0);
+        }
     })
 
     async function loadMore() {
-        if (status() != 'partial') {
+        if (untrack(status) != 'partial') {
             return;
         }
 
@@ -860,7 +864,16 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
         let last_entry = current_entries[current_entries.length - 1];
         let new_events = (await props.getEntries({ order: current_order, start, end, previous: getTimestamp(last_entry) }))!;
         setEntries(current_entries.concat(new_events));
-        setStatus((new_events.length == 50) ? 'partial' : 'done');
+
+        let new_status = (new_events.length == 50) ? 'partial' as const : 'done' as const;
+        setStatus(new_status);
+
+        if (new_status == 'partial') {
+            let t = (trailer as HTMLDivElement);
+            if (t.getBoundingClientRect().top <= document.body.clientHeight) {
+                setTimeout(loadMore, 0);
+            }
+        }
     }
 
     function getTimestamp(e: T): Timestamp {
@@ -925,7 +938,7 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
         }
     }
 
-    let trailer = <div style="padding-left: 4px; white-space: nowrap; color: var(--text-light)" ref={table_bottom}>{(status() == 'partial') ? 'load more entries'
+    let trailer = <div style="padding-left: 4px; white-space: nowrap; color: var(--text-light)">{(status() == 'partial') ? 'load more entries'
         : (status() == 'loading') ? 'loading more entries'
             : 'no more entries'}</div>;
 
