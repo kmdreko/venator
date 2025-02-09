@@ -123,6 +123,10 @@ export function GraphContainer(props: GraphContainerProps) {
             return;
         }
 
+        if (offsetWidth == 0) {
+            return;
+        }
+
         dragRequested = requestAnimationFrame(() => {
             dragRequested = null;
 
