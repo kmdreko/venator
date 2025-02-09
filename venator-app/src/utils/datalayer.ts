@@ -67,7 +67,7 @@ export class EventDataLayer {
     getEvents = async (filter: PartialFilter, wait?: boolean): Promise<Event[] | null> => {
         // don't try to cache unbounded shenanigans
         if (filter.start == null || filter.end == null) {
-            if (wait == false) {
+            if (wait === false) {
                 return null;
             }
 
@@ -89,10 +89,12 @@ export class EventDataLayer {
             let startIndex = partitionPointEventsLower(this.#events, start);
             let endIndex = partitionPointEventsUpper(this.#events, end);
 
-            if (filter.order == 'asc') {
-                endIndex = startIndex + Math.min(endIndex - startIndex, 50);
-            } else {
-                startIndex = endIndex - Math.min(endIndex - startIndex, 50);
+            if (filter.limit != Infinity) {
+                if (filter.order == 'asc') {
+                    endIndex = startIndex + Math.min(endIndex - startIndex, 50);
+                } else {
+                    startIndex = endIndex - Math.min(endIndex - startIndex, 50);
+                }
             }
 
             let cachedEvents = this.#events.slice(startIndex, endIndex);
@@ -101,11 +103,13 @@ export class EventDataLayer {
                 cachedEvents.reverse();
             }
 
-            if (this.#events.length - endIndex < 50 && end > this.#range[1] - (filter.end - filter.start)) {
-                this.#expandEnd(filter.end - filter.start);
-            }
-            if (startIndex < 50 && start < this.#range[0] + (filter.end - filter.start)) {
-                this.#expandStart(filter.end - filter.start);
+            if (filter.limit != Infinity) {
+                if (this.#events.length - endIndex < 50 && end > this.#range[1] - (filter.end - filter.start)) {
+                    this.#expandEnd(filter.end - filter.start);
+                }
+                if (startIndex < 50 && start < this.#range[0] + (filter.end - filter.start)) {
+                    this.#expandStart(filter.end - filter.start);
+                }
             }
 
             return cachedEvents;
@@ -113,7 +117,7 @@ export class EventDataLayer {
             // events are partially cached
 
             if (start < this.#range[0] && filter.order == 'asc') {
-                if (wait == false) {
+                if (wait === false) {
                     return null;
                 }
 
@@ -172,7 +176,7 @@ export class EventDataLayer {
             }
 
             if (end > this.#range[1] && filter.order == 'desc') {
-                if (wait == false) {
+                if (wait === false) {
                     return null;
                 }
 
@@ -235,13 +239,17 @@ export class EventDataLayer {
             if (start < this.#range[0] && filter.order == 'desc') {
                 let endIndex = partitionPointEventsUpper(this.#events, end);
                 let cachedEvents = this.#events.slice(0, endIndex);
+                cachedEvents.reverse();
+                if (filter.limit == Infinity) {
+                    return cachedEvents;
+                }
+
                 if (cachedEvents.length >= 50) {
-                    cachedEvents.reverse();
                     cachedEvents.splice(50);
                     return cachedEvents;
                 }
 
-                if (wait == false) {
+                if (wait === false) {
                     return null;
                 }
 
@@ -260,12 +268,15 @@ export class EventDataLayer {
             if (end > this.#range[1] && filter.order == 'asc') {
                 let startIndex = partitionPointEventsLower(this.#events, start);
                 let cachedEvents = this.#events.slice(startIndex);
+                if (filter.limit == Infinity) {
+                    return cachedEvents;
+                }
                 if (cachedEvents.length >= 50) {
                     cachedEvents.splice(50);
                     return cachedEvents;
                 }
 
-                if (wait == false) {
+                if (wait === false) {
                     return null;
                 }
 
@@ -282,7 +293,7 @@ export class EventDataLayer {
 
             return [];
         } else {
-            if (wait == false) {
+            if (wait === false) {
                 return null;
             }
 
@@ -597,7 +608,7 @@ export class SpanDataLayer {
             if (filter.end > this.#range[1] && filter.order == 'asc') {
                 let startIndex = partitionPointSpansLower(this.#spans, filter.previous ?? 0);
                 let endIndex = partitionPointSpansUpper(this.#spans, filter.end);
-                if (endIndex - startIndex >= 50) {
+                if (endIndex - startIndex >= 50 || filter.limit == Infinity) {
                     return this.#getSpansInCache(filter);
                 }
 
@@ -614,8 +625,8 @@ export class SpanDataLayer {
             if (filter.start < this.#range[0] && filter.order == 'desc') {
                 let startIndex = partitionPointSpansLower(this.#spans, filter.start);
                 let endIndex = partitionPointSpansUpper(this.#spans, filter.previous ?? filter.end);
-                if (endIndex - startIndex >= 50) {
-                    return this.#spans.slice(endIndex - 50, endIndex).reverse();
+                if (endIndex - startIndex >= 50 || filter.limit == Infinity) {
+                    return this.#getSpansInCache(filter);
                 }
 
                 if (wait === false) {
@@ -628,6 +639,13 @@ export class SpanDataLayer {
             }
 
             if (filter.end > this.#range[1] && filter.order == 'desc') {
+                if (wait === false) {
+                    if (filter.limit == Infinity) {
+                        return this.#getSpansInCache(filter);
+                    }
+                    return null;
+                }
+
                 if (this.#expandEndTask != null) {
                     await this.#expandEndTask;
 
@@ -755,13 +773,16 @@ export class SpanDataLayer {
                 for (let span of preRangeSpans) {
                     if (span.closed_at == null || span.closed_at >= filter.start) {
                         preRangeSpansInFilter.push(span);
-                        if (preRangeSpansInFilter.length == 50) {
+                        if (preRangeSpansInFilter.length == 50 && filter.limit != Infinity) {
                             return preRangeSpansInFilter;
                         }
                     }
                 }
 
                 if ((endIndex - startIndex) + preRangeSpansInFilter.length > 50) {
+                    if (filter.limit == Infinity) {
+                        return [...preRangeSpansInFilter, ...this.#spans.slice(startIndex, endIndex)];
+                    }
                     endIndex = startIndex + 50 - preRangeSpansInFilter.length;
                 }
 
@@ -780,6 +801,9 @@ export class SpanDataLayer {
                 }
 
                 if ((endIndex - startIndex) > 50) {
+                    if (filter.limit == Infinity) {
+                        return this.#spans.slice(startIndex, endIndex);
+                    }
                     endIndex = startIndex + 50;
                 }
 
@@ -799,7 +823,7 @@ export class SpanDataLayer {
                     ? partitionPointSpansUpper(this.#spans, filter.previous)
                     : endIndex;
 
-                if (actualEndIndex - startIndex >= 50) {
+                if (actualEndIndex - startIndex >= 50 && filter.limit != Infinity) {
                     startIndex = actualEndIndex - 50;
                     return this.#spans.slice(startIndex, actualEndIndex).reverse();
                 }
@@ -810,7 +834,7 @@ export class SpanDataLayer {
                 for (let span of this.#spans.slice(0, startIndex).reverse()) {
                     if (span.closed_at == null || span.closed_at >= filter.start) {
                         spans.push(span);
-                        if (spans.length == 50) {
+                        if (spans.length == 50 && filter.limit != Infinity) {
                             startIndex = startIndex - span_rev_idx;
 
                             if (this.#spans.length - actualEndIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {
@@ -837,7 +861,7 @@ export class SpanDataLayer {
                 for (let span of this.#spans.slice(0, actualEndIndex).reverse()) {
                     if (span.closed_at == null || span.closed_at >= filter.start) {
                         spans.push(span);
-                        if (spans.length == 50) {
+                        if (spans.length == 50 && filter.limit != Infinity) {
                             startIndex = actualEndIndex - span_rev_idx;
 
                             if (this.#spans.length - actualEndIndex < 50 && filter.end > this.#range[1] - (filter.end - filter.start)) {

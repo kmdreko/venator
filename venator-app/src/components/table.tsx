@@ -824,7 +824,7 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
         let [start, end] = current_timespan;
 
         let now = Date.now();
-        let primed = await props.getEntries({ order: current_order, start, end }, false);
+        let primed = await props.getEntries({ order: current_order, start, end, limit: Infinity }, false);
         if (primed == null && now < CACHE_START_LAST + CACHE_START_DELAY_MS) {
             await new Promise(resolve => setTimeout(resolve, CACHE_START_DELAY_MS));
             if (props.timespan != current_timespan) {
@@ -833,7 +833,7 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
         }
 
         CACHE_START_LAST = now;
-        let events = (await props.getEntries({ order: current_order, start, end }))!;
+        let events = primed == null ? (await props.getEntries({ order: current_order, start, end }))! : primed;
 
         if (current_timespan != props.timespan) {
             return;
@@ -841,7 +841,7 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
 
         batch(() => {
             setEntries(events);
-            setStatus((events.length == 50) ? 'partial' : 'done');
+            setStatus((primed != null || events.length == 50) ? 'partial' : 'done');
         })
 
         let t = (trailer as HTMLDivElement);
