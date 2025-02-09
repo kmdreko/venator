@@ -2,12 +2,13 @@ import { batch, createEffect, createSignal, For, JSX, Show, useContext } from "s
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { PartialFilter, Timespan } from "../models";
 import { Event, Span, Timestamp } from "../invoke";
-
-import './table.css';
 import { CollapsableContext } from "../context/collapsable";
 import { Dynamic } from "solid-js/web";
 import { Menu } from "@tauri-apps/api/menu";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { createVirtualizer } from "@tanstack/solid-virtual";
+
+import './table.css';
 
 export type ColumnHeaderComponent = (props: ColumnHeaderProps) => JSX.Element;
 export type ColumnHeaderProps = {
@@ -26,6 +27,7 @@ export type ColumnHeaderProps = {
 
 export type ColumnDataComponent<T> = (props: ColumnDataProps<T>) => JSX.Element;
 export type ColumnDataProps<T> = {
+    style: JSX.CSSProperties,
     entry: T,
     selected: boolean,
     hovered: boolean,
@@ -83,7 +85,7 @@ export const LEVEL: ColumnDef<Event | Span> = {
     },
     headerText: "#level",
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={levelText(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} title={levelText(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             <div class={`level-${props.entry.level}`}></div>
         </div>;
     },
@@ -100,7 +102,7 @@ export const TIMESTAMP: ColumnDef<Event> = {
     },
     headerText: "#timestamp",
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             {formatTimestamp(props.entry.timestamp)}
         </div>;
     },
@@ -117,7 +119,7 @@ export const CREATED: ColumnDef<Span> = {
     },
     headerText: "#created",
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             {formatTimestamp(props.entry.created_at)}
         </div>;
     },
@@ -150,7 +152,7 @@ export const CLOSED: ColumnDef<Span> = {
     },
     headerText: "#closed",
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             {props.entry.closed_at ? formatTimestamp(props.entry.closed_at) : '---'}
         </div>;
     },
@@ -225,7 +227,7 @@ export const CONTENT: ColumnDef<Event> = {
             await menu.popup(new LogicalPosition(e.clientX, e.clientY));
         }
 
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {value}
         </div>;
     },
@@ -301,7 +303,7 @@ export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span> => ({
             await menu.popup(new LogicalPosition(e.clientX, e.clientY));
         }
 
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {value ?? '---'}
         </div>;
     },
@@ -364,7 +366,7 @@ export const INHERENT = (inherent: string): ColumnDef<Event | Span> => ({
             await menu.popup(new LogicalPosition(e.clientX, e.clientY));
         }
 
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {(props.entry as any)[inherent] ?? '---'}
         </div>;
     },
@@ -445,7 +447,7 @@ export const PARENT: ColumnDef<Event | Span> = {
             await menu.popup(new LogicalPosition(e.clientX, e.clientY));
         }
 
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} title={parentTitle(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} title={parentTitle(props.entry)} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {renderedParent(props.entry) ?? 'none'}
         </div>;
     },
@@ -514,7 +516,7 @@ export const DURATION: ColumnDef<Span> = {
             await menu.popup(new LogicalPosition(e.clientX, e.clientY));
         }
 
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
             {renderedDuration(props.entry) ?? '---'}
         </div>;
     },
@@ -547,7 +549,7 @@ export const UNKNOWN = (property: string): ColumnDef<Event | Span> => ({
     },
     headerText: `${property}`,
     data: (props) => {
-        return <div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             ---
         </div>;
     },
@@ -590,7 +592,7 @@ export const TIMESPAN: ColumnDef<Event | Span> = {
 
         let kind = (props.entry as any).timestamp != undefined ? 'event' : 'span';
 
-        return (<div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+        return (<div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
             <div class={`time-bar time-bar-${props.entry.level} time-bar-${kind}`} style={{ ...position(props.entry as Span) }}></div>
         </div>);
     },
@@ -619,8 +621,8 @@ export const COLLAPSABLE: ColumnDef<Event | Span> = {
             context.collapse(id, !context.isCollapsed(id));
         }
         return (props.entry as any).id == undefined
-            ? (<div class="data" classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}></div>)
-            : (<div class="data collapser" classList={{ selected: props.selected, hovered: props.hovered }} onclick={toggle} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+            ? (<div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}></div>)
+            : (<div class="data collapser" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={toggle} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
                 {collapsed() ? '⏶' : '⏷'}
             </div>);
     },
@@ -923,7 +925,7 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
         }
     }
 
-    let trailer = <div style="padding-left: 4px; white-space: nowrap" ref={table_bottom}>{(status() == 'partial') ? 'load more entries'
+    let trailer = <div style="padding-left: 4px; white-space: nowrap; color: var(--text-light)" ref={table_bottom}>{(status() == 'partial') ? 'load more entries'
         : (status() == 'loading') ? 'loading more entries'
             : 'no more entries'}</div>;
 
@@ -937,27 +939,54 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
 
     trailerObserver.observe(trailer as Element);
 
-    return (<div ref={table_wrapper} id="table" style={{ ['grid-template-columns']: getGridTemplateColumns() }}>
-        <For each={props.columns}>
-            {(column, i) => (<Dynamic component={column.header}
-                n={props.columns.length - i()}
-                total={props.columns.length}
-                min={props.columnMin}
-                order={order()}
-                orderToggle={toggleOrder}
-                last={i() == props.columns.length - 1}
-                setWidth={(w: string) => props.columnUpdateWidth(i(), w)}
-                setProperty={(p: string) => props.columnUpdate(i(), props.columnParser(p))}
-                moveColumn={(to: number) => props.columnMove(i(), to)}
-                addColumn={() => props.columnInsert(i(), props.columnDefault)}
-                delColumn={() => removeColumn(i())}
-            />)}
-        </For>
-        <For each={entries()}>
-            {row => {
+    let rowVirtualizer = createVirtualizer({
+        count: entries().length,
+        getScrollElement: () => table_wrapper,
+        estimateSize: () => 21,
+        paddingStart: 23,
+        paddingEnd: -23,
+    });
+
+    createEffect(() => {
+        let rows = entries().length;
+        rowVirtualizer.setOptions({
+            ...rowVirtualizer.options,
+            count: rows,
+        });
+        rowVirtualizer.measure();
+    });
+
+    return (<div ref={table_wrapper} id="table">
+        <div id="table-headers" style={{ ['grid-template-columns']: getGridTemplateColumns() }}>
+            <For each={props.columns}>
+                {(column, i) => (<Dynamic component={column.header}
+                    n={props.columns.length - i()}
+                    total={props.columns.length}
+                    min={props.columnMin}
+                    order={order()}
+                    orderToggle={toggleOrder}
+                    last={i() == props.columns.length - 1}
+                    setWidth={(w: string) => props.columnUpdateWidth(i(), w)}
+                    setProperty={(p: string) => props.columnUpdate(i(), props.columnParser(p))}
+                    moveColumn={(to: number) => props.columnMove(i(), to)}
+                    addColumn={() => props.columnInsert(i(), props.columnDefault)}
+                    delColumn={() => removeColumn(i())}
+                />)}
+            </For>
+        </div>
+        <div id="table-inner" style={{ height: `${rowVirtualizer.getTotalSize()}px`, ['grid-template-columns']: getGridTemplateColumns() }}>
+            {rowVirtualizer.getVirtualItems().map((virt) => {
+                let offset = rowVirtualizer.getVirtualIndexes()[0];
+                let row = entries()[virt.index];
+                if (row == undefined) {
+                    return <></>;
+                }
                 return (<For each={props.columns}>
                     {column => (<Dynamic
                         component={column.data}
+                        style={{
+                            transform: `translateY(${offset * 21}px)`,
+                        }}
                         entry={row}
                         selected={isSelected(row)}
                         hovered={isHovered(row)}
@@ -967,8 +996,8 @@ export function Table<T extends Event | Span>(props: TableProps<T>) {
                         addToFilter={props.addToFilter}
                     />)}
                 </For>);
-            }}
-        </For>
+            })}
+        </div>
         {trailer}
     </div>);
 }

@@ -12,6 +12,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@tanstack/solid-virtual": "^3.13.0",
     "@tauri-apps/api": "^2.0.1",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
