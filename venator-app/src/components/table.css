@@ -78,12 +78,6 @@
     cursor: ew-resize;
 }
 
-#table .header .grabber.grabbed {
-    width: 200px;
-    height: 300px;
-    right: calc(0% - 101px);
-}
-
 #table .data {
     position: relative;
     background-color: var(--bg-highlight-color);

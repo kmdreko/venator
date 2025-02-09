@@ -1048,21 +1048,17 @@ type ResizeableHeaderProps = {
 }
 
 function ResizeableHeader(props: ResizeableHeaderProps) {
-    let [dragging, setDragging] = createSignal<boolean>(false);
-
     let header_ref!: HTMLTableCellElement;
 
     function ongrab(e: MouseEvent) {
-        setDragging(true);
         e.preventDefault();
+
+        document.addEventListener('mousemove', onmove);
+        document.addEventListener('mouseup', onrelease);
     }
 
     let frameHandle: number | undefined;
     function onmove(e: MouseEvent) {
-        if (!dragging()) {
-            return;
-        }
-
         if (frameHandle != undefined) {
             return;
         }
@@ -1078,7 +1074,8 @@ function ResizeableHeader(props: ResizeableHeaderProps) {
     }
 
     function onrelease() {
-        setDragging(false);
+        document.removeEventListener('mousemove', onmove);
+        document.removeEventListener('mouseup', onrelease);
     }
 
     function onclick(e: MouseEvent) {
@@ -1096,7 +1093,7 @@ function ResizeableHeader(props: ResizeableHeaderProps) {
     return (<div class="header" style={`z-index: ${props.n}`} ref={header_ref} onauxclick={onclick} onclick={onclick} onmousedown={onmousedown} oncontextmenu={props.oncontextmenu}>
         {props.children}
         <Show when={props.enabled}>
-            <div class="grabber" classList={{ grabbed: dragging() }} onmousedown={ongrab} onmousemove={onmove} onmouseup={onrelease} onmouseleave={onrelease}></div>
+            <div class="grabber" onmousedown={ongrab}></div>
         </Show>
     </div>);
 }
