@@ -9,6 +9,10 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 
 import './table.css';
+import expandedIcon from '../assets/expanded.svg';
+import collapsedIcon from '../assets/collapsed.svg';
+import expandAllIcon from '../assets/expand-all.svg';
+import collapseAllIcon from '../assets/collapse-all.svg';
 
 export type ColumnHeaderComponent = (props: ColumnHeaderProps) => JSX.Element;
 export type ColumnHeaderProps = {
@@ -602,7 +606,31 @@ export const TIMESPAN: ColumnDef<Event | Span> = {
 export const COLLAPSABLE: ColumnDef<Event | Span> = {
     defaultWidth: "20px",
     header: (props) => {
-        return <div class="header collapsable" style={`z-index: ${props.n}`}></div>;
+        let context = useContext(CollapsableContext);
+
+        function collapsed(): boolean {
+            return context!.areAnyCollapsed();
+        }
+
+        function toggle() {
+            if (collapsed()) {
+                context?.expandAll();
+            } else {
+                context?.collapseAll();
+            }
+        }
+
+        function title() {
+            if (collapsed()) {
+                return "click to expand all";
+            } else {
+                return "click to collapse all";
+            }
+        }
+
+        return <div class="header collapsable" style={`z-index: ${props.n};padding: 0 2px;`} title={title()} onclick={toggle}>
+            <img src={collapsed() ? expandAllIcon : collapseAllIcon} style="width:15px;height:16px;padding-top:2px" />
+        </div>;
     },
     headerText: "#collapsable",
     data: (props) => {
@@ -612,6 +640,7 @@ export const COLLAPSABLE: ColumnDef<Event | Span> = {
             let id: string = (props.entry as any).id;
             return context?.isCollapsed(id) ?? false;
         }
+
         function toggle() {
             let id: string = (props.entry as any).id;
             if (context == undefined) {
@@ -620,10 +649,19 @@ export const COLLAPSABLE: ColumnDef<Event | Span> = {
 
             context.collapse(id, !context.isCollapsed(id));
         }
+
+        function title() {
+            if (collapsed()) {
+                return "click to expand";
+            } else {
+                return "click to collapse";
+            }
+        }
+
         return (props.entry as any).id == undefined
             ? (<div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}></div>)
-            : (<div class="data collapser" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={toggle} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
-                {collapsed() ? '⏶' : '⏷'}
+            : (<div class="data collapser" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} title={title()} onclick={toggle} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)}>
+                <img src={collapsed() ? collapsedIcon : expandedIcon} style="width:15px;height:16px;padding-top:2px" />
             </div>);
     },
     dataText: () => '',

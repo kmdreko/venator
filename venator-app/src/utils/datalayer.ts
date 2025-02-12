@@ -1081,6 +1081,10 @@ export class TraceDataLayer {
         }
     }
 
+    rawEntries = (): (Event | Span)[] => {
+        return this.#entries;
+    }
+
     #fetch = (): Promise<void> => {
         if (this.#fetchTask != null) {
             return this.#fetchTask;

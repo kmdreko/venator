@@ -31,6 +31,9 @@ export type TraceScreenProps = {
 
     collapsed: { [id: string]: true },
     setCollapsed: (id: string, collapsed: boolean) => void,
+    areAnyCollapsed: () => boolean,
+    expandAll: () => void,
+    collapseAll: () => void,
 
     selected: Event | Span | null,
     setSelected: (e: Event | Span | null) => void,
@@ -82,6 +85,9 @@ export function TraceScreen(props: TraceScreenProps) {
                 <CollapsableContext.Provider value={{
                     isCollapsed: id => props.collapsed[id] == true,
                     collapse: (id, c) => props.setCollapsed(id, c),
+                    areAnyCollapsed: props.areAnyCollapsed,
+                    expandAll: props.expandAll,
+                    collapseAll: props.collapseAll,
                 }}>
                     <Table
                         timespan={props.timespan!}

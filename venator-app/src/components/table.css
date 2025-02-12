@@ -78,6 +78,14 @@
     cursor: ew-resize;
 }
 
+#table .header.collapsable img {
+    opacity: 67%;
+}
+
+#table .header.collapsable img:hover {
+    opacity: 100%;
+}
+
 #table .data {
     position: relative;
     background-color: var(--bg-highlight-color);
@@ -256,6 +264,14 @@
 
 #table .data.collapser:hover {
     color: var(--text-click-active-color);
+}
+
+#table .data.collapser img {
+    opacity: 67%;
+}
+
+#table .data.collapser img:hover {
+    opacity: 100%;
 }
 
 #table .data:hover {

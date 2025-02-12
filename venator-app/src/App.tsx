@@ -873,6 +873,47 @@ function App() {
         setScreens(updated_screens);
     }
 
+    function areAnyCollapsed() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+
+        let current_collapsed = (current_screens[current_selected_screen] as TraceScreenData).collapsed;
+
+        return Object.keys(current_collapsed).length > 0;
+    }
+
+    function expandAll() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+        let updated_screens = [...current_screens];
+
+        updated_screens[current_selected_screen] = {
+            ...(current_screens[current_selected_screen] as TraceScreenData),
+            collapsed: {},
+        };
+        setScreens(updated_screens);
+    }
+
+    function collapseAll() {
+        let current_selected_screen = selectedScreen()!;
+        let current_screens = screens();
+        let current_screen = current_screens[current_selected_screen] as TraceScreenData;
+        let updated_screens = [...current_screens];
+
+        let spans = current_screen.store.rawEntries().filter(e => (e as any).created_at != undefined) as Span[];
+
+        let updated_collapsed: { [id: string]: true } = {};
+        for (let span of spans) {
+            updated_collapsed[span.id] = true;
+        }
+
+        updated_screens[current_selected_screen] = {
+            ...(current_screens[current_selected_screen] as TraceScreenData),
+            collapsed: updated_collapsed,
+        };
+        setScreens(updated_screens);
+    }
+
     async function removeScreen(idx: number) {
         let current_selected_screen = selectedScreen()!;
 
@@ -1538,6 +1579,9 @@ function App() {
 
                                 collapsed={(getCurrentScreen() as TraceScreenData).collapsed}
                                 setCollapsed={setCollapsed}
+                                areAnyCollapsed={areAnyCollapsed}
+                                expandAll={expandAll}
+                                collapseAll={collapseAll}
 
                                 selected={getCurrentSelectedRow() as any}
                                 setSelected={setScreenSelected}
