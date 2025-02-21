@@ -342,10 +342,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, event: MenuEvent) {
 
                 let new_storage = FileStorage::new(path);
 
-                // we have no need for the result, and the command is
-                // executed regardless if we poll
-                #[allow(clippy::let_underscore_future)]
-                let _ = engine.copy_dataset(Box::new(new_storage));
+                copy_dataset(&engine, new_storage);
             });
         }
         "save-as-csv" => {
@@ -417,6 +414,11 @@ async fn shutdown(engine: &AsyncEngine) {
     if let Err(err) = engine.shutdown().await {
         tracing::error!(?err, "failed to save");
     }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn copy_dataset(engine: &AsyncEngine, new_storage: FileStorage) {
+    let _ = engine.copy_dataset(Box::new(new_storage)).await;
 }
 
 struct SessionPersistence(Option<PathBuf>);
