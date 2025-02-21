@@ -604,7 +604,7 @@ function App() {
     async function getEntries(screen: TraceScreenData, filter: PaginationFilter): Promise<(Event | Span)[]> {
         let entries = await screen.store.getEntries(filter);
 
-        if (screen.timespan == null) {
+        if (screen.timespan![0] == 0 && screen.timespan![1] == 0) {
             let timespan: Timespan;
             if (entries.length > 0) {
                 function getEndTimestamp(e: Event | Span): Timestamp {

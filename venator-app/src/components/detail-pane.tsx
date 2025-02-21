@@ -660,7 +660,7 @@ function createDefaultTraceScreen(root: TraceRoot): [ScreenData, ColumnData] {
     return [{
         kind: 'trace',
         filter,
-        timespan: null,
+        timespan: [0, 0],
         live: false,
         store: new TraceDataLayer(filter),
         collapsed: {},
