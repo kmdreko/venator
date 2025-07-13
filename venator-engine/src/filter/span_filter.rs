@@ -8,7 +8,9 @@ use wildcard::WildcardBuilder;
 use crate::context::SpanContext;
 use crate::engine::SyncEngine;
 use crate::index::{SpanDurationIndex, SpanIndexes};
-use crate::models::{FullSpanId, Level, SimpleLevel, SpanKey, Timestamp, TraceRoot, ValueOperator};
+use crate::models::{
+    FullSpanId, Level, SimpleLevel, SourceKind, SpanKey, Timestamp, TraceRoot, ValueOperator,
+};
 use crate::storage::Storage;
 
 use super::input::{FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate};
@@ -141,6 +143,9 @@ impl IndexedSpanFilter<'_> {
                     .collect();
 
                 IndexedSpanFilter::Or(filters)
+            }
+            BasicSpanFilter::Kind(kind) => {
+                IndexedSpanFilter::Single(&span_indexes.all, Some(NonIndexedSpanFilter::Kind(kind)))
             }
             BasicSpanFilter::Name(filter) => match filter {
                 ValueStringComparison::None => IndexedSpanFilter::Single(&[], None),
@@ -684,6 +689,7 @@ pub(crate) enum BasicSpanFilter {
     Duration(DurationFilter),
     Created(ValueOperator, Timestamp),
     Closed(ValueOperator, Timestamp),
+    Kind(SourceKind),
     Name(ValueStringComparison),
     Namespace(ValueStringComparison),
     File(FileFilter),
@@ -703,6 +709,7 @@ impl BasicSpanFilter {
             BasicSpanFilter::Duration(_) => {}
             BasicSpanFilter::Created(_, _) => {}
             BasicSpanFilter::Closed(_, _) => {}
+            BasicSpanFilter::Kind(_) => {}
             BasicSpanFilter::Name(_) => {}
             BasicSpanFilter::Namespace(_) => {}
             BasicSpanFilter::File(_) => {}
@@ -749,6 +756,7 @@ impl BasicSpanFilter {
 
                 op.compare(closed_at, *value)
             }
+            BasicSpanFilter::Kind(kind) => kind == &span.kind,
             BasicSpanFilter::Name(filter) => filter.matches(&span.name),
             BasicSpanFilter::Namespace(filter) => filter.matches_opt(span.namespace.as_deref()),
             BasicSpanFilter::File(filter) => {
@@ -794,8 +802,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "duration" | "name" | "namespace" | "file" | "parent" | "created"
-                | "closed" | "trace" => Inherent,
+                "level" | "duration" | "name" | "namespace" | "target" | "file" | "parent"
+                | "created" | "closed" | "trace" => Inherent,
                 _ => Attribute,
             });
 
@@ -845,7 +853,7 @@ impl BasicSpanFilter {
                     Ok(())
                 },
             )?,
-            (Inherent, "namespace") => validate_value_predicate(
+            (Inherent, "namespace" | "target") => validate_value_predicate(
                 &predicate.value,
                 |_op, _value| Ok(()),
                 |wildcard| {
@@ -1013,8 +1021,8 @@ impl BasicSpanFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "duration" | "name" | "namespace" | "file" | "parent" | "created"
-                | "closed" | "trace" => Inherent,
+                "level" | "duration" | "name" | "namespace" | "target" | "file" | "parent"
+                | "created" | "closed" | "trace" => Inherent,
                 _ => Attribute,
             });
 
@@ -1083,7 +1091,10 @@ impl BasicSpanFilter {
                 predicate.value,
                 |op, value| {
                     let filter = ValueStringComparison::Compare(op, value);
-                    Ok(BasicSpanFilter::Namespace(filter))
+                    Ok(BasicSpanFilter::And(vec![
+                        BasicSpanFilter::Namespace(filter),
+                        BasicSpanFilter::Kind(SourceKind::Opentelemetry),
+                    ]))
                 },
                 |wildcard| {
                     let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
@@ -1092,13 +1103,50 @@ impl BasicSpanFilter {
                         .map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Wildcard(wildcard);
-                    Ok(BasicSpanFilter::Namespace(filter))
+                    Ok(BasicSpanFilter::And(vec![
+                        BasicSpanFilter::Namespace(filter),
+                        BasicSpanFilter::Kind(SourceKind::Opentelemetry),
+                    ]))
                 },
                 |regex| {
                     let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Regex(regex);
-                    Ok(BasicSpanFilter::Namespace(filter))
+                    Ok(BasicSpanFilter::And(vec![
+                        BasicSpanFilter::Namespace(filter),
+                        BasicSpanFilter::Kind(SourceKind::Opentelemetry),
+                    ]))
+                },
+            )?,
+            (Inherent, "target") => filterify_span_filter(
+                predicate.value,
+                |op, value| {
+                    let filter = ValueStringComparison::Compare(op, value);
+                    Ok(BasicSpanFilter::And(vec![
+                        BasicSpanFilter::Namespace(filter),
+                        BasicSpanFilter::Kind(SourceKind::Tracing),
+                    ]))
+                },
+                |wildcard| {
+                    let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Wildcard(wildcard);
+                    Ok(BasicSpanFilter::And(vec![
+                        BasicSpanFilter::Namespace(filter),
+                        BasicSpanFilter::Kind(SourceKind::Tracing),
+                    ]))
+                },
+                |regex| {
+                    let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Regex(regex);
+                    Ok(BasicSpanFilter::And(vec![
+                        BasicSpanFilter::Namespace(filter),
+                        BasicSpanFilter::Kind(SourceKind::Tracing),
+                    ]))
                 },
             )?,
             (Inherent, "file") => filterify_span_filter(
@@ -1254,6 +1302,7 @@ impl BasicSpanFilter {
 pub(crate) enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Closed(ValueOperator, Timestamp),
+    Kind(SourceKind),
     Name(ValueStringComparison),
     Namespace(ValueStringComparison),
     File(FileFilter),
@@ -1273,6 +1322,7 @@ impl NonIndexedSpanFilter {
 
                 op.compare(closed_at, *value)
             }
+            NonIndexedSpanFilter::Kind(kind) => kind == &span.kind,
             NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
             NonIndexedSpanFilter::Namespace(filter) => {
                 filter.matches_opt(span.namespace.as_deref())

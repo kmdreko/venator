@@ -8,7 +8,8 @@ use crate::context::{EventContext, SpanContext};
 use crate::engine::SyncEngine;
 use crate::index::EventIndexes;
 use crate::models::{
-    EventKey, FullSpanId, Level, SimpleLevel, SpanKey, Timestamp, TraceRoot, ValueOperator,
+    EventKey, FullSpanId, Level, SimpleLevel, SourceKind, SpanKey, Timestamp, TraceRoot,
+    ValueOperator,
 };
 use crate::storage::Storage;
 
@@ -64,6 +65,10 @@ impl IndexedEventFilter<'_> {
             BasicEventFilter::Level(level) => {
                 IndexedEventFilter::Single(&event_indexes.levels[level as usize], None)
             }
+            BasicEventFilter::Kind(kind) => IndexedEventFilter::Single(
+                &event_indexes.all,
+                Some(NonIndexedEventFilter::Kind(kind)),
+            ),
             BasicEventFilter::Namespace(filter) => match filter {
                 ValueStringComparison::None => IndexedEventFilter::Single(&[], None),
                 ValueStringComparison::Compare(ValueOperator::Eq, value) => {
@@ -458,6 +463,7 @@ pub(crate) enum BasicEventFilter {
     All,
     Timestamp(ValueOperator, Timestamp),
     Level(SimpleLevel),
+    Kind(SourceKind),
     Namespace(ValueStringComparison),
     File(FileFilter),
     Root,
@@ -476,6 +482,7 @@ impl BasicEventFilter {
             BasicEventFilter::All => {}
             BasicEventFilter::Timestamp(_, _) => {}
             BasicEventFilter::Level(_) => {}
+            BasicEventFilter::Kind(_) => {}
             BasicEventFilter::Namespace(_) => {}
             BasicEventFilter::File(_) => {}
             BasicEventFilter::Root => {}
@@ -547,7 +554,9 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "parent" | "namespace" | "file" | "trace" | "content" => Inherent,
+                "level" | "parent" | "namespace" | "target" | "file" | "trace" | "content" => {
+                    Inherent
+                }
                 _ => Attribute,
             });
 
@@ -592,7 +601,7 @@ impl BasicEventFilter {
                     |_| Err(InputError::InvalidParentValue),
                 )?;
             }
-            (Inherent, "namespace") => validate_value_predicate(
+            (Inherent, "namespace" | "target") => validate_value_predicate(
                 &predicate.value,
                 |_op, _value| Ok(()),
                 |wildcard| {
@@ -732,7 +741,9 @@ impl BasicEventFilter {
         let property_kind = predicate
             .property_kind
             .unwrap_or(match predicate.property.as_str() {
-                "level" | "parent" | "namespace" | "file" | "trace" | "content" => Inherent,
+                "level" | "parent" | "namespace" | "target" | "file" | "trace" | "content" => {
+                    Inherent
+                }
                 _ => Attribute,
             });
 
@@ -793,7 +804,10 @@ impl BasicEventFilter {
                 predicate.value,
                 |op, value| {
                     let filter = ValueStringComparison::Compare(op, value);
-                    Ok(BasicEventFilter::Namespace(filter))
+                    Ok(BasicEventFilter::And(vec![
+                        BasicEventFilter::Namespace(filter),
+                        BasicEventFilter::Kind(SourceKind::Opentelemetry),
+                    ]))
                 },
                 |wildcard| {
                     let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
@@ -802,13 +816,50 @@ impl BasicEventFilter {
                         .map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Wildcard(wildcard);
-                    Ok(BasicEventFilter::Namespace(filter))
+                    Ok(BasicEventFilter::And(vec![
+                        BasicEventFilter::Namespace(filter),
+                        BasicEventFilter::Kind(SourceKind::Opentelemetry),
+                    ]))
                 },
                 |regex| {
                     let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
 
                     let filter = ValueStringComparison::Regex(regex);
-                    Ok(BasicEventFilter::Namespace(filter))
+                    Ok(BasicEventFilter::And(vec![
+                        BasicEventFilter::Namespace(filter),
+                        BasicEventFilter::Kind(SourceKind::Opentelemetry),
+                    ]))
+                },
+            )?,
+            (Inherent, "target") => filterify_event_filter(
+                predicate.value,
+                |op, value| {
+                    let filter = ValueStringComparison::Compare(op, value);
+                    Ok(BasicEventFilter::And(vec![
+                        BasicEventFilter::Namespace(filter),
+                        BasicEventFilter::Kind(SourceKind::Tracing),
+                    ]))
+                },
+                |wildcard| {
+                    let wildcard = WildcardBuilder::from_owned(wildcard.into_bytes())
+                        .without_one_metasymbol()
+                        .build()
+                        .map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Wildcard(wildcard);
+                    Ok(BasicEventFilter::And(vec![
+                        BasicEventFilter::Namespace(filter),
+                        BasicEventFilter::Kind(SourceKind::Tracing),
+                    ]))
+                },
+                |regex| {
+                    let regex = Regex::new(&regex).map_err(|_| InputError::InvalidWildcardValue)?;
+
+                    let filter = ValueStringComparison::Regex(regex);
+                    Ok(BasicEventFilter::And(vec![
+                        BasicEventFilter::Namespace(filter),
+                        BasicEventFilter::Kind(SourceKind::Tracing),
+                    ]))
                 },
             )?,
             (Inherent, "file") => filterify_event_filter(
@@ -935,6 +986,7 @@ impl BasicEventFilter {
             BasicEventFilter::All => true,
             BasicEventFilter::Timestamp(op, timestamp) => op.compare(&event.timestamp, timestamp),
             BasicEventFilter::Level(level) => event.level.into_simple_level() == *level,
+            BasicEventFilter::Kind(kind) => kind == &event.kind,
             BasicEventFilter::Namespace(filter) => filter.matches_opt(event.namespace.as_deref()),
             BasicEventFilter::File(filter) => {
                 filter.matches(event.file_name.as_deref(), event.file_line)
@@ -956,6 +1008,7 @@ impl BasicEventFilter {
 
 pub(crate) enum NonIndexedEventFilter {
     Parent(SpanKey),
+    Kind(SourceKind),
     Namespace(ValueStringComparison),
     File(FileFilter),
     Content(Box<ValueFilter>),
@@ -967,6 +1020,7 @@ impl NonIndexedEventFilter {
         let event = context.event();
         match self {
             NonIndexedEventFilter::Parent(parent_key) => event.parent_key == Some(*parent_key),
+            NonIndexedEventFilter::Kind(kind) => kind == &event.kind,
             NonIndexedEventFilter::Namespace(filter) => {
                 filter.matches_opt(event.namespace.as_deref())
             }

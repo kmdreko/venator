@@ -134,7 +134,7 @@ impl FromStr for TraceRoot {
 #[derive(Debug)]
 pub struct SourceKindConvertError;
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[repr(i32)]
 pub enum SourceKind {
