@@ -314,7 +314,7 @@ export const ATTRIBUTE = (attribute: string): ColumnDef<Event | Span> => ({
     dataText: (entity) => entity.attributes.find(a => a.name == attribute)?.value ?? '',
 });
 
-export const INHERENT = (inherent: string): ColumnDef<Event | Span> => ({
+export const INHERENT = (inherent: string, accessor?: (e: Event | Span) => string | null): ColumnDef<Event | Span> => ({
     defaultWidth: "minmax(100px, 1fr)",
     header: (props) => {
         async function showContextMenu(e: MouseEvent) {
@@ -371,7 +371,7 @@ export const INHERENT = (inherent: string): ColumnDef<Event | Span> => ({
         }
 
         return <div class="data" style={{ ...props.style }} classList={{ selected: props.selected, hovered: props.hovered }} onclick={props.onClick} onmouseenter={e => props.onHover(e, true)} onmouseleave={e => props.onHover(e, false)} oncontextmenu={showContextMenu}>
-            {(props.entry as any)[inherent] ?? '---'}
+            {(accessor ? accessor(props.entry) : (props.entry as any)[inherent]) ?? '---'}
         </div>;
     },
     dataText: (entity) => (entity as any)[inherent] ?? '',
@@ -737,8 +737,11 @@ export function parseEventColumn(property: string, internal: boolean = false): C
     if (property == 'content' || property == '#content') {
         return CONTENT;
     }
+    if (property == 'namespace' || property == '#namespace') {
+        return INHERENT('namespace', (e) => e.kind == 'opentelemetry' ? e.namespace : null);
+    }
     if (property == 'target' || property == '#target') {
-        return INHERENT('target');
+        return INHERENT('target', (e) => e.kind == 'tracing' ? e.namespace : null);
     }
     if (property == 'file' || property == '#file') {
         return INHERENT('file');
@@ -778,8 +781,11 @@ export function parseSpanColumn(property: string, internal: boolean = false): Co
     if (property == 'parent' || property == '#parent') {
         return PARENT;
     }
+    if (property == 'namespace' || property == '#namespace') {
+        return INHERENT('namespace', (e) => e.kind == 'opentelemetry' ? e.namespace : null);
+    }
     if (property == 'target' || property == '#target') {
-        return INHERENT('target');
+        return INHERENT('target', (e) => e.kind == 'tracing' ? e.namespace : null);
     }
     if (property == 'file' || property == '#file') {
         return INHERENT('file');
