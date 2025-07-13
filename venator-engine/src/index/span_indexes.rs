@@ -172,10 +172,12 @@ impl SpanIndexes {
         }
     }
 
-    pub fn update_with_closed(&mut self, span_key: Timestamp, closed_at: Timestamp) {
+    pub fn update_with_closed(&mut self, span_key: Timestamp, closed_at: Timestamp) -> bool {
         let idx = self.durations.open.lower_bound(&span_key);
-        if self.durations.open[idx] == span_key {
+        if self.durations.open.get(idx) == Some(&span_key) {
             self.durations.open.remove(idx);
+        } else {
+            return false;
         }
 
         let duration = closed_at.get().saturating_sub(span_key.get());
@@ -193,6 +195,7 @@ impl SpanIndexes {
 
         let idx = index.upper_bound_via_expansion(&span_key);
         index.insert(idx, span_key);
+        true
     }
 
     pub fn remove_spans(&mut self, spans: &[SpanKey]) {

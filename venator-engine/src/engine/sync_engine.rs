@@ -720,8 +720,13 @@ impl<S: Storage> SyncEngine<S> {
                     kind: SpanEventKind::Close(CloseSpanEvent { busy }),
                 };
 
-                self.span_indexes
+                let updated = self
+                    .span_indexes
                     .update_with_closed(span_key, new_span_event.timestamp);
+
+                if !updated {
+                    return Err(anyhow::anyhow!("span already closed"));
+                }
 
                 self.storage
                     .update_span_closed(span_key, new_span_event.timestamp, busy)
