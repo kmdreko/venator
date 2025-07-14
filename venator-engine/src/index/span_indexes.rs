@@ -217,8 +217,12 @@ impl SpanIndexes {
             name_index.remove_list_sorted(spans);
         }
 
-        for target_index in self.namespaces.values_mut() {
-            target_index.remove_list_sorted(spans);
+        for namespace_index in self.namespaces.values_mut() {
+            namespace_index.remove_list_sorted(spans);
+        }
+
+        for function_index in self.functions.values_mut() {
+            function_index.remove_list_sorted(spans);
         }
 
         for filename_index in self.filenames.values_mut() {

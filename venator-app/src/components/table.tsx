@@ -743,6 +743,9 @@ export function parseEventColumn(property: string, internal: boolean = false): C
     if (property == 'target' || property == '#target') {
         return INHERENT('target', (e) => e.kind == 'tracing' ? e.namespace : null);
     }
+    if (property == 'function' || property == '#function') {
+        return INHERENT('function');
+    }
     if (property == 'file' || property == '#file') {
         return INHERENT('file');
     }
@@ -786,6 +789,9 @@ export function parseSpanColumn(property: string, internal: boolean = false): Co
     }
     if (property == 'target' || property == '#target') {
         return INHERENT('target', (e) => e.kind == 'tracing' ? e.namespace : null);
+    }
+    if (property == 'function' || property == '#function') {
+        return INHERENT('function');
     }
     if (property == 'file' || property == '#file') {
         return INHERENT('file');

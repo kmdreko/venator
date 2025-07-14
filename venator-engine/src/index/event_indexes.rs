@@ -15,6 +15,7 @@ pub(crate) struct EventIndexes {
     pub levels: [Vec<Timestamp>; 6],
     pub resources: BTreeMap<ResourceKey, Vec<Timestamp>>,
     pub namespaces: BTreeMap<String, Vec<Timestamp>>,
+    pub functions: BTreeMap<String, Vec<Timestamp>>,
     pub filenames: BTreeMap<String, Vec<Timestamp>>,
     pub roots: Vec<Timestamp>,
     pub traces: HashMap<TraceRoot, Vec<Timestamp>>,
@@ -39,6 +40,7 @@ impl EventIndexes {
             ],
             resources: BTreeMap::new(),
             namespaces: BTreeMap::new(),
+            functions: BTreeMap::new(),
             filenames: BTreeMap::new(),
             roots: Vec::new(),
             traces: HashMap::new(),
@@ -69,6 +71,12 @@ impl EventIndexes {
             let namespace_index = self.namespaces.entry(namespace).or_default();
             let idx = namespace_index.upper_bound_via_expansion(&event_key);
             namespace_index.insert(idx, event_key);
+        }
+
+        if let Some(function) = event.function.clone() {
+            let function_index = self.functions.entry(function).or_default();
+            let idx = function_index.upper_bound_via_expansion(&event_key);
+            function_index.insert(idx, event_key);
         }
 
         if let Some(filename) = &event.file_name {
@@ -150,8 +158,12 @@ impl EventIndexes {
             resource_index.remove_list_sorted(events);
         }
 
-        for target_index in self.namespaces.values_mut() {
-            target_index.remove_list_sorted(events);
+        for namespace_index in self.namespaces.values_mut() {
+            namespace_index.remove_list_sorted(events);
+        }
+
+        for function_index in self.functions.values_mut() {
+            function_index.remove_list_sorted(events);
         }
 
         for filename_index in self.filenames.values_mut() {
