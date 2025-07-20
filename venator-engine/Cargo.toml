@@ -1,6 +1,6 @@
 [package]
 name = "venator-engine"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "The core functionality that drives the Venator app"
 readme = "README.md"
