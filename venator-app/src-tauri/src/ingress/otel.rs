@@ -38,7 +38,6 @@ use super::IngressState;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Protobuf<T>(pub T);
 
-#[async_trait]
 impl<T, S> FromRequest<S> for Protobuf<T>
 where
     T: prost::Message + Default,

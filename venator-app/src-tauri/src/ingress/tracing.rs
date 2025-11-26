@@ -24,8 +24,10 @@ use super::IngressState;
 
 pub(super) struct InstanceId(u128);
 
-#[axum::async_trait]
-impl<S> FromRequestParts<S> for InstanceId {
+impl<S> FromRequestParts<S> for InstanceId
+where
+    S: Send + Sync,
+{
     type Rejection = StatusCode;
 
     async fn from_request_parts(part: &mut Parts, _state: &S) -> Result<InstanceId, StatusCode> {

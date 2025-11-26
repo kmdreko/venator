@@ -192,8 +192,8 @@ mod parsers {
     use nom::character::complete::{char, none_of, one_of};
     use nom::combinator::{cut, eof, map, map_res, opt};
     use nom::multi::{many0, many0_count, separated_list0};
-    use nom::sequence::{delimited, tuple};
-    use nom::IResult;
+    use nom::sequence::delimited;
+    use nom::{IResult, Parser};
 
     enum GroupSeparator {
         And,
@@ -201,38 +201,38 @@ mod parsers {
     }
 
     fn whitespace(input: &str) -> IResult<&str, &str> {
-        take_while(|c: char| c.is_whitespace())(input)
+        take_while(|c: char| c.is_whitespace()).parse(input)
     }
 
     fn expect_whitespace(input: &str) -> IResult<&str, &str> {
-        take_while1(|c: char| c.is_whitespace())(input)
+        take_while1(|c: char| c.is_whitespace()).parse(input)
     }
 
     fn escaped_name(input: &str) -> IResult<&str, &str> {
-        escaped(none_of("\\\""), '\\', one_of("\"\\*"))(input)
+        escaped(none_of("\\\""), '\\', one_of("\"\\*")).parse(input)
     }
 
     fn quoted_name(input: &str) -> IResult<&str, Option<&str>> {
-        delimited(char('\"'), opt(escaped_name), char('\"'))(input)
+        delimited(char('\"'), opt(escaped_name), char('\"')).parse(input)
     }
 
     fn unquoted_name(input: &str) -> IResult<&str, &str> {
-        take_while(|c: char| c.is_alphabetic() || c == '.' || c == '_')(input)
+        take_while(|c: char| c.is_alphabetic() || c == '.' || c == '_').parse(input)
     }
 
     fn name(input: &str) -> IResult<&str, &str> {
-        alt((map(quoted_name, |res| res.unwrap_or("")), unquoted_name))(input)
+        alt((map(quoted_name, |res| res.unwrap_or("")), unquoted_name)).parse(input)
     }
 
     fn inherent_name(input: &str) -> IResult<&str, &str> {
-        let (input, _) = char('#')(input)?;
-        let (input, attr_name) = cut(name)(input)?;
+        let (input, _) = char('#').parse(input)?;
+        let (input, attr_name) = cut(name).parse(input)?;
         Ok((input, attr_name))
     }
 
     fn attribute_name(input: &str) -> IResult<&str, &str> {
-        let (input, _) = char('@')(input)?;
-        let (input, attr_name) = cut(name)(input)?;
+        let (input, _) = char('@').parse(input)?;
+        let (input, attr_name) = cut(name).parse(input)?;
         Ok((input, attr_name))
     }
 
@@ -243,12 +243,13 @@ mod parsers {
             map(inherent_name, |name| (Some(Inherent), name)),
             map(attribute_name, |name| (Some(Attribute), name)),
             map(name, |name| (None, name)),
-        ))(input)
+        ))
+        .parse(input)
     }
 
     fn not(input: &str) -> IResult<&str, &str> {
         let (input, _) = whitespace(input)?;
-        tag("!")(input)
+        tag("!").parse(input)
     }
 
     fn bare_value(input: &str) -> IResult<&str, ValuePredicate> {
@@ -259,7 +260,8 @@ mod parsers {
             map(tag(">"), |_| ValueOperator::Gt),
             map(tag("<="), |_| ValueOperator::Lte),
             map(tag("<"), |_| ValueOperator::Lt),
-        )))(input)?;
+        )))
+        .parse(input)?;
         let (input, value) = alt((
             map_res(quoted_value, |v| {
                 let Some(v) = v else {
@@ -296,7 +298,8 @@ mod parsers {
                     ))
                 }
             }),
-        ))(input)?;
+        ))
+        .parse(input)?;
 
         Ok((input, value))
     }
@@ -304,7 +307,7 @@ mod parsers {
     fn group_list(input: &str) -> IResult<&str, ValuePredicate> {
         let (input, _) = whitespace(input)?;
         let (input, first) = value(input)?;
-        let (input, list) = many0(tuple((
+        let (input, list) = many0((
             whitespace,
             alt((
                 map(tag("AND"), |_| GroupSeparator::And),
@@ -312,7 +315,8 @@ mod parsers {
             )),
             whitespace,
             value,
-        )))(input)?;
+        ))
+        .parse(input)?;
         let (input, _) = whitespace(input)?;
 
         if list.is_empty() {
@@ -372,15 +376,15 @@ mod parsers {
     }
 
     fn grouped_value(input: &str) -> IResult<&str, ValuePredicate> {
-        delimited(char('('), group_list, char(')'))(input)
+        delimited(char('('), group_list, char(')')).parse(input)
     }
 
     fn regex_inner(input: &str) -> IResult<&str, &str> {
-        escaped(none_of("\\/"), '\\', one_of("/"))(input)
+        escaped(none_of("\\/"), '\\', one_of("/")).parse(input)
     }
 
     fn regex_value(input: &str) -> IResult<&str, ValuePredicate> {
-        let (input, regex) = delimited(char('/'), opt(regex_inner), char('/'))(input)?;
+        let (input, regex) = delimited(char('/'), opt(regex_inner), char('/')).parse(input)?;
 
         let regex = regex.unwrap_or_default().to_owned();
 
@@ -388,8 +392,8 @@ mod parsers {
     }
 
     fn value(input: &str) -> IResult<&str, ValuePredicate> {
-        let (input, not_count) = many0_count(not)(input)?;
-        let (input, value) = alt((grouped_value, regex_value, bare_value))(input)?;
+        let (input, not_count) = many0_count(not).parse(input)?;
+        let (input, value) = alt((grouped_value, regex_value, bare_value)).parse(input)?;
 
         let value = if not_count % 2 == 1 {
             ValuePredicate::Not(Box::new(value))
@@ -401,11 +405,11 @@ mod parsers {
     }
 
     fn escaped_value(input: &str) -> IResult<&str, &str> {
-        escaped(none_of("\\\""), '\\', one_of("\"\\*"))(input)
+        escaped(none_of("\\\""), '\\', one_of("\"\\*")).parse(input)
     }
 
     fn quoted_value(input: &str) -> IResult<&str, Option<&str>> {
-        delimited(char('\"'), opt(escaped_value), char('\"'))(input)
+        delimited(char('\"'), opt(escaped_value), char('\"')).parse(input)
     }
 
     fn unquoted_value(input: &str) -> IResult<&str, &str> {
@@ -417,13 +421,14 @@ mod parsers {
                 && c != ':'
                 && c != '('
                 && c != ')'
-        })(input)
+        })
+        .parse(input)
     }
 
     fn predicate_list(input: &str) -> IResult<&str, FilterPredicate> {
         let (input, _) = whitespace(input)?;
         let (input, first) = predicate(input)?;
-        let (input, list) = many0(tuple((
+        let (input, list) = many0((
             whitespace,
             alt((
                 map(tag("AND"), |_| GroupSeparator::And),
@@ -431,7 +436,8 @@ mod parsers {
             )),
             whitespace,
             predicate,
-        )))(input)?;
+        ))
+        .parse(input)?;
         let (input, _) = whitespace(input)?;
 
         if list.is_empty() {
@@ -491,13 +497,13 @@ mod parsers {
     }
 
     fn predicate_grouped(input: &str) -> IResult<&str, FilterPredicate> {
-        delimited(char('('), predicate_list, char(')'))(input)
+        delimited(char('('), predicate_list, char(')')).parse(input)
     }
 
     fn predicate_single(input: &str) -> IResult<&str, FilterPredicate> {
         let (input, (kind, property)) = property(input)?;
         let (input, _) = whitespace(input)?;
-        let (input, _) = char(':')(input)?;
+        let (input, _) = char(':').parse(input)?;
         let (input, _) = whitespace(input)?;
         let (input, value) = value(input)?;
 
@@ -511,12 +517,12 @@ mod parsers {
     }
 
     fn predicate(input: &str) -> IResult<&str, FilterPredicate> {
-        alt((predicate_grouped, predicate_single))(input)
+        alt((predicate_grouped, predicate_single)).parse(input)
     }
 
     pub fn predicates(input: &str) -> IResult<&str, Vec<FilterPredicate>> {
         let (input, _) = whitespace(input)?;
-        let (input, list) = separated_list0(expect_whitespace, predicate)(input)?;
+        let (input, list) = separated_list0(expect_whitespace, predicate).parse(input)?;
         let (input, _) = whitespace(input)?;
         let (input, _) = eof(input)?;
 

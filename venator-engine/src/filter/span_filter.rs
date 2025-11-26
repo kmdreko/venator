@@ -1419,17 +1419,18 @@ impl DurationFilter {
     pub fn from_input(op: ValueOperator, value: &str) -> Result<DurationFilter, InputError> {
         use nom::bytes::complete::{take_while, take_while1};
         use nom::combinator::{eof, opt};
-        use nom::sequence::tuple;
+        use nom::Parser;
 
-        let (_, (number, maybe_units, _)) = tuple((
+        let (_, (number, maybe_units, _)) = (
             take_while1(|c: char| c.is_ascii_digit() || c == '.'),
-            opt(tuple((
+            opt((
                 take_while(|c: char| c.is_whitespace()),
                 take_while1(|c: char| c.is_alphabetic()),
-            ))),
+            )),
             eof,
-        ))(value)
-        .map_err(|_: nom::Err<nom::error::Error<_>>| InputError::InvalidDurationValue)?;
+        )
+            .parse(value)
+            .map_err(|_: nom::Err<nom::error::Error<_>>| InputError::InvalidDurationValue)?;
 
         let measure: f64 = number
             .parse()
