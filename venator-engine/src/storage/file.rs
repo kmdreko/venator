@@ -269,7 +269,7 @@ impl Storage for FileStorage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_resources(&self) -> Result<StorageIter<Resource>, StorageError> {
+    fn get_all_resources(&self) -> Result<StorageIter<'_, Resource>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM resources ORDER BY key")
@@ -289,7 +289,7 @@ impl Storage for FileStorage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_spans(&self) -> Result<StorageIter<Span>, StorageError> {
+    fn get_all_spans(&self) -> Result<StorageIter<'_, Span>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM spans ORDER BY key")
@@ -309,7 +309,7 @@ impl Storage for FileStorage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_span_events(&self) -> Result<StorageIter<SpanEvent>, StorageError> {
+    fn get_all_span_events(&self) -> Result<StorageIter<'_, SpanEvent>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM span_events ORDER BY key")
@@ -329,7 +329,7 @@ impl Storage for FileStorage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    fn get_all_events(&self) -> Result<StorageIter<Event>, StorageError> {
+    fn get_all_events(&self) -> Result<StorageIter<'_, Event>, StorageError> {
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * FROM events ORDER BY key")

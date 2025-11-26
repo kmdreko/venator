@@ -327,47 +327,8 @@ struct Message {
     data: MessageData,
 }
 
-// Only used to adjust how the JSON is formatted
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MessageView {
-    timestamp: NonZeroU64,
-    span_id: Option<u64>,
-    data: MessageDataView,
-}
-
-impl From<Message> for MessageView {
-    fn from(value: Message) -> Self {
-        MessageView {
-            timestamp: value.timestamp,
-            span_id: value.span_id,
-            data: match value.data {
-                MessageData::Create(create) => MessageDataView::Create(create),
-                MessageData::Update(update) => MessageDataView::Update(update),
-                MessageData::Follows(follows) => MessageDataView::Follows(follows),
-                MessageData::Enter(enter) => MessageDataView::Enter(enter),
-                MessageData::Exit => MessageDataView::Exit,
-                MessageData::Close => MessageDataView::Close,
-                MessageData::Event(event) => MessageDataView::Event(event),
-            },
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum MessageData {
-    Create(CreateData),
-    Update(UpdateData),
-    Follows(FollowsData),
-    Enter(EnterData),
-    Exit,
-    Close,
-    Event(EventData),
-}
-
-// Only used to adjust how the JSON is formatted
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-enum MessageDataView {
     Create(CreateData),
     Update(UpdateData),
     Follows(FollowsData),

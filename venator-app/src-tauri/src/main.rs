@@ -323,6 +323,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, event: MenuEvent) {
                 let Some(path) = file_path else { return };
                 let Some(path) = path.as_path() else { return };
 
+                #[allow(clippy::zombie_processes)]
                 Command::new(current_exe)
                     .arg("-d")
                     .arg(path)
