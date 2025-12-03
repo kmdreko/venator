@@ -3,11 +3,11 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::context::{EventContext, SpanContext};
-use crate::filter::BoundSearch;
 use crate::models::{EventKey, FullSpanId, Timestamp, TraceRoot, Value};
+use crate::util::{BoundSearch, IndexExt};
 use crate::{ResourceKey, SpanKey, Storage};
 
-use super::{IndexExt, ValueIndex};
+use super::ValueIndex;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct EventIndexes {

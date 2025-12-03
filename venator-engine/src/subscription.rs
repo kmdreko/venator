@@ -1,9 +1,10 @@
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::context::{EventContext, SpanContext};
-use crate::filter::{BasicEventFilter, BasicSpanFilter, BoundSearch};
+use crate::filter::{BasicEventFilter, BasicSpanFilter};
 use crate::models::EventKey;
-use crate::{ComposedEvent, SpanKey, ComposedSpan, Storage, Timestamp};
+use crate::util::BoundSearch;
+use crate::{ComposedEvent, ComposedSpan, SpanKey, Storage, Timestamp};
 
 pub type SubscriptionId = usize;
 pub type Subscriber<T> = (SubscriptionId, UnboundedReceiver<SubscriptionResponse<T>>);

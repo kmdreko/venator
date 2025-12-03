@@ -5,14 +5,12 @@ use tokio::sync::mpsc::{self};
 use tracing::instrument;
 
 use crate::context::{EventContext, SpanContext};
-use crate::filter::{
-    BasicEventFilter, BasicSpanFilter, BoundSearch, FilterPredicate, IndexedEventFilter,
-    IndexedEventFilterIterator, IndexedSpanFilter, IndexedSpanFilterIterator, Query,
-};
+use crate::filter::{BasicEventFilter, BasicSpanFilter, FilterPredicate, IndexedSpanFilter, Query};
 use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{CloseSpanEvent, EnterSpanEvent, EventKey, FollowsSpanEvent};
 use crate::storage::Storage;
 use crate::subscription::{EventSubscription, SpanSubscription, Subscriber};
+use crate::util::BoundSearch;
 use crate::{
     ComposedEvent, ComposedSpan, CreateSpanEvent, DatasetStats, DeleteFilter, DeleteMetrics, Event,
     FullSpanId, InstanceId, NewEvent, NewResource, NewSpanEvent, NewSpanEventKind, Resource,
@@ -183,9 +181,16 @@ impl<S: Storage> SyncEngine<S> {
     pub fn query_event(&self, query: Query) -> Vec<ComposedEvent> {
         tracing::debug!(?query, "querying for events");
 
-        let limit = query.limit;
-        IndexedEventFilterIterator::new(query, self)
-            .take(limit)
+        BasicEventFilter::from_top_predicates(query.filter, &self.span_indexes.ids)
+            .unwrap()
+            .with_simplification()
+            .into_indexed(&self.event_indexes, &self.storage)
+            .with_timeframe(query.start, query.end)
+            .with_pagination(query.previous, query.order)
+            .with_optimization()
+            .into_iterator(&self.storage)
+            .with_order(query.order)
+            .take(query.limit)
             .filter_map(|event_key| {
                 self.storage
                     .get_event(event_key)
@@ -200,7 +205,15 @@ impl<S: Storage> SyncEngine<S> {
     pub fn query_event_count(&self, query: Query) -> usize {
         tracing::debug!(?query, "querying for event counts");
 
-        let event_iter = IndexedEventFilterIterator::new(query, self);
+        let event_iter =
+            BasicEventFilter::from_top_predicates(query.filter, &self.span_indexes.ids)
+                .unwrap()
+                .with_simplification()
+                .into_indexed(&self.event_indexes, &self.storage)
+                .with_timeframe(query.start, query.end)
+                .with_pagination(query.previous, query.order)
+                .with_optimization()
+                .into_iterator(&self.storage);
 
         match event_iter.size_hint() {
             (min, Some(max)) if min == max => min,
@@ -212,9 +225,17 @@ impl<S: Storage> SyncEngine<S> {
     pub fn query_span(&self, query: Query) -> Vec<ComposedSpan> {
         tracing::debug!(?query, "querying for spans");
 
-        let limit = query.limit;
-        IndexedSpanFilterIterator::new(query, self)
-            .take(limit)
+        BasicSpanFilter::from_top_predicates(query.filter, &self.span_indexes.ids)
+            .unwrap()
+            .with_simplification()
+            .into_indexed(&self.span_indexes, &self.storage)
+            .with_stratification(&self.span_indexes.durations)
+            .with_timeframe(query.start, query.end, &self.span_indexes.all)
+            .with_pagination(query.previous, query.order)
+            .with_optimization()
+            .into_iterator(&self.storage)
+            .with_order(query.order)
+            .take(query.limit)
             .filter_map(|span_key| {
                 self.storage
                     .get_span(span_key)
@@ -229,7 +250,15 @@ impl<S: Storage> SyncEngine<S> {
     pub fn query_span_count(&self, query: Query) -> usize {
         tracing::debug!(?query, "querying for span counts");
 
-        let span_iter = IndexedSpanFilterIterator::new(query, self);
+        let span_iter = BasicSpanFilter::from_top_predicates(query.filter, &self.span_indexes.ids)
+            .unwrap()
+            .with_simplification()
+            .into_indexed(&self.span_indexes, &self.storage)
+            .with_stratification(&self.span_indexes.durations)
+            .with_timeframe(query.start, query.end, &self.span_indexes.all)
+            .with_pagination(query.previous, query.order)
+            .with_optimization()
+            .into_iterator(&self.storage);
 
         match span_iter.size_hint() {
             (min, Some(max)) if min == max => min,
@@ -253,8 +282,8 @@ impl<S: Storage> SyncEngine<S> {
         let span_end = self.span_indexes.all.last().copied(); // TODO: not technically right, but maybe okay
 
         DatasetStats {
-            start: crate::filter::merge(event_start, span_start, Ord::min),
-            end: crate::filter::merge(event_end, span_end, Ord::max),
+            start: crate::util::merge(event_start, span_start, Ord::min),
+            end: crate::util::merge(event_end, span_end, Ord::max),
             total_events: self.event_indexes.all.len(),
             total_spans: self.span_indexes.all.len(),
         }
@@ -310,7 +339,7 @@ impl<S: Storage> SyncEngine<S> {
             ),
         ]);
 
-        let open_spans = IndexedSpanFilterIterator::new_internal(filter, self).collect::<Vec<_>>();
+        let open_spans = filter.into_iterator(&self.storage).collect::<Vec<_>>();
 
         for span_key in open_spans {
             self.span_indexes.update_with_closed(span_key, at);
@@ -995,9 +1024,10 @@ impl<S: Storage> SyncEngine<S> {
             ])
         };
 
-        let indexed_filter =
-            IndexedSpanFilter::build(Some(filter), &self.span_indexes, &self.storage);
-        let iter = IndexedSpanFilterIterator::new_internal(indexed_filter, self);
+        let iter = filter
+            .into_indexed(&self.span_indexes, &self.storage)
+            .with_optimization()
+            .into_iterator(&self.storage);
 
         iter.collect()
     }
@@ -1024,11 +1054,11 @@ impl<S: Storage> SyncEngine<S> {
             ])
         };
 
-        let indexed_filter =
-            IndexedEventFilter::build(Some(filter), &self.event_indexes, &self.storage);
-        let iter = IndexedEventFilterIterator::new_internal(indexed_filter, self);
-
-        iter.collect()
+        filter
+            .into_indexed(&self.event_indexes, &self.storage)
+            .with_optimization()
+            .into_iterator(&self.storage)
+            .collect()
     }
 
     fn remove_spans_bookeeping(&mut self, spans: &[SpanKey]) {
@@ -1463,6 +1493,62 @@ mod tests {
             limit: 5,
             start: now,
             end: now.saturating_add(2),
+            previous: None,
+        });
+
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn event_found_with_regex_filter() {
+        let mut engine = SyncEngine::new(TransientStorage::new()).unwrap();
+
+        let resource_key = engine
+            .insert_resource(NewResource {
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("A".to_owned()))]),
+            })
+            .unwrap();
+
+        let now = now();
+        engine
+            .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
+                resource_key,
+                timestamp: now.saturating_add(1),
+                span_id: None,
+                content: Value::Str("nomatch".to_owned()),
+                namespace: Some("crate::storage::tests".to_owned()),
+                function: Some("test".to_owned()),
+                level: Level::Error,
+                file_name: None,
+                file_line: None,
+                file_column: None,
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
+            })
+            .unwrap();
+        engine
+            .insert_event(NewEvent {
+                kind: SourceKind::Tracing,
+                resource_key,
+                timestamp: now.saturating_add(2),
+                span_id: None,
+                content: Value::Str("event".to_owned()),
+                namespace: Some("crate::storage::tests".to_owned()),
+                function: Some("test".to_owned()),
+                level: Level::Error,
+                file_name: None,
+                file_line: None,
+                file_column: None,
+                attributes: BTreeMap::from_iter([("attr1".to_owned(), Value::Str("B".to_owned()))]),
+            })
+            .unwrap();
+
+        let events = engine.query_event(Query {
+            filter: FilterPredicate::parse("#level: >=INFO #content: /^ev/").unwrap(),
+            order: Order::Asc,
+            limit: 5,
+            start: now,
+            end: now.saturating_add(3),
             previous: None,
         });
 

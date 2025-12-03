@@ -5,20 +5,20 @@ use regex::Regex;
 use wildcard::WildcardBuilder;
 
 use crate::context::{EventContext, SpanContext};
-use crate::engine::SyncEngine;
 use crate::index::EventIndexes;
 use crate::models::{
-    EventKey, FullSpanId, Level, SimpleLevel, SourceKind, SpanKey, Timestamp, TraceRoot,
-    ValueOperator,
+    FullSpanId, Level, SimpleLevel, SourceKind, SpanKey, Timestamp, TraceRoot, ValueOperator,
 };
 use crate::storage::Storage;
+use crate::util::{
+    merge, BoundSearch, CompoundIndexIterator, IndexIterator, SetIntersectionIterator,
+    SetUnionIterator,
+};
+use crate::EventKey;
 
 use super::input::{FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate};
 use super::value::{ValueFilter, ValueStringComparison};
-use super::{
-    merge, validate_value_predicate, BoundSearch, FallibleFilterPredicate, FileFilter, InputError,
-    Order, Query,
-};
+use super::{validate_value_predicate, FallibleFilterPredicate, FileFilter, InputError, Order};
 
 pub(crate) enum IndexedEventFilter<'i> {
     Single(&'i [Timestamp], Option<NonIndexedEventFilter>),
@@ -27,8 +27,8 @@ pub(crate) enum IndexedEventFilter<'i> {
     Or(Vec<IndexedEventFilter<'i>>),
 }
 
-impl IndexedEventFilter<'_> {
-    pub fn build<'a, S: Storage>(
+impl<'a> IndexedEventFilter<'a> {
+    pub fn build<S: Storage>(
         filter: Option<BasicEventFilter>,
         event_indexes: &'a EventIndexes,
         storage: &S,
@@ -237,144 +237,27 @@ impl IndexedEventFilter<'_> {
         }
     }
 
-    // This searches for an entry equal to or beyond the provided entry
-    pub fn search<S: Storage>(
-        &mut self,
-        storage: &S,
-        mut entry: Timestamp,
-        order: Order,
-        bound: Timestamp,
-    ) -> Option<Timestamp> {
+    pub fn matches<S: Storage>(&self, event: &EventContext<'_, S>) -> bool {
         match self {
-            IndexedEventFilter::Single(entries, filter) => match order {
-                Order::Asc => loop {
-                    let idx = entries.lower_bound(&entry);
-                    *entries = &entries[idx..];
-                    let found_entry = entries.first().cloned();
+            IndexedEventFilter::Single(index, filter) => {
+                let idx = index.lower_bound(&event.key());
 
-                    let found_entry = found_entry?;
-                    if found_entry > bound {
-                        return None;
-                    }
+                if index.get(idx).is_none_or(|e| *e != event.key()) {
+                    return false;
+                }
 
-                    if let Some(filter) = filter {
-                        if filter.matches(EventContext::new(found_entry, storage)) {
-                            return Some(found_entry);
-                        } else {
-                            entry = found_entry.saturating_add(1);
-                        }
-                    } else {
-                        return Some(found_entry);
-                    }
-                },
-                Order::Desc => loop {
-                    let idx = entries.upper_bound(&entry);
-                    *entries = &entries[..idx];
-                    let found_entry = entries.last().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry < bound {
-                        return None;
-                    }
-
-                    if let Some(filter) = filter {
-                        if filter.matches(EventContext::new(found_entry, storage)) {
-                            return Some(found_entry);
-                        } else {
-                            entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                        }
-                    } else {
-                        return Some(found_entry);
-                    }
-                },
-            },
-            IndexedEventFilter::Not(entries, filter) => match order {
-                Order::Asc => loop {
-                    let idx = entries.lower_bound(&entry);
-                    *entries = &entries[idx..];
-                    let found_entry = entries.first().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry > bound {
-                        return None;
-                    }
-
-                    let nested_entry = filter.search(storage, found_entry, order, found_entry);
-
-                    if nested_entry != Some(found_entry) {
-                        return Some(found_entry);
-                    } else {
-                        entry = found_entry.saturating_add(1);
-                    }
-                },
-                Order::Desc => loop {
-                    let idx = entries.upper_bound(&entry);
-                    *entries = &entries[..idx];
-                    let found_entry = entries.last().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry < bound {
-                        return None;
-                    }
-
-                    let nested_entry = filter.search(storage, found_entry, order, found_entry);
-
-                    if nested_entry != Some(found_entry) {
-                        return Some(found_entry);
-                    } else {
-                        entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                    }
-                },
-            },
-            IndexedEventFilter::And(indexed_filters) => {
-                let mut current = entry;
-                'outer: loop {
-                    current = indexed_filters[0].search(storage, current, order, bound)?;
-
-                    for indexed_filter in &mut indexed_filters[1..] {
-                        match indexed_filter.search(storage, current, order, current) {
-                            Some(found_entry) if found_entry != current => {
-                                current = found_entry;
-                                continue 'outer;
-                            }
-                            Some(_) => { /* continue */ }
-                            None => {
-                                match order {
-                                    Order::Asc => current = current.saturating_add(1),
-                                    Order::Desc => {
-                                        current = Timestamp::new(current.get() - 1).unwrap()
-                                    }
-                                }
-                                continue 'outer;
-                            }
-                        }
-                    }
-
-                    break Some(current);
+                if let Some(filter) = filter {
+                    filter.matches(event)
+                } else {
+                    true
                 }
             }
+            IndexedEventFilter::Not(_, filter) => !filter.matches(event),
+            IndexedEventFilter::And(indexed_filters) => {
+                indexed_filters.iter().all(|f| f.matches(event))
+            }
             IndexedEventFilter::Or(indexed_filters) => {
-                let mut next_entry = indexed_filters[0].search(storage, entry, order, bound);
-                for indexed_filter in &mut indexed_filters[1..] {
-                    let bound = next_entry.unwrap_or(bound);
-                    if let Some(found_entry) = indexed_filter.search(storage, entry, order, bound) {
-                        if let Some(next_entry) = &mut next_entry {
-                            match order {
-                                Order::Asc if *next_entry > found_entry => {
-                                    *next_entry = found_entry;
-                                }
-                                Order::Desc if *next_entry < found_entry => {
-                                    *next_entry = found_entry;
-                                }
-                                _ => { /* continue */ }
-                            }
-                        } else {
-                            next_entry = Some(found_entry);
-                        }
-                    }
-                }
-
-                next_entry
+                indexed_filters.iter().any(|f| f.matches(event))
             }
         }
     }
@@ -406,6 +289,7 @@ impl IndexedEventFilter<'_> {
         }
     }
 
+    #[allow(unused)]
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self {
             IndexedEventFilter::Single(index, Some(_)) => {
@@ -452,6 +336,11 @@ impl IndexedEventFilter<'_> {
         }
     }
 
+    pub fn with_timeframe(mut self, start: Timestamp, end: Timestamp) -> Self {
+        self.trim_to_timeframe(start, end);
+        self
+    }
+
     pub fn trim_to_timeframe(&mut self, start: Timestamp, end: Timestamp) {
         match self {
             IndexedEventFilter::Single(index, _) => {
@@ -477,12 +366,75 @@ impl IndexedEventFilter<'_> {
         }
     }
 
+    pub fn with_pagination(mut self, previous: Option<Timestamp>, order: Order) -> Self {
+        self.paginated(previous, order);
+        self
+    }
+
+    pub fn paginated(&mut self, previous: Option<Timestamp>, order: Order) {
+        let Some(previous) = previous else { return };
+
+        match self {
+            IndexedEventFilter::Single(index, _) | IndexedEventFilter::Not(index, _) => match order
+            {
+                Order::Asc => {
+                    let idx = index.upper_bound(&previous);
+                    *index = &index[idx..];
+                }
+                Order::Desc => {
+                    let idx = index.lower_bound(&previous);
+                    *index = &index[..idx];
+                }
+            },
+            IndexedEventFilter::And(filters) | IndexedEventFilter::Or(filters) => filters
+                .iter_mut()
+                .for_each(|f| f.paginated(Some(previous), order)),
+        }
+    }
+
+    pub fn with_optimization(mut self) -> Self {
+        self.optimize();
+        self
+    }
+
     pub fn optimize(&mut self) {
         match self {
             IndexedEventFilter::Single(_, _) => { /* nothing to do */ }
             IndexedEventFilter::Not(_, _) => { /* nothing to do */ }
             IndexedEventFilter::And(filters) => filters.sort_by_key(Self::estimate_count),
             IndexedEventFilter::Or(filters) => filters.sort_by_key(Self::estimate_count),
+        }
+    }
+
+    pub fn into_iterator<S: Storage>(self, storage: &'a S) -> CompoundIndexIterator<'a, EventKey> {
+        match self {
+            IndexedEventFilter::Single(index, Some(filter)) => {
+                CompoundIndexIterator::Single(IndexIterator::new(
+                    index,
+                    Some(Box::new(move |key| {
+                        filter.matches(&EventContext::new(*key, storage))
+                    })),
+                ))
+            }
+            IndexedEventFilter::Single(index, None) => {
+                CompoundIndexIterator::Single(IndexIterator::new(index, None))
+            }
+            IndexedEventFilter::Not(index, filter) => {
+                CompoundIndexIterator::Single(IndexIterator::new(
+                    index,
+                    Some(Box::new(move |key| {
+                        !filter.matches(&EventContext::new(*key, storage))
+                    })),
+                ))
+            }
+            IndexedEventFilter::And(filters) => {
+                CompoundIndexIterator::And(SetIntersectionIterator::new(
+                    filters.into_iter().map(|f| Self::into_iterator(f, storage)),
+                ))
+            }
+            IndexedEventFilter::Or(filters) => CompoundIndexIterator::Or(SetUnionIterator::new(
+                filters.into_iter().map(|f| Self::into_iterator(f, storage)),
+            )),
         }
     }
 }
@@ -506,6 +458,11 @@ pub(crate) enum BasicEventFilter {
 }
 
 impl BasicEventFilter {
+    pub fn with_simplification(mut self) -> Self {
+        self.simplify();
+        self
+    }
+
     pub fn simplify(&mut self) {
         match self {
             BasicEventFilter::All => {}
@@ -755,6 +712,19 @@ impl BasicEventFilter {
             property_kind: Some(property_kind),
             ..predicate
         }))
+    }
+
+    pub fn from_top_predicates(
+        predicates: Vec<FilterPredicate>,
+        span_key_map: &HashMap<FullSpanId, SpanKey>,
+    ) -> Result<BasicEventFilter, InputError> {
+        // top-level predicates are AND'd together
+        Ok(BasicEventFilter::And(
+            predicates
+                .into_iter()
+                .map(|p| BasicEventFilter::from_predicate(p, &span_key_map).unwrap())
+                .collect(),
+        ))
     }
 
     pub fn from_predicate(
@@ -1071,6 +1041,14 @@ impl BasicEventFilter {
             BasicEventFilter::Or(filters) => filters.iter().any(|f| f.matches(context)),
         }
     }
+
+    pub fn into_indexed<'a, S: Storage>(
+        self,
+        event_indexes: &'a EventIndexes,
+        storage: &S,
+    ) -> IndexedEventFilter<'a> {
+        IndexedEventFilter::build(Some(self), event_indexes, storage)
+    }
 }
 
 pub(crate) enum NonIndexedEventFilter {
@@ -1084,7 +1062,7 @@ pub(crate) enum NonIndexedEventFilter {
 }
 
 impl NonIndexedEventFilter {
-    fn matches<S: Storage>(&self, context: EventContext<'_, S>) -> bool {
+    pub(crate) fn matches<S: Storage>(&self, context: &EventContext<'_, S>) -> bool {
         let event = context.event();
         match self {
             NonIndexedEventFilter::Parent(parent_key) => event.parent_key == Some(*parent_key),
@@ -1104,93 +1082,6 @@ impl NonIndexedEventFilter {
                 .map(|v| value_filter.matches(v))
                 .unwrap_or(false),
         }
-    }
-}
-
-pub(crate) struct IndexedEventFilterIterator<'i, S> {
-    filter: IndexedEventFilter<'i>,
-    order: Order,
-    start_key: Timestamp,
-    end_key: Timestamp,
-    storage: &'i S,
-}
-
-impl<'i, S: Storage> IndexedEventFilterIterator<'i, S> {
-    pub fn new(query: Query, engine: &'i SyncEngine<S>) -> IndexedEventFilterIterator<'i, S> {
-        let mut filter = BasicEventFilter::And(
-            query
-                .filter
-                .into_iter()
-                .map(|p| BasicEventFilter::from_predicate(p, &engine.span_indexes.ids).unwrap())
-                .collect(),
-        );
-        filter.simplify();
-
-        let mut filter =
-            IndexedEventFilter::build(Some(filter), &engine.event_indexes, &engine.storage);
-
-        let mut start = query.start;
-        let mut end = query.end;
-
-        if let Some(prev) = query.previous {
-            match query.order {
-                Order::Asc => start = prev.saturating_add(1),
-                Order::Desc => end = Timestamp::new(prev.get() - 1).unwrap(),
-            }
-        }
-
-        filter.trim_to_timeframe(start, end);
-        filter.optimize();
-
-        let (start_key, end_key) = match query.order {
-            Order::Asc => (start, end),
-            Order::Desc => (end, start),
-        };
-
-        IndexedEventFilterIterator {
-            filter,
-            order: query.order,
-            start_key,
-            end_key,
-            storage: &engine.storage,
-        }
-    }
-
-    pub fn new_internal(
-        filter: IndexedEventFilter<'i>,
-        engine: &'i SyncEngine<S>,
-    ) -> IndexedEventFilterIterator<'i, S> {
-        IndexedEventFilterIterator {
-            filter,
-            order: Order::Asc,
-            end_key: Timestamp::MAX,
-            start_key: Timestamp::MIN,
-            storage: &engine.storage,
-        }
-    }
-}
-
-impl<S> Iterator for IndexedEventFilterIterator<'_, S>
-where
-    S: Storage,
-{
-    type Item = EventKey;
-
-    fn next(&mut self) -> Option<EventKey> {
-        let event_key =
-            self.filter
-                .search(self.storage, self.start_key, self.order, self.end_key)?;
-
-        match self.order {
-            Order::Asc => self.start_key = event_key.saturating_add(1),
-            Order::Desc => self.start_key = Timestamp::new(event_key.get() - 1).unwrap(),
-        };
-
-        Some(event_key)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.filter.size_hint()
     }
 }
 

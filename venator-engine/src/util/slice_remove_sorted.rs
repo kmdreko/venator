@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::filter::BoundSearch;
+use crate::util::BoundSearch;
 
 pub trait IndexExt<T> {
     /// This is intended to remove elements in an efficient way for sorted

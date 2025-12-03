@@ -7,6 +7,7 @@ mod index;
 mod models;
 pub mod storage;
 mod subscription;
+mod util;
 
 use storage::Storage;
 

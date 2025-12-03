@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 
-#[allow(dead_code)]
 pub(crate) trait BoundSearch<T> {
     // This finds the first index of an item that is not less than the provided
     // item. This works via a binary-search algorithm.
@@ -80,17 +79,6 @@ impl<T: Ord> BoundSearch<T> for [T] {
         }
 
         unreachable!()
-    }
-}
-
-pub(crate) fn merge<T>(a: Option<T>, b: Option<T>, f: impl FnOnce(T, T) -> T) -> Option<T> {
-    // I wish this was in the standard library
-
-    match (a, b) {
-        (Some(a), Some(b)) => Some(f(a, b)),
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        (None, None) => None,
     }
 }
 

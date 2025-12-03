@@ -4,11 +4,11 @@ use std::ops::Range;
 use serde::{Deserialize, Serialize};
 
 use crate::context::SpanContext;
-use crate::filter::BoundSearch;
 use crate::models::{FullSpanId, Timestamp, TraceRoot, Value};
+use crate::util::{BoundSearch, IndexExt};
 use crate::{InstanceId, ResourceKey, SpanKey, Storage};
 
-use super::{IndexExt, ValueIndex};
+use super::ValueIndex;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SpanIndexes {

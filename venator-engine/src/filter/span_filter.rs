@@ -6,19 +6,18 @@ use serde::Deserialize;
 use wildcard::WildcardBuilder;
 
 use crate::context::SpanContext;
-use crate::engine::SyncEngine;
 use crate::index::{SpanDurationIndex, SpanIndexes};
 use crate::models::{
     FullSpanId, Level, SimpleLevel, SourceKind, SpanKey, Timestamp, TraceRoot, ValueOperator,
 };
 use crate::storage::Storage;
+use crate::util::{
+    BoundSearch, CompoundIndexIterator, IndexIterator, SetIntersectionIterator, SetUnionIterator,
+};
 
 use super::input::{FilterPredicate, FilterPredicateSingle, FilterPropertyKind, ValuePredicate};
 use super::value::{ValueFilter, ValueStringComparison};
-use super::{
-    validate_value_predicate, BoundSearch, FallibleFilterPredicate, FileFilter, InputError, Order,
-    Query,
-};
+use super::{validate_value_predicate, FallibleFilterPredicate, FileFilter, InputError, Order};
 
 pub(crate) enum IndexedSpanFilter<'i> {
     Single(&'i [Timestamp], Option<NonIndexedSpanFilter>),
@@ -28,8 +27,8 @@ pub(crate) enum IndexedSpanFilter<'i> {
     Or(Vec<IndexedSpanFilter<'i>>),
 }
 
-impl IndexedSpanFilter<'_> {
-    pub fn build<'a, S: Storage>(
+impl<'a> IndexedSpanFilter<'a> {
+    pub fn build<S: Storage>(
         filter: Option<BasicSpanFilter>,
         span_indexes: &'a SpanIndexes,
         storage: &S,
@@ -340,253 +339,40 @@ impl IndexedSpanFilter<'_> {
     }
 
     // This searches for an entry equal to or beyond the provided entry
-    #[allow(clippy::too_many_arguments)]
-    pub fn search<S: Storage>(
-        &mut self,
-        storage: &S,
-        mut entry: Timestamp, // this is the current lower bound for span keys
-        order: Order,
-        bound: Timestamp, // this is the current upper bound for span keys
-        start: Timestamp, // this is the original search start time
-                          // end: Timestamp,   // this is the original search end time
-    ) -> Option<Timestamp> {
+    pub fn matches<S: Storage>(&self, span: &SpanContext<'_, S>) -> bool {
         match self {
-            IndexedSpanFilter::Single(entries, filter) => match order {
-                Order::Asc => loop {
-                    let idx = entries.lower_bound(&entry);
-                    *entries = &entries[idx..];
-                    let found_entry = entries.first().cloned();
+            IndexedSpanFilter::Single(index, filter) => {
+                let idx = index.lower_bound(&span.key());
 
-                    let found_entry = found_entry?;
-                    if found_entry > bound {
-                        return None;
-                    }
+                if index.get(idx).is_none_or(|e| *e != span.key()) {
+                    return false;
+                }
 
-                    if found_entry < start {
-                        let span = storage.get_span(found_entry).unwrap();
-                        if let Some(closed_at) = span.closed_at {
-                            if closed_at <= start {
-                                entry = found_entry.saturating_add(1);
-                                continue;
-                            }
-                        }
-                    }
-
-                    if let Some(filter) = filter {
-                        if filter.matches(&SpanContext::new(found_entry, storage)) {
-                            return Some(found_entry);
-                        } else {
-                            entry = found_entry.saturating_add(1);
-                        }
-                    } else {
-                        return Some(found_entry);
-                    }
-                },
-                Order::Desc => loop {
-                    let idx = entries.upper_bound(&entry);
-                    *entries = &entries[..idx];
-                    let found_entry = entries.last().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry < bound {
-                        return None;
-                    }
-
-                    if found_entry < start {
-                        let span = storage.get_span(found_entry).unwrap();
-                        if let Some(closed_at) = span.closed_at {
-                            if closed_at <= start {
-                                entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                                continue;
-                            }
-                        }
-                    }
-
-                    if let Some(filter) = filter {
-                        if filter.matches(&SpanContext::new(found_entry, storage)) {
-                            return Some(found_entry);
-                        } else {
-                            entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                        }
-                    } else {
-                        return Some(found_entry);
-                    }
-                },
-            },
-            IndexedSpanFilter::Stratified(entries, _, filter) => match order {
-                Order::Asc => loop {
-                    let idx = entries.lower_bound(&entry);
-                    *entries = &entries[idx..];
-                    let found_entry = entries.first().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry > bound {
-                        return None;
-                    }
-
-                    if found_entry < start {
-                        let span = storage.get_span(found_entry).unwrap();
-                        if let Some(closed_at) = span.closed_at {
-                            if closed_at <= start {
-                                entry = found_entry.saturating_add(1);
-                                continue;
-                            }
-                        }
-                    }
-
-                    if let Some(filter) = filter {
-                        if filter.matches(&SpanContext::new(found_entry, storage)) {
-                            return Some(found_entry);
-                        } else {
-                            entry = found_entry.saturating_add(1);
-                        }
-                    } else {
-                        return Some(found_entry);
-                    }
-                },
-                Order::Desc => loop {
-                    let idx = entries.upper_bound(&entry);
-                    *entries = &entries[..idx];
-                    let found_entry = entries.last().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry < bound {
-                        return None;
-                    }
-
-                    if found_entry < start {
-                        let span = storage.get_span(found_entry).unwrap();
-                        if let Some(closed_at) = span.closed_at {
-                            if closed_at <= start {
-                                entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                                continue;
-                            }
-                        }
-                    }
-
-                    if let Some(filter) = filter {
-                        if filter.matches(&SpanContext::new(found_entry, storage)) {
-                            return Some(found_entry);
-                        } else {
-                            entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                        }
-                    } else {
-                        return Some(found_entry);
-                    }
-                },
-            },
-            IndexedSpanFilter::Not(entries, filter) => match order {
-                Order::Asc => loop {
-                    let idx = entries.lower_bound(&entry);
-                    *entries = &entries[idx..];
-                    let found_entry = entries.first().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry > bound {
-                        return None;
-                    }
-
-                    if found_entry < start {
-                        let span = storage.get_span(found_entry).unwrap();
-                        if let Some(closed_at) = span.closed_at {
-                            if closed_at <= start {
-                                entry = found_entry.saturating_add(1);
-                                continue;
-                            }
-                        }
-                    }
-
-                    let nested_entry =
-                        filter.search(storage, found_entry, order, found_entry, start);
-
-                    if nested_entry != Some(found_entry) {
-                        return Some(found_entry);
-                    } else {
-                        entry = found_entry.saturating_add(1);
-                    }
-                },
-                Order::Desc => loop {
-                    let idx = entries.upper_bound(&entry);
-                    *entries = &entries[..idx];
-                    let found_entry = entries.last().cloned();
-
-                    let found_entry = found_entry?;
-                    if found_entry < bound {
-                        return None;
-                    }
-
-                    // even if we're negating the filter, the span needs to be
-                    // in range
-                    if found_entry < start {
-                        let span = storage.get_span(found_entry).unwrap();
-                        if let Some(closed_at) = span.closed_at {
-                            if closed_at <= start {
-                                entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                                continue;
-                            }
-                        }
-                    }
-
-                    let nested_entry =
-                        filter.search(storage, found_entry, order, found_entry, start);
-
-                    if nested_entry != Some(found_entry) {
-                        return Some(found_entry);
-                    } else {
-                        entry = Timestamp::new(found_entry.get() - 1).unwrap();
-                    }
-                },
-            },
-            IndexedSpanFilter::And(indexed_filters) => {
-                let mut current = entry;
-                'outer: loop {
-                    current = indexed_filters[0].search(storage, current, order, bound, start)?;
-                    for indexed_filter in &mut indexed_filters[1..] {
-                        match indexed_filter.search(storage, current, order, current, start) {
-                            Some(found_entry) if found_entry != current => {
-                                current = found_entry;
-                                continue 'outer;
-                            }
-                            Some(_) => { /* continue */ }
-                            None => {
-                                match order {
-                                    Order::Asc => current = current.saturating_add(1),
-                                    Order::Desc => {
-                                        current = Timestamp::new(current.get() - 1).unwrap()
-                                    }
-                                }
-                                continue 'outer;
-                            }
-                        }
-                    }
-
-                    break Some(current);
+                if let Some(filter) = filter {
+                    filter.matches(span)
+                } else {
+                    true
                 }
             }
-            IndexedSpanFilter::Or(indexed_filters) => {
-                let mut next_entry = indexed_filters[0].search(storage, entry, order, bound, start);
-                for indexed_filter in &mut indexed_filters[1..] {
-                    let bound = next_entry.unwrap_or(bound);
-                    if let Some(found_entry) =
-                        indexed_filter.search(storage, entry, order, bound, start)
-                    {
-                        if let Some(next_entry) = &mut next_entry {
-                            match order {
-                                Order::Asc if *next_entry > found_entry => {
-                                    *next_entry = found_entry;
-                                }
-                                Order::Desc if *next_entry < found_entry => {
-                                    *next_entry = found_entry;
-                                }
-                                _ => { /* continue */ }
-                            }
-                        } else {
-                            next_entry = Some(found_entry);
-                        }
-                    }
+            IndexedSpanFilter::Stratified(index, _, filter) => {
+                let idx = index.lower_bound(&span.key());
+
+                if index.get(idx).is_none_or(|e| *e != span.key()) {
+                    return false;
                 }
 
-                next_entry
+                if let Some(filter) = filter {
+                    filter.matches(span)
+                } else {
+                    true
+                }
+            }
+            IndexedSpanFilter::Not(_, filter) => !filter.matches(span),
+            IndexedSpanFilter::And(indexed_filters) => {
+                indexed_filters.iter().all(|f| f.matches(span))
+            }
+            IndexedSpanFilter::Or(indexed_filters) => {
+                indexed_filters.iter().any(|f| f.matches(span))
             }
         }
     }
@@ -623,6 +409,38 @@ impl IndexedSpanFilter<'_> {
         }
     }
 
+    pub fn with_pagination(mut self, previous: Option<Timestamp>, order: Order) -> Self {
+        self.paginated(previous, order);
+        self
+    }
+
+    pub fn paginated(&mut self, previous: Option<Timestamp>, order: Order) {
+        let Some(previous) = previous else { return };
+
+        match self {
+            IndexedSpanFilter::Single(index, _)
+            | IndexedSpanFilter::Stratified(index, _, _)
+            | IndexedSpanFilter::Not(index, _) => match order {
+                Order::Asc => {
+                    let idx = index.upper_bound(&previous);
+                    *index = &index[idx..];
+                }
+                Order::Desc => {
+                    let idx = index.lower_bound(&previous);
+                    *index = &index[..idx];
+                }
+            },
+            IndexedSpanFilter::And(filters) | IndexedSpanFilter::Or(filters) => filters
+                .iter_mut()
+                .for_each(|f| f.paginated(Some(previous), order)),
+        }
+    }
+
+    pub fn with_optimization(mut self) -> Self {
+        self.optimize();
+        self
+    }
+
     pub fn optimize(&mut self) {
         match self {
             IndexedSpanFilter::Single(_, _) => { /* nothing to do */ }
@@ -633,6 +451,22 @@ impl IndexedSpanFilter<'_> {
             IndexedSpanFilter::And(filters) => filters.sort_by_key(Self::estimate_count),
             IndexedSpanFilter::Or(filters) => filters.sort_by_key(Self::estimate_count),
         }
+    }
+
+    pub fn with_timeframe(mut self, start: Timestamp, end: Timestamp, all: &'a [SpanKey]) -> Self {
+        // we need to add a filter that the span wasn't closed before the start
+        // time since the indexes can't rule those out directly
+        let new_filter =
+            IndexedSpanFilter::Single(all, Some(NonIndexedSpanFilter::InTimeframe(start, end)));
+
+        if let IndexedSpanFilter::And(ref mut filters) = self {
+            filters.push(new_filter);
+        } else {
+            self = IndexedSpanFilter::And(vec![self, new_filter]);
+        }
+
+        self.trim_to_timeframe(start, end);
+        self
     }
 
     pub fn trim_to_timeframe(&mut self, start: Timestamp, end: Timestamp) {
@@ -679,6 +513,11 @@ impl IndexedSpanFilter<'_> {
 }
 
 impl<'a> IndexedSpanFilter<'a> {
+    pub fn with_stratification(mut self, duration_index: &'a SpanDurationIndex) -> Self {
+        self.ensure_stratified(duration_index);
+        self
+    }
+
     // This basically ensures that the filter can be trimmed by timeframe. Only
     // `Stratified` filters can be trimmed. If there are no stratified filters
     // or the filter is constructed in a way that not all filters are covered,
@@ -710,6 +549,49 @@ impl<'a> IndexedSpanFilter<'a> {
             *self = IndexedSpanFilter::And(vec![this, dfilter])
         }
     }
+
+    pub fn into_iterator<S: Storage>(self, storage: &'a S) -> CompoundIndexIterator<'a, SpanKey> {
+        match self {
+            IndexedSpanFilter::Single(index, Some(filter)) => {
+                CompoundIndexIterator::Single(IndexIterator::new(
+                    index,
+                    Some(Box::new(move |key| {
+                        filter.matches(&SpanContext::new(*key, storage))
+                    })),
+                ))
+            }
+            IndexedSpanFilter::Single(index, None) => {
+                CompoundIndexIterator::Single(IndexIterator::new(index, None))
+            }
+            IndexedSpanFilter::Stratified(index, _, Some(filter)) => {
+                CompoundIndexIterator::Single(IndexIterator::new(
+                    index,
+                    Some(Box::new(move |key| {
+                        filter.matches(&SpanContext::new(*key, storage))
+                    })),
+                ))
+            }
+            IndexedSpanFilter::Stratified(index, _, None) => {
+                CompoundIndexIterator::Single(IndexIterator::new(index, None))
+            }
+            IndexedSpanFilter::Not(index, filter) => {
+                CompoundIndexIterator::Single(IndexIterator::new(
+                    index,
+                    Some(Box::new(move |key| {
+                        !filter.matches(&SpanContext::new(*key, storage))
+                    })),
+                ))
+            }
+            IndexedSpanFilter::And(filters) => {
+                CompoundIndexIterator::And(SetIntersectionIterator::new(
+                    filters.into_iter().map(|f| Self::into_iterator(f, storage)),
+                ))
+            }
+            IndexedSpanFilter::Or(filters) => CompoundIndexIterator::Or(SetUnionIterator::new(
+                filters.into_iter().map(|f| Self::into_iterator(f, storage)),
+            )),
+        }
+    }
 }
 
 pub(crate) enum BasicSpanFilter {
@@ -732,6 +614,11 @@ pub(crate) enum BasicSpanFilter {
 }
 
 impl BasicSpanFilter {
+    pub fn with_simplification(mut self) -> Self {
+        self.simplify();
+        self
+    }
+
     pub fn simplify(&mut self) {
         match self {
             BasicSpanFilter::Level(_) => {}
@@ -1037,6 +924,19 @@ impl BasicSpanFilter {
             property_kind: Some(property_kind),
             ..predicate
         }))
+    }
+
+    pub fn from_top_predicates(
+        predicates: Vec<FilterPredicate>,
+        span_key_map: &HashMap<FullSpanId, SpanKey>,
+    ) -> Result<BasicSpanFilter, InputError> {
+        // top-level predicates are AND'd together
+        Ok(BasicSpanFilter::And(
+            predicates
+                .into_iter()
+                .map(|p| BasicSpanFilter::from_predicate(p, &span_key_map).unwrap())
+                .collect(),
+        ))
     }
 
     pub fn from_predicate(
@@ -1365,11 +1265,20 @@ impl BasicSpanFilter {
 
         Ok(filter)
     }
+
+    pub fn into_indexed<'a, S: Storage>(
+        self,
+        span_indexes: &'a SpanIndexes,
+        storage: &S,
+    ) -> IndexedSpanFilter<'a> {
+        IndexedSpanFilter::build(Some(self), span_indexes, storage)
+    }
 }
 
 pub(crate) enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Closed(ValueOperator, Timestamp),
+    InTimeframe(Timestamp, Timestamp), // internal
     Kind(SourceKind),
     Name(ValueStringComparison),
     Namespace(ValueStringComparison),
@@ -1390,6 +1299,16 @@ impl NonIndexedSpanFilter {
                 };
 
                 op.compare(closed_at, *value)
+            }
+            NonIndexedSpanFilter::InTimeframe(start, end) => {
+                if span.created_at > *end {
+                    return false;
+                }
+                if span.closed_at.is_some_and(|closed| closed <= *start) {
+                    return false;
+                }
+
+                true
             }
             NonIndexedSpanFilter::Kind(kind) => kind == &span.kind,
             NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),
@@ -1481,128 +1400,6 @@ impl DurationFilter {
             ValueOperator::Lte => None,
         }
     }
-}
-
-pub(crate) struct IndexedSpanFilterIterator<'i, S> {
-    filter: IndexedSpanFilter<'i>,
-    order: Order,
-    curr_key: Timestamp,
-    start_key: Timestamp,
-    end_key: Timestamp,
-    storage: &'i S,
-}
-
-impl<'i, S: Storage> IndexedSpanFilterIterator<'i, S> {
-    pub fn new(query: Query, engine: &'i SyncEngine<S>) -> IndexedSpanFilterIterator<'i, S> {
-        let mut filter = BasicSpanFilter::And(
-            query
-                .filter
-                .into_iter()
-                .map(|p| BasicSpanFilter::from_predicate(p, &engine.span_indexes.ids).unwrap())
-                .collect(),
-        );
-        filter.simplify();
-
-        let mut filter =
-            IndexedSpanFilter::build(Some(filter), &engine.span_indexes, &engine.storage);
-
-        let curr;
-        let mut start = query.start;
-        let mut end = query.end;
-
-        // if order is asc
-        // - if previous & greater than or = start, then start = previous + 1, curr = start
-        // - if previous & less than start, then start = start, curr = previous + 1
-        // - if no previous, then start = start, curr = MIN
-        // if order is desc
-        // - if previous & greater than start, then end = previous - 1, curr = end
-        // - if previous & less than or = start, then end = start, curr = previous - 1
-        // - if no previous, then end = end, curr = end
-
-        match (query.order, query.previous) {
-            (Order::Asc, Some(prev)) if prev >= query.start => {
-                start = prev.saturating_add(1);
-                curr = start;
-            }
-            (Order::Asc, Some(prev)) => {
-                curr = prev.saturating_add(1);
-            }
-            (Order::Asc, None) => {
-                curr = Timestamp::MIN;
-            }
-            (Order::Desc, Some(prev)) if prev > query.start => {
-                end = Timestamp::new(prev.get() - 1).unwrap();
-                curr = end;
-            }
-            (Order::Desc, Some(prev)) => {
-                end = start;
-                curr = Timestamp::new(prev.get() - 1).unwrap();
-            }
-            (Order::Desc, None) => {
-                curr = end;
-            }
-        }
-
-        filter.ensure_stratified(&engine.span_indexes.durations);
-        filter.trim_to_timeframe(start, end);
-        filter.optimize();
-
-        let (start_key, end_key) = match query.order {
-            Order::Asc => (start, end),
-            Order::Desc => (start, Timestamp::MIN),
-        };
-
-        IndexedSpanFilterIterator {
-            filter,
-            order: query.order,
-            curr_key: curr,
-            end_key,
-            start_key,
-            storage: &engine.storage,
-        }
-    }
-
-    pub fn new_internal(
-        filter: IndexedSpanFilter<'i>,
-        engine: &'i SyncEngine<S>,
-    ) -> IndexedSpanFilterIterator<'i, S> {
-        IndexedSpanFilterIterator {
-            filter,
-            order: Order::Asc,
-            curr_key: Timestamp::MIN,
-            end_key: Timestamp::MAX,
-            start_key: Timestamp::MIN,
-            storage: &engine.storage,
-        }
-    }
-}
-
-impl<S> Iterator for IndexedSpanFilterIterator<'_, S>
-where
-    S: Storage,
-{
-    type Item = SpanKey;
-
-    fn next(&mut self) -> Option<SpanKey> {
-        let span_key = self.filter.search(
-            self.storage,
-            self.curr_key,
-            self.order,
-            self.end_key,
-            self.start_key,
-        )?;
-
-        match self.order {
-            Order::Asc => self.curr_key = span_key.saturating_add(1),
-            Order::Desc => self.curr_key = Timestamp::new(span_key.get() - 1).unwrap(),
-        };
-
-        Some(span_key)
-    }
-
-    // fn size_hint(&self) -> (usize, Option<usize>) {
-    //     self.filter.size_hint()
-    // }
 }
 
 fn filterify_span_filter(

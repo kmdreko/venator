@@ -2,11 +2,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::filter::BoundSearch;
 use crate::models::Timestamp;
+use crate::util::{BoundSearch, IndexExt};
 use crate::{SpanEvent, SpanEventKey, SpanKey};
-
-use super::IndexExt;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SpanEventIndexes {

@@ -17,13 +17,11 @@ use crate::models::{Timestamp, ValueOperator};
 mod event_filter;
 mod input;
 mod span_filter;
-mod util;
 mod value;
 
 pub use event_filter::*;
 pub use input::*;
 pub use span_filter::*;
-pub(crate) use util::*;
 pub(crate) use value::*;
 
 #[derive(Clone)]

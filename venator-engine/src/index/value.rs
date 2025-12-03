@@ -2,11 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::filter::{BoundSearch, ValueComparison, ValueFilter, ValueStringComparison};
+use crate::filter::{ValueComparison, ValueFilter, ValueStringComparison};
 use crate::models::ValueOperator;
+use crate::util::{BoundSearch, IndexExt};
 use crate::{Timestamp, Value};
-
-use super::IndexExt;
 
 /// This is an index for `Value`s (so @attributes and #content).
 
