@@ -234,9 +234,14 @@ impl ValueIndex {
             ValueComparison::Compare(ValueOperator::Eq, false) => {
                 filters.push((&self.bools.falses, None));
             }
-            ValueComparison::Compare(_, _) => {
-                filters.push((&self.bools.trues, Some(filter.clone())));
-                filters.push((&self.bools.falses, Some(filter.clone())));
+            ValueComparison::Compare(op, val) => {
+                if op.compare(&true, val) {
+                    filters.push((&self.bools.trues, None));
+                }
+
+                if op.compare(&false, val) {
+                    filters.push((&self.bools.falses, None));
+                }
             }
             ValueComparison::All => {
                 filters.push((&self.bools.trues, None));
@@ -249,14 +254,26 @@ impl ValueIndex {
             ValueStringComparison::Compare(ValueOperator::Eq, value) => {
                 filters.push((self.strings.value_index(value), None));
             }
-            ValueStringComparison::Compare(_, _) => {
-                filters.push((&self.strings.total, Some(filter.clone())));
+            ValueStringComparison::Compare(op, val) => {
+                for (key, index) in &self.strings.value_indexes {
+                    if op.compare(key, val) {
+                        filters.push((index, None));
+                    }
+                }
             }
-            ValueStringComparison::Wildcard(_) => {
-                filters.push((&self.strings.total, Some(filter.clone())));
+            ValueStringComparison::Wildcard(wildcard) => {
+                for (key, index) in &self.strings.value_indexes {
+                    if wildcard.is_match(key.as_bytes()) {
+                        filters.push((index, None));
+                    }
+                }
             }
-            ValueStringComparison::Regex(_) => {
-                filters.push((&self.strings.total, Some(filter.clone())));
+            ValueStringComparison::Regex(regex) => {
+                for (key, index) in &self.strings.value_indexes {
+                    if regex.is_match(key) {
+                        filters.push((index, None));
+                    }
+                }
             }
             ValueStringComparison::All => filters.push((&self.strings.total, None)),
         }
