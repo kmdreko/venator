@@ -24,7 +24,7 @@ pub(crate) enum IndexedEventFilter<'i> {
     Single(&'i [Timestamp], Option<NonIndexedEventFilter>),
     Not(&'i [Timestamp], Box<IndexedEventFilter<'i>>),
     And(Vec<IndexedEventFilter<'i>>),
-    Or(Vec<IndexedEventFilter<'i>>),
+    Or(Vec<IndexedEventFilter<'i>>, bool),
 }
 
 impl<'a> IndexedEventFilter<'a> {
@@ -190,7 +190,7 @@ impl<'a> IndexedEventFilter<'a> {
                     })
                     .collect();
 
-                IndexedEventFilter::Or(filters)
+                IndexedEventFilter::Or(filters, true) // make_indexed_filter results are always distinct
             }
             BasicEventFilter::Attribute(attribute, value_filter) => {
                 if let Some(attr_index) = event_indexes.attributes.get(&attribute) {
@@ -207,7 +207,7 @@ impl<'a> IndexedEventFilter<'a> {
                         })
                         .collect();
 
-                    IndexedEventFilter::Or(filters)
+                    IndexedEventFilter::Or(filters, true) // make_indexed_filter results are always distinct
                 } else {
                     // we are creating indexes for all attributes, so if one
                     // doesn't exist, then there are no entities with that attribute
@@ -233,6 +233,7 @@ impl<'a> IndexedEventFilter<'a> {
                     .into_iter()
                     .map(|f| IndexedEventFilter::build(Some(f), event_indexes, storage))
                     .collect(),
+                false,
             ),
         }
     }
@@ -256,7 +257,7 @@ impl<'a> IndexedEventFilter<'a> {
             IndexedEventFilter::And(indexed_filters) => {
                 indexed_filters.iter().all(|f| f.matches(event))
             }
-            IndexedEventFilter::Or(indexed_filters) => {
+            IndexedEventFilter::Or(indexed_filters, _) => {
                 indexed_filters.iter().any(|f| f.matches(event))
             }
         }
@@ -281,7 +282,7 @@ impl<'a> IndexedEventFilter<'a> {
                 // the minimum from a single filter
                 filters.iter().map(Self::estimate_count).min().unwrap_or(0)
             }
-            IndexedEventFilter::Or(filters) => {
+            IndexedEventFilter::Or(filters, _) => {
                 // since OR filters can be completely disjoint, we can possibly
                 // yield the sum of all filters
                 filters.iter().map(Self::estimate_count).sum()
@@ -320,7 +321,7 @@ impl<'a> IndexedEventFilter<'a> {
                     (0, max)
                 }
             },
-            IndexedEventFilter::Or(filters) => match filters.len() {
+            IndexedEventFilter::Or(filters, _) => match filters.len() {
                 0 => (0, Some(0)),
                 1 => filters[0].size_hint(),
                 _ => {
@@ -360,7 +361,7 @@ impl<'a> IndexedEventFilter<'a> {
             IndexedEventFilter::And(filters) => filters
                 .iter_mut()
                 .for_each(|f| f.trim_to_timeframe(start, end)),
-            IndexedEventFilter::Or(filters) => filters
+            IndexedEventFilter::Or(filters, _) => filters
                 .iter_mut()
                 .for_each(|f| f.trim_to_timeframe(start, end)),
         }
@@ -386,7 +387,7 @@ impl<'a> IndexedEventFilter<'a> {
                     *index = &index[..idx];
                 }
             },
-            IndexedEventFilter::And(filters) | IndexedEventFilter::Or(filters) => filters
+            IndexedEventFilter::And(filters) | IndexedEventFilter::Or(filters, _) => filters
                 .iter_mut()
                 .for_each(|f| f.paginated(Some(previous), order)),
         }
@@ -402,7 +403,7 @@ impl<'a> IndexedEventFilter<'a> {
             IndexedEventFilter::Single(_, _) => { /* nothing to do */ }
             IndexedEventFilter::Not(_, _) => { /* nothing to do */ }
             IndexedEventFilter::And(filters) => filters.sort_by_key(Self::estimate_count),
-            IndexedEventFilter::Or(filters) => filters.sort_by_key(Self::estimate_count),
+            IndexedEventFilter::Or(filters, _) => filters.sort_by_key(Self::estimate_count),
         }
     }
 
@@ -432,9 +433,12 @@ impl<'a> IndexedEventFilter<'a> {
                     filters.into_iter().map(|f| Self::into_iterator(f, storage)),
                 ))
             }
-            IndexedEventFilter::Or(filters) => CompoundIndexIterator::Or(SetUnionIterator::new(
-                filters.into_iter().map(|f| Self::into_iterator(f, storage)),
-            )),
+            IndexedEventFilter::Or(filters, distinct) => {
+                CompoundIndexIterator::Or(SetUnionIterator::new(
+                    filters.into_iter().map(|f| Self::into_iterator(f, storage)),
+                    distinct,
+                ))
+            }
         }
     }
 }
@@ -483,6 +487,9 @@ impl BasicEventFilter {
                     filter.simplify()
                 }
 
+                // any "all" matches can be filtered out
+                filters.retain(|filter| !matches!(filter, BasicEventFilter::All));
+
                 match filters.len() {
                     0 => {
                         *self = BasicEventFilter::All;
@@ -499,8 +506,20 @@ impl BasicEventFilter {
                 for filter in &mut *filters {
                     filter.simplify()
                 }
+
+                // any "all" matches can be hoisted up
+                if filters
+                    .iter()
+                    .any(|filter| matches!(filter, BasicEventFilter::All))
+                {
+                    *self = BasicEventFilter::All;
+                    return;
+                }
+
                 match filters.len() {
                     0 => {
+                        // TODO: this may need to be some non-matching filter
+                        // instead of an all-matching one
                         *self = BasicEventFilter::All;
                     }
                     1 => {
@@ -785,7 +804,13 @@ impl BasicEventFilter {
                 };
 
                 if above {
-                    BasicEventFilter::Or(level.iter_gte().map(BasicEventFilter::Level).collect())
+                    if level == SimpleLevel::Trace {
+                        BasicEventFilter::All
+                    } else {
+                        BasicEventFilter::Or(
+                            level.iter_gte().map(BasicEventFilter::Level).collect(),
+                        )
+                    }
                 } else {
                     BasicEventFilter::Level(level)
                 }

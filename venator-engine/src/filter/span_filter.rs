@@ -24,7 +24,7 @@ pub(crate) enum IndexedSpanFilter<'i> {
     Stratified(&'i [Timestamp], Range<u64>, Option<NonIndexedSpanFilter>),
     Not(&'i [Timestamp], Box<IndexedSpanFilter<'i>>),
     And(Vec<IndexedSpanFilter<'i>>),
-    Or(Vec<IndexedSpanFilter<'i>>),
+    Or(Vec<IndexedSpanFilter<'i>>, bool),
 }
 
 impl<'a> IndexedSpanFilter<'a> {
@@ -38,6 +38,7 @@ impl<'a> IndexedSpanFilter<'a> {
         };
 
         match filter {
+            BasicSpanFilter::All => IndexedSpanFilter::Single(&span_indexes.all, None),
             BasicSpanFilter::Level(level) => {
                 IndexedSpanFilter::Single(&span_indexes.levels[level as usize], None)
             }
@@ -58,7 +59,7 @@ impl<'a> IndexedSpanFilter<'a> {
                     })
                     .collect();
 
-                IndexedSpanFilter::Or(filters)
+                IndexedSpanFilter::Or(filters, true) // to_stratified_indexes values are always distinct
             }
             BasicSpanFilter::Created(op, value) => match op {
                 ValueOperator::Gt => {
@@ -141,7 +142,7 @@ impl<'a> IndexedSpanFilter<'a> {
                     })
                     .collect();
 
-                IndexedSpanFilter::Or(filters)
+                IndexedSpanFilter::Or(filters, true) // to_stratified_indexes values are always distinct
             }
             BasicSpanFilter::Kind(kind) => {
                 IndexedSpanFilter::Single(&span_indexes.all, Some(NonIndexedSpanFilter::Kind(kind)))
@@ -295,7 +296,7 @@ impl<'a> IndexedSpanFilter<'a> {
                         })
                         .collect();
 
-                    IndexedSpanFilter::Or(filters)
+                    IndexedSpanFilter::Or(filters, true) // make_indexed_filter values are always distinct
                 } else {
                     // we are creating indexes for all attributes, so if one
                     // doesn't exist, then there are no entities with that attribute
@@ -321,6 +322,7 @@ impl<'a> IndexedSpanFilter<'a> {
                     .into_iter()
                     .map(|f| IndexedSpanFilter::build(Some(f), span_indexes, storage))
                     .collect(),
+                false,
             ),
         }
     }
@@ -334,7 +336,7 @@ impl<'a> IndexedSpanFilter<'a> {
             IndexedSpanFilter::Stratified(_, _, _) => true,
             IndexedSpanFilter::Not(_, _) => false,
             IndexedSpanFilter::And(filters) => filters.iter().any(|f| f.is_stratified()),
-            IndexedSpanFilter::Or(filters) => filters.iter().all(|f| f.is_stratified()),
+            IndexedSpanFilter::Or(filters, _) => filters.iter().all(|f| f.is_stratified()),
         }
     }
 
@@ -371,7 +373,7 @@ impl<'a> IndexedSpanFilter<'a> {
             IndexedSpanFilter::And(indexed_filters) => {
                 indexed_filters.iter().all(|f| f.matches(span))
             }
-            IndexedSpanFilter::Or(indexed_filters) => {
+            IndexedSpanFilter::Or(indexed_filters, _) => {
                 indexed_filters.iter().any(|f| f.matches(span))
             }
         }
@@ -401,7 +403,7 @@ impl<'a> IndexedSpanFilter<'a> {
                 // the minimum from a single filter
                 filters.iter().map(Self::estimate_count).min().unwrap_or(0)
             }
-            IndexedSpanFilter::Or(filters) => {
+            IndexedSpanFilter::Or(filters, _) => {
                 // since OR filters can be completely disjoint, we can possibly
                 // yield the sum of all filters
                 filters.iter().map(Self::estimate_count).sum()
@@ -430,7 +432,7 @@ impl<'a> IndexedSpanFilter<'a> {
                     *index = &index[..idx];
                 }
             },
-            IndexedSpanFilter::And(filters) | IndexedSpanFilter::Or(filters) => filters
+            IndexedSpanFilter::And(filters) | IndexedSpanFilter::Or(filters, _) => filters
                 .iter_mut()
                 .for_each(|f| f.paginated(Some(previous), order)),
         }
@@ -449,7 +451,7 @@ impl<'a> IndexedSpanFilter<'a> {
                 inner_filter.optimize();
             }
             IndexedSpanFilter::And(filters) => filters.sort_by_key(Self::estimate_count),
-            IndexedSpanFilter::Or(filters) => filters.sort_by_key(Self::estimate_count),
+            IndexedSpanFilter::Or(filters, _) => filters.sort_by_key(Self::estimate_count),
         }
     }
 
@@ -505,7 +507,7 @@ impl<'a> IndexedSpanFilter<'a> {
             IndexedSpanFilter::And(filters) => filters
                 .iter_mut()
                 .for_each(|f| f.trim_to_timeframe(start, end)),
-            IndexedSpanFilter::Or(filters) => filters
+            IndexedSpanFilter::Or(filters, _) => filters
                 .iter_mut()
                 .for_each(|f| f.trim_to_timeframe(start, end)),
         }
@@ -533,7 +535,7 @@ impl<'a> IndexedSpanFilter<'a> {
                 .into_iter()
                 .map(|(index, range)| IndexedSpanFilter::Stratified(index, range, None))
                 .collect();
-            let dfilter = IndexedSpanFilter::Or(dfilters);
+            let dfilter = IndexedSpanFilter::Or(dfilters, true); // to_stratified_indexes values are always distinct
 
             filters.push(dfilter);
         } else {
@@ -544,7 +546,7 @@ impl<'a> IndexedSpanFilter<'a> {
                 .into_iter()
                 .map(|(index, range)| IndexedSpanFilter::Stratified(index, range, None))
                 .collect();
-            let dfilter = IndexedSpanFilter::Or(dfilters);
+            let dfilter = IndexedSpanFilter::Or(dfilters, true); // to_stratified_indexes values are always distinct
 
             *self = IndexedSpanFilter::And(vec![this, dfilter])
         }
@@ -587,14 +589,18 @@ impl<'a> IndexedSpanFilter<'a> {
                     filters.into_iter().map(|f| Self::into_iterator(f, storage)),
                 ))
             }
-            IndexedSpanFilter::Or(filters) => CompoundIndexIterator::Or(SetUnionIterator::new(
-                filters.into_iter().map(|f| Self::into_iterator(f, storage)),
-            )),
+            IndexedSpanFilter::Or(filters, distinct) => {
+                CompoundIndexIterator::Or(SetUnionIterator::new(
+                    filters.into_iter().map(|f| Self::into_iterator(f, storage)),
+                    distinct,
+                ))
+            }
         }
     }
 }
 
 pub(crate) enum BasicSpanFilter {
+    All,
     Level(SimpleLevel),
     Duration(DurationFilter),
     Created(ValueOperator, Timestamp),
@@ -621,6 +627,7 @@ impl BasicSpanFilter {
 
     pub fn simplify(&mut self) {
         match self {
+            BasicSpanFilter::All => {}
             BasicSpanFilter::Level(_) => {}
             BasicSpanFilter::Duration(_) => {}
             BasicSpanFilter::Created(_, _) => {}
@@ -640,10 +647,19 @@ impl BasicSpanFilter {
                     filter.simplify()
                 }
 
-                if filters.len() == 1 {
-                    let mut filters = std::mem::take(filters);
-                    let filter = filters.pop().unwrap();
-                    *self = filter;
+                // any "all" matches can be filtered out
+                filters.retain(|filter| !matches!(filter, BasicSpanFilter::All));
+
+                match filters.len() {
+                    0 => {
+                        *self = BasicSpanFilter::All;
+                    }
+                    1 => {
+                        let mut filters = std::mem::take(filters);
+                        let filter = filters.pop().unwrap();
+                        *self = filter;
+                    }
+                    _ => {}
                 }
             }
             BasicSpanFilter::Or(filters) => {
@@ -651,10 +667,27 @@ impl BasicSpanFilter {
                     filter.simplify()
                 }
 
-                if filters.len() == 1 {
-                    let mut filters = std::mem::take(filters);
-                    let filter = filters.pop().unwrap();
-                    *self = filter;
+                // any "all" matches can be hoisted up
+                if filters
+                    .iter()
+                    .any(|filter| matches!(filter, BasicSpanFilter::All))
+                {
+                    *self = BasicSpanFilter::All;
+                    return;
+                }
+
+                match filters.len() {
+                    0 => {
+                        // TODO: this may need to be some non-matching filter
+                        // instead of an all-matching one
+                        *self = BasicSpanFilter::All;
+                    }
+                    1 => {
+                        let mut filters = std::mem::take(filters);
+                        let filter = filters.pop().unwrap();
+                        *self = filter;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -663,6 +696,7 @@ impl BasicSpanFilter {
     pub fn matches<S: Storage>(&self, context: &SpanContext<'_, S>) -> bool {
         let span = context.span();
         match self {
+            BasicSpanFilter::All => true,
             BasicSpanFilter::Level(level) => span.level.into_simple_level() == *level,
             BasicSpanFilter::Duration(filter) => filter.matches(span.duration()),
             BasicSpanFilter::Created(op, value) => op.compare(span.created_at, *value),
@@ -996,7 +1030,11 @@ impl BasicSpanFilter {
                 };
 
                 if above {
-                    BasicSpanFilter::Or(level.iter_gte().map(BasicSpanFilter::Level).collect())
+                    if level == SimpleLevel::Trace {
+                        BasicSpanFilter::All
+                    } else {
+                        BasicSpanFilter::Or(level.iter_gte().map(BasicSpanFilter::Level).collect())
+                    }
                 } else {
                     BasicSpanFilter::Level(level)
                 }

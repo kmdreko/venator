@@ -43,6 +43,19 @@ impl<I: AdvanceUntil<Item: Eq>> Iterator for SetIntersectionIterator<I> {
             return Some(item);
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // With multiple filters AND-ed together, the potential min
+        // is zero (where none agree) and potential max is the
+        // smallest maximum.
+        let max = self
+            .iters
+            .iter()
+            .filter_map(|iter| iter.size_hint().1)
+            .min();
+
+        (0, max)
+    }
 }
 
 impl<I: AdvanceUntil<Item: Eq>> DoubleEndedIterator for SetIntersectionIterator<I> {

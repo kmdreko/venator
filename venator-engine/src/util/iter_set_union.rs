@@ -6,11 +6,13 @@ pub struct SetUnionIterator<I: Iterator> {
     iters: Box<[DoubleEndedPeekable<I>]>,
     heap_front: Option<Box<[usize]>>,
     heap_back: Option<Box<[usize]>>,
+    distinct: bool,
 }
 
 impl<I: Iterator> SetUnionIterator<I> {
     pub fn new<II: IntoIterator<Item: IntoIterator<IntoIter = I>>>(
         iters: II,
+        distinct: bool, // indicates that the iterators do not overlap
     ) -> SetUnionIterator<I> {
         SetUnionIterator {
             iters: iters
@@ -19,6 +21,7 @@ impl<I: Iterator> SetUnionIterator<I> {
                 .collect(),
             heap_front: None,
             heap_back: None,
+            distinct,
         }
     }
 }
@@ -172,6 +175,34 @@ impl<I: Iterator<Item: Ord>> Iterator for SetUnionIterator<I> {
 
         Some(item)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.distinct {
+            // With distinct filters OR'd together, the minimums and maximums
+            // can simply be aggregated.
+            self.iters
+                .iter()
+                .fold((0, Some(0)), |(a_min, a_max), filter| {
+                    let (min, max) = filter.size_hint();
+                    (
+                        a_min + min,
+                        Option::zip(a_max, max).map(|(a_max, max)| a_max + max),
+                    )
+                })
+        } else {
+            // With non-distinct filters OR'd together, the potential min is the
+            // largest minimum and potential max is the sum of maximums.
+            self.iters
+                .iter()
+                .fold((0, Some(0)), |(a_min, a_max), filter| {
+                    let (min, max) = filter.size_hint();
+                    (
+                        usize::max(a_min, min),
+                        Option::zip(a_max, max).map(|(a_max, max)| a_max + max),
+                    )
+                })
+        }
+    }
 }
 
 impl<I: DoubleEndedIterator<Item: Ord>> DoubleEndedIterator for SetUnionIterator<I> {
@@ -240,7 +271,8 @@ mod tests {
 
     #[test]
     fn union_iterator() {
-        let mut iter = SetUnionIterator::new([vec![1, 2, 4, 5], vec![1, 5, 6, 7], vec![1, 2, 6]]);
+        let mut iter =
+            SetUnionIterator::new([vec![1, 2, 4, 5], vec![1, 5, 6, 7], vec![1, 2, 6]], false);
 
         assert_eq!(iter.next(), Some(1));
         assert_eq!(iter.next(), Some(2));
@@ -251,7 +283,8 @@ mod tests {
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
 
-        let mut iter = SetUnionIterator::new([vec![1, 2, 4, 5], vec![1, 5, 6, 7], vec![1, 2, 6]]);
+        let mut iter =
+            SetUnionIterator::new([vec![1, 2, 4, 5], vec![1, 5, 6, 7], vec![1, 2, 6]], false);
 
         assert_eq!(iter.next_back(), Some(7));
         assert_eq!(iter.next_back(), Some(6));
@@ -262,7 +295,8 @@ mod tests {
         assert_eq!(iter.next_back(), None);
         assert_eq!(iter.next_back(), None);
 
-        let mut iter = SetUnionIterator::new([vec![1, 2, 4, 5], vec![1, 5, 6, 7], vec![1, 2, 6]]);
+        let mut iter =
+            SetUnionIterator::new([vec![1, 2, 4, 5], vec![1, 5, 6, 7], vec![1, 2, 6]], false);
 
         assert_eq!(iter.next(), Some(1));
         assert_eq!(iter.next_back(), Some(7));
