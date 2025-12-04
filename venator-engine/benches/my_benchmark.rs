@@ -1,10 +1,11 @@
 use criterion::{criterion_group, criterion_main, Criterion};
+use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::path::Path;
 use venator_engine::engine::SyncEngine;
 use venator_engine::filter::{FilterPredicate, Order, Query};
 use venator_engine::storage::{FileStorage, TransientStorage};
-use venator_engine::Timestamp;
+use venator_engine::{NewEvent, NewResource, SourceKind, Timestamp, Value};
 
 fn count_events_benchmark(c: &mut Criterion) {
     let file_storage = FileStorage::new(Path::new("./benches/test.vena.db"));
@@ -184,5 +185,75 @@ fn count_spans_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, count_events_benchmark, count_spans_benchmark);
+fn insert_events_benchmark(c: &mut Criterion) {
+    fn now() -> Timestamp {
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("now should not be before the UNIX epoch")
+                .as_micros();
+
+            let timestamp = u64::try_from(timestamp)
+                .expect("microseconds shouldn't exceed a u64 until the year 586,912 AD");
+
+            Timestamp::new(timestamp).expect("now should not be at the UNIX epoch")
+        }
+    }
+
+    let create_resource = || NewResource {
+        attributes: BTreeMap::from_iter([
+            ("attr1".into(), Value::Str("value1".into())),
+            ("attr2".into(), Value::Str("value2".into())),
+            ("attr3".into(), Value::Str("value3".into())),
+        ]),
+    };
+
+    let create_event = |resource_key| NewEvent {
+        kind: SourceKind::Opentelemetry,
+        resource_key,
+        timestamp: now(),
+        span_id: None,
+        content: Value::Str("this is a test message".into()),
+        namespace: None,
+        function: Some("crate::main".into()),
+        level: venator_engine::Level::Debug,
+        file_name: Some("src/main.rs".into()),
+        file_line: Some(12),
+        file_column: Some(4),
+        attributes: BTreeMap::from_iter([
+            ("attr4".into(), Value::Str("value4".into())),
+            ("attr5".into(), Value::Str("value5".into())),
+            ("attr6".into(), Value::Str("value6".into())),
+        ]),
+    };
+
+    c.bench_function("write events to mem", |b| {
+        let storage = TransientStorage::new();
+        let mut engine = SyncEngine::new(storage).unwrap();
+
+        let resource = engine.insert_resource(create_resource()).unwrap();
+
+        b.iter(|| engine.insert_event(create_event(resource)))
+    });
+
+    c.bench_function("write events to sqlite", |b| {
+        let storage = FileStorage::new(Path::new("./benches/temp.vena.db"));
+        let mut engine = SyncEngine::new(storage).unwrap();
+
+        let resource = engine.insert_resource(create_resource()).unwrap();
+
+        b.iter(|| engine.insert_event(create_event(resource)));
+
+        drop(engine);
+        std::fs::remove_file("./benches/temp.vena.db").unwrap();
+    });
+}
+
+criterion_group!(
+    benches,
+    count_events_benchmark,
+    count_spans_benchmark,
+    insert_events_benchmark
+);
 criterion_main!(benches);
