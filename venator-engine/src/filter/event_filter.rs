@@ -5,6 +5,7 @@ use regex::Regex;
 use wildcard::WildcardBuilder;
 
 use crate::context::{EventContext, SpanContext};
+use crate::filter::ValueComparison;
 use crate::index::EventIndexes;
 use crate::models::{
     FullSpanId, Level, SimpleLevel, SourceKind, SpanKey, Timestamp, TraceRoot, ValueOperator,
@@ -62,8 +63,15 @@ impl<'a> IndexedEventFilter<'a> {
                     IndexedEventFilter::Single(&event_indexes.all[..idx], None)
                 }
             },
-            BasicEventFilter::Level(level) => {
-                IndexedEventFilter::Single(&event_indexes.levels[level as usize], None)
+            BasicEventFilter::Level(level_filter) => {
+                let filters = event_indexes
+                    .levels
+                    .make_indexed_filter(level_filter)
+                    .into_iter()
+                    .map(|i| IndexedEventFilter::Single(i, None))
+                    .collect();
+
+                IndexedEventFilter::Or(filters, true) // make_indexed_filter results are always distinct
             }
             BasicEventFilter::Kind(kind) => IndexedEventFilter::Single(
                 &event_indexes.all,
@@ -446,7 +454,7 @@ impl<'a> IndexedEventFilter<'a> {
 pub(crate) enum BasicEventFilter {
     All,
     Timestamp(ValueOperator, Timestamp),
-    Level(SimpleLevel),
+    Level(ValueComparison<SimpleLevel>),
     Kind(SourceKind),
     Namespace(ValueStringComparison),
     Function(ValueStringComparison),
@@ -471,7 +479,15 @@ impl BasicEventFilter {
         match self {
             BasicEventFilter::All => {}
             BasicEventFilter::Timestamp(_, _) => {}
-            BasicEventFilter::Level(_) => {}
+            BasicEventFilter::Level(filter) => match filter {
+                ValueComparison::Compare(ValueOperator::Gte, SimpleLevel::Trace) => {
+                    *self = BasicEventFilter::All
+                }
+                ValueComparison::Compare(ValueOperator::Lte, SimpleLevel::Fatal) => {
+                    *self = BasicEventFilter::All
+                }
+                _ => {}
+            },
             BasicEventFilter::Kind(_) => {}
             BasicEventFilter::Namespace(_) => {}
             BasicEventFilter::Function(_) => {}
@@ -751,7 +767,6 @@ impl BasicEventFilter {
         span_key_map: &HashMap<FullSpanId, SpanKey>,
     ) -> Result<BasicEventFilter, InputError> {
         use FilterPropertyKind::*;
-        use ValueOperator::*;
 
         let predicate = match predicate {
             FilterPredicate::Single(single) => single,
@@ -797,23 +812,7 @@ impl BasicEventFilter {
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
-                let above = match op {
-                    Eq => false,
-                    Gte => true,
-                    _ => return Err(InputError::InvalidLevelOperator),
-                };
-
-                if above {
-                    if level == SimpleLevel::Trace {
-                        BasicEventFilter::All
-                    } else {
-                        BasicEventFilter::Or(
-                            level.iter_gte().map(BasicEventFilter::Level).collect(),
-                        )
-                    }
-                } else {
-                    BasicEventFilter::Level(level)
-                }
+                BasicEventFilter::Level(ValueComparison::Compare(*op, level))
             }
             (Inherent, "parent") => filterify_event_filter(
                 predicate.value,
@@ -1046,7 +1045,9 @@ impl BasicEventFilter {
         match self {
             BasicEventFilter::All => true,
             BasicEventFilter::Timestamp(op, timestamp) => op.compare(&event.timestamp, timestamp),
-            BasicEventFilter::Level(level) => event.level.into_simple_level() == *level,
+            BasicEventFilter::Level(level_filter) => {
+                level_filter.matches(&event.level.into_simple_level())
+            }
             BasicEventFilter::Kind(kind) => kind == &event.kind,
             BasicEventFilter::Namespace(filter) => filter.matches_opt(event.namespace.as_deref()),
             BasicEventFilter::Function(filter) => filter.matches_opt(event.function.as_deref()),

@@ -7,12 +7,12 @@ use crate::models::{EventKey, FullSpanId, Timestamp, TraceRoot, Value};
 use crate::util::{BoundSearch, IndexExt};
 use crate::{ResourceKey, SpanKey, Storage};
 
-use super::ValueIndex;
+use super::{LevelIndex, ValueIndex};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct EventIndexes {
     pub all: Vec<Timestamp>,
-    pub levels: [Vec<Timestamp>; 6],
+    pub levels: LevelIndex,
     pub resources: BTreeMap<ResourceKey, Vec<Timestamp>>,
     pub namespaces: BTreeMap<String, Vec<Timestamp>>,
     pub functions: BTreeMap<String, Vec<Timestamp>>,
@@ -30,14 +30,7 @@ impl EventIndexes {
     pub fn new() -> EventIndexes {
         EventIndexes {
             all: vec![],
-            levels: [
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ],
+            levels: LevelIndex::new(),
             resources: BTreeMap::new(),
             namespaces: BTreeMap::new(),
             functions: BTreeMap::new(),
@@ -58,9 +51,8 @@ impl EventIndexes {
         let idx = self.all.upper_bound_via_expansion(&event_key);
         self.all.insert(idx, event_key);
 
-        let level_index = &mut self.levels[event.level.into_simple_level() as usize];
-        let idx = level_index.upper_bound_via_expansion(&event_key);
-        level_index.insert(idx, event_key);
+        self.levels
+            .add_entry(event.level.into_simple_level(), event_key);
 
         // TODO: do I need a per-resource index?
         let resource_index = self.resources.entry(event.resource_key).or_default();
@@ -150,9 +142,7 @@ impl EventIndexes {
     pub fn remove_events(&mut self, events: &[EventKey]) {
         self.all.remove_list_sorted(events);
 
-        for level_index in &mut self.levels {
-            level_index.remove_list_sorted(events);
-        }
+        self.levels.remove_entries(events);
 
         for resource_index in self.resources.values_mut() {
             resource_index.remove_list_sorted(events);
@@ -170,6 +160,8 @@ impl EventIndexes {
             filename_index.remove_list_sorted(events);
         }
         self.roots.remove_list_sorted(events);
+
+        self.contents.remove_entries(events);
 
         for attribute_index in self.attributes.values_mut() {
             attribute_index.remove_entries(events);

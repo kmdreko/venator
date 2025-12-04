@@ -278,7 +278,15 @@ impl Level {
 }
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
 )]
 #[repr(usize)]
 pub enum SimpleLevel {

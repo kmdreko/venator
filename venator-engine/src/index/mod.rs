@@ -1,9 +1,11 @@
 mod event_indexes;
+mod level;
 mod span_event_indexes;
 mod span_indexes;
 mod value;
 
 pub(crate) use event_indexes::EventIndexes;
+pub(crate) use level::LevelIndex;
 pub(crate) use span_event_indexes::SpanEventIndexes;
 pub(crate) use span_indexes::{SpanDurationIndex, SpanIndexes};
 pub(crate) use value::ValueIndex;

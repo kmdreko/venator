@@ -58,7 +58,7 @@ pub(crate) enum ValueComparison<T> {
 }
 
 impl<T> ValueComparison<T> {
-    fn matches(&self, lhs: &T) -> bool
+    pub(crate) fn matches(&self, lhs: &T) -> bool
     where
         T: PartialOrd,
     {

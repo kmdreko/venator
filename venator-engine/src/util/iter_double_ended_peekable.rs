@@ -59,6 +59,15 @@ impl<I: Iterator> Iterator for DoubleEndedPeekable<I> {
 
         self.next_back.take()
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let f = self.next_front.is_some() as usize;
+        let b = self.next_back.is_some() as usize;
+
+        let (min, max) = self.iter.size_hint();
+
+        (min + f + b, max.map(|max| max + f + b))
+    }
 }
 
 impl<I: DoubleEndedIterator> DoubleEndedIterator for DoubleEndedPeekable<I> {

@@ -8,13 +8,13 @@ use crate::models::{FullSpanId, Timestamp, TraceRoot, Value};
 use crate::util::{BoundSearch, IndexExt};
 use crate::{InstanceId, ResourceKey, SpanKey, Storage};
 
-use super::ValueIndex;
+use super::{LevelIndex, ValueIndex};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SpanIndexes {
     pub all: Vec<Timestamp>,
     pub ids: HashMap<FullSpanId, SpanKey>,
-    pub levels: [Vec<Timestamp>; 6],
+    pub levels: LevelIndex,
     pub durations: SpanDurationIndex,
     pub instances: BTreeMap<InstanceId, Vec<Timestamp>>,
     pub resources: BTreeMap<ResourceKey, Vec<Timestamp>>,
@@ -34,14 +34,7 @@ impl SpanIndexes {
     pub fn new() -> SpanIndexes {
         SpanIndexes {
             all: vec![],
-            levels: [
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ],
+            levels: LevelIndex::new(),
             durations: SpanDurationIndex::new(),
             instances: BTreeMap::new(),
             resources: BTreeMap::new(),
@@ -69,9 +62,8 @@ impl SpanIndexes {
 
         self.ids.insert(span.id, span_key);
 
-        let level_index = &mut self.levels[span.level.into_simple_level() as usize];
-        let idx = level_index.upper_bound_via_expansion(&span_key);
-        level_index.insert(idx, span_key);
+        self.levels
+            .add_entry(span.level.into_simple_level(), span_key);
 
         let duration_index = match span.duration() {
             None => &mut self.durations.open,
@@ -203,9 +195,7 @@ impl SpanIndexes {
 
         self.ids.retain(|_, key| !spans.contains(key));
 
-        for level_index in &mut self.levels {
-            level_index.remove_list_sorted(spans);
-        }
+        self.levels.remove_entries(spans);
 
         self.durations.remove_spans(spans);
 

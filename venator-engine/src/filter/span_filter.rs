@@ -6,6 +6,7 @@ use serde::Deserialize;
 use wildcard::WildcardBuilder;
 
 use crate::context::SpanContext;
+use crate::filter::ValueComparison;
 use crate::index::{SpanDurationIndex, SpanIndexes};
 use crate::models::{
     FullSpanId, Level, SimpleLevel, SourceKind, SpanKey, Timestamp, TraceRoot, ValueOperator,
@@ -39,8 +40,15 @@ impl<'a> IndexedSpanFilter<'a> {
 
         match filter {
             BasicSpanFilter::All => IndexedSpanFilter::Single(&span_indexes.all, None),
-            BasicSpanFilter::Level(level) => {
-                IndexedSpanFilter::Single(&span_indexes.levels[level as usize], None)
+            BasicSpanFilter::Level(level_filter) => {
+                let filters = span_indexes
+                    .levels
+                    .make_indexed_filter(level_filter)
+                    .into_iter()
+                    .map(|i| IndexedSpanFilter::Single(i, None))
+                    .collect();
+
+                IndexedSpanFilter::Or(filters, true) // make_indexed_filter results are always distinct
             }
             BasicSpanFilter::Duration(duration_filter) => {
                 let filters = span_indexes.durations.to_stratified_indexes();
@@ -601,7 +609,7 @@ impl<'a> IndexedSpanFilter<'a> {
 
 pub(crate) enum BasicSpanFilter {
     All,
-    Level(SimpleLevel),
+    Level(ValueComparison<SimpleLevel>),
     Duration(DurationFilter),
     Created(ValueOperator, Timestamp),
     Closed(ValueOperator, Timestamp),
@@ -628,7 +636,15 @@ impl BasicSpanFilter {
     pub fn simplify(&mut self) {
         match self {
             BasicSpanFilter::All => {}
-            BasicSpanFilter::Level(_) => {}
+            BasicSpanFilter::Level(filter) => match filter {
+                ValueComparison::Compare(ValueOperator::Gte, SimpleLevel::Trace) => {
+                    *self = BasicSpanFilter::All
+                }
+                ValueComparison::Compare(ValueOperator::Lte, SimpleLevel::Fatal) => {
+                    *self = BasicSpanFilter::All
+                }
+                _ => {}
+            },
             BasicSpanFilter::Duration(_) => {}
             BasicSpanFilter::Created(_, _) => {}
             BasicSpanFilter::Closed(_, _) => {}
@@ -697,7 +713,9 @@ impl BasicSpanFilter {
         let span = context.span();
         match self {
             BasicSpanFilter::All => true,
-            BasicSpanFilter::Level(level) => span.level.into_simple_level() == *level,
+            BasicSpanFilter::Level(level_filter) => {
+                level_filter.matches(&span.level.into_simple_level())
+            }
             BasicSpanFilter::Duration(filter) => filter.matches(span.duration()),
             BasicSpanFilter::Created(op, value) => op.compare(span.created_at, *value),
             BasicSpanFilter::Closed(op, value) => {
@@ -978,7 +996,6 @@ impl BasicSpanFilter {
         span_key_map: &HashMap<FullSpanId, SpanKey>,
     ) -> Result<BasicSpanFilter, InputError> {
         use FilterPropertyKind::*;
-        use ValueOperator::*;
 
         let predicate = match predicate {
             FilterPredicate::Single(single) => single,
@@ -1023,21 +1040,7 @@ impl BasicSpanFilter {
                     _ => return Err(InputError::InvalidLevelValue),
                 };
 
-                let above = match op {
-                    Gte => true,
-                    Eq => false,
-                    _ => return Err(InputError::InvalidLevelOperator),
-                };
-
-                if above {
-                    if level == SimpleLevel::Trace {
-                        BasicSpanFilter::All
-                    } else {
-                        BasicSpanFilter::Or(level.iter_gte().map(BasicSpanFilter::Level).collect())
-                    }
-                } else {
-                    BasicSpanFilter::Level(level)
-                }
+                BasicSpanFilter::Level(ValueComparison::Compare(*op, level))
             }
             (Inherent, "duration") => filterify_span_filter(
                 predicate.value,
