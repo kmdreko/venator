@@ -1192,6 +1192,12 @@ impl<S: Storage> SyncEngine<S> {
         self.event_subscribers.remove(&id);
     }
 
+    pub fn sync(&mut self) -> Result<(), AnyError> {
+        self.storage.sync()?;
+
+        Ok(())
+    }
+
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     pub fn shutdown(&mut self) -> Result<(), AnyError> {
         if let Some(s) = self.storage.as_index_storage_mut() {

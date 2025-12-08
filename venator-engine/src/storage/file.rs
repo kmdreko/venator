@@ -4,14 +4,16 @@ use std::sync::Arc;
 
 use bincode::Options;
 use rusqlite::{params, Connection as DbConnection, Error as DbError, Params, Row};
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{EventKey, Level, SourceKind, Value};
+use crate::storage::batched::Batch;
 use crate::{
     Event, FullSpanId, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp,
 };
 
+use super::batched::BatchAction;
 use super::{IndexStorage, Storage, StorageError, StorageIter};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -49,9 +51,9 @@ impl FileStorage {
     pub fn new(path: &Path) -> FileStorage {
         let connection = DbConnection::open(path).unwrap();
 
-        connection
-            .execute_batch(r#"PRAGMA synchronous = OFF; PRAGMA journal_mode = OFF;"#)
-            .unwrap();
+        // connection
+        //     .execute_batch(r#"PRAGMA synchronous = OFF; PRAGMA journal_mode = OFF;"#)
+        //     .unwrap();
 
         let _ = connection.execute(
             r#"
@@ -687,6 +689,13 @@ impl Storage for FileStorage {
         Ok(())
     }
 
+    fn sync(&mut self) -> Result<(), StorageError> {
+        self.connection
+            .cache_flush()
+            .map_err(FileStorageError::Commit)
+            .map_err(StorageError::from)
+    }
+
     #[allow(private_interfaces)]
     fn as_index_storage(&self) -> Option<&dyn IndexStorage> {
         Some(self)
@@ -777,6 +786,192 @@ impl IndexStorage for FileStorage {
         tx.execute("UPDATE meta SET indexes = 'FRESH' WHERE id = 1", ())
             .map_err(FileStorageError::Update)?;
 
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
+    }
+}
+
+impl Batch for FileStorage {
+    fn batch(
+        &mut self,
+        resources: &mut dyn Iterator<Item = &BatchAction<Arc<Resource>>>,
+        spans: &mut dyn Iterator<Item = &BatchAction<Arc<Span>>>,
+        span_events: &mut dyn Iterator<Item = &BatchAction<Arc<SpanEvent>>>,
+        events: &mut dyn Iterator<Item = &BatchAction<Arc<Event>>>,
+    ) -> Result<(), StorageError> {
+        let tx = self
+            .connection
+            .transaction()
+            .map_err(FileStorageError::Begin)?;
+
+        let mut insert_resource_stmt = tx
+            .prepare_cached("INSERT INTO resources VALUES (?1, ?2, ?3)")
+            .map_err(FileStorageError::Prepare)?;
+        let mut drop_resource_stmt = tx
+            .prepare_cached("DELETE FROM resources WHERE resources.key = ?1")
+            .map_err(FileStorageError::Prepare)?;
+        let mut insert_span_stmt = tx
+            .prepare_cached(
+                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            )
+            .map_err(FileStorageError::Prepare)?;
+        let mut update_span_stmt = tx
+            .prepare_cached("UPDATE spans SET closed_at = ?2, busy = ?3, links = ?4, attributes = ?5 WHERE key = ?1")
+            .map_err(FileStorageError::Prepare)?;
+        let mut drop_span_stmt = tx
+            .prepare_cached("DELETE FROM spans WHERE spans.key = ?1")
+            .map_err(FileStorageError::Prepare)?;
+        let mut insert_span_event_stmt = tx
+            .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4, ?5)")
+            .map_err(FileStorageError::Prepare)?;
+        let mut drop_span_event_stmt = tx
+            .prepare_cached("DELETE FROM span_events WHERE span_events.key = ?1")
+            .map_err(FileStorageError::Prepare)?;
+        let mut insert_event_stmt = tx
+            .prepare_cached(
+                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            )
+            .map_err(FileStorageError::Prepare)?;
+        let mut update_event_stmt = tx
+            .prepare_cached("UPDATE events SET parent_key = ?2 WHERE key = ?1")
+            .map_err(FileStorageError::Prepare)?;
+        let mut drop_event_stmt = tx
+            .prepare_cached("DELETE FROM events WHERE events.key = ?1")
+            .map_err(FileStorageError::Prepare)?;
+
+        for resource in resources {
+            match resource {
+                BatchAction::Create(resource) => {
+                    insert_resource_stmt
+                        .execute(resource_to_params((**resource).clone()))
+                        .map_err(FileStorageError::Insert)?;
+                }
+                BatchAction::Update(_) => warn!("resource update not supported"),
+                BatchAction::Delete(resource_key) => {
+                    drop_resource_stmt
+                        .execute((*resource_key,))
+                        .map_err(FileStorageError::Delete)?;
+                }
+            }
+        }
+
+        for span in spans {
+            match span {
+                BatchAction::Create(span) => {
+                    let key = span.created_at;
+                    let kind = span.kind as i32;
+                    let resource_key = span.resource_key;
+                    let id = span.id.to_string();
+                    let closed_at = span.closed_at;
+                    let busy = span.busy.map(|b| b as i64);
+                    let parent_id = span.parent_id.map(|id| id.to_string());
+                    let parent_key = span.parent_key;
+                    let links = serde_json::to_string(&span.links).unwrap();
+                    let name = span.name.clone();
+                    let namespace = span.namespace.clone();
+                    let function = span.function.clone();
+                    let level = span.level.to_db();
+                    let file_name = span.file_name.clone();
+                    let file_line = span.file_line;
+                    let file_column = span.file_column;
+                    let instrumentation_attributes =
+                        serde_json::to_string(&span.instrumentation_attributes).unwrap();
+                    let attributes = serde_json::to_string(&span.attributes).unwrap();
+                    let warnings = "[]";
+
+                    insert_span_stmt
+                        .execute(params![
+                            key,
+                            kind,
+                            resource_key,
+                            id,
+                            closed_at,
+                            busy,
+                            parent_id,
+                            parent_key,
+                            links,
+                            name,
+                            namespace,
+                            function,
+                            level,
+                            file_name,
+                            file_line,
+                            file_column,
+                            instrumentation_attributes,
+                            attributes,
+                            warnings,
+                        ])
+                        .map_err(FileStorageError::Insert)?;
+                }
+                BatchAction::Update(span) => {
+                    let links = serde_json::to_string(&span.links).unwrap();
+                    let attributes = serde_json::to_string(&span.attributes).unwrap();
+
+                    update_span_stmt
+                        .execute((
+                            span.key(),
+                            span.closed_at,
+                            span.busy.map(|b| b as i64),
+                            links,
+                            attributes,
+                        ))
+                        .map_err(FileStorageError::Update)?;
+                }
+                BatchAction::Delete(span_key) => {
+                    drop_span_stmt
+                        .execute((span_key,))
+                        .map_err(FileStorageError::Delete)?;
+                }
+            }
+        }
+
+        for span_event in span_events {
+            match span_event {
+                BatchAction::Create(span_event) => {
+                    insert_span_event_stmt
+                        .execute(span_event_to_params((**span_event).clone()))
+                        .map_err(FileStorageError::Insert)?;
+                }
+                BatchAction::Update(_) => warn!("span event update not supported"),
+                BatchAction::Delete(span_event_key) => {
+                    drop_span_event_stmt
+                        .execute((span_event_key,))
+                        .map_err(FileStorageError::Delete)?;
+                }
+            }
+        }
+
+        for event in events {
+            match event {
+                BatchAction::Create(event) => {
+                    insert_event_stmt
+                        .execute(event_to_params((**event).clone()))
+                        .map_err(FileStorageError::Insert)?;
+                }
+                BatchAction::Update(event) => {
+                    update_event_stmt
+                        .execute((event.key(), event.parent_key))
+                        .map_err(FileStorageError::Update)?;
+                }
+                BatchAction::Delete(event_key) => {
+                    drop_event_stmt
+                        .execute((*event_key,))
+                        .map_err(FileStorageError::Delete)?;
+                }
+            }
+        }
+
+        drop(insert_resource_stmt);
+        drop(drop_resource_stmt);
+        drop(insert_span_stmt);
+        drop(update_span_stmt);
+        drop(drop_span_stmt);
+        drop(insert_span_event_stmt);
+        drop(drop_span_event_stmt);
+        drop(insert_event_stmt);
+        drop(update_event_stmt);
+        drop(drop_event_stmt);
         tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())

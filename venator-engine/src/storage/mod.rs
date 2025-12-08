@@ -15,6 +15,7 @@ use std::error::Error as StdError;
 use std::fmt::{Display, Error as FmtError, Formatter};
 use std::sync::Arc;
 
+mod batched;
 mod cached;
 #[cfg(feature = "persist")]
 mod file;
@@ -24,6 +25,7 @@ use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{Event, EventKey, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 use crate::FullSpanId;
 
+pub use batched::BatchedStorage;
 pub use cached::CachedStorage;
 #[cfg(feature = "persist")]
 pub use file::FileStorage;
@@ -102,6 +104,8 @@ pub trait Storage {
     fn drop_spans(&mut self, spans: &[Timestamp]) -> Result<(), StorageError>;
     fn drop_span_events(&mut self, span_events: &[Timestamp]) -> Result<(), StorageError>;
     fn drop_events(&mut self, events: &[Timestamp]) -> Result<(), StorageError>;
+
+    fn sync(&mut self) -> Result<(), StorageError>;
 
     #[doc(hidden)]
     #[allow(private_interfaces)]

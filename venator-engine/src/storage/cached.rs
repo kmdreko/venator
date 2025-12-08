@@ -197,6 +197,10 @@ where
         self.inner.drop_events(events)
     }
 
+    fn sync(&mut self) -> Result<(), StorageError> {
+        self.inner.sync()
+    }
+
     #[allow(private_interfaces)]
     fn as_index_storage(&self) -> Option<&dyn IndexStorage> {
         self.inner.as_index_storage()

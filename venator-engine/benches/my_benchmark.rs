@@ -4,7 +4,7 @@ use std::hint::black_box;
 use std::path::Path;
 use venator_engine::engine::SyncEngine;
 use venator_engine::filter::{FilterPredicate, Order, Query};
-use venator_engine::storage::{FileStorage, TransientStorage};
+use venator_engine::storage::{BatchedStorage, FileStorage, TransientStorage};
 use venator_engine::{NewEvent, NewResource, SourceKind, Timestamp, Value};
 
 fn count_events_benchmark(c: &mut Criterion) {
@@ -244,6 +244,25 @@ fn insert_events_benchmark(c: &mut Criterion) {
         let resource = engine.insert_resource(create_resource()).unwrap();
 
         b.iter(|| engine.insert_event(create_event(resource)));
+
+        drop(engine);
+        std::fs::remove_file("./benches/temp.vena.db").unwrap();
+    });
+
+    c.bench_function("batch write events to sqlite", |b| {
+        let storage = FileStorage::new(Path::new("./benches/temp.vena.db"));
+        let storage = BatchedStorage::new(storage);
+        let mut engine = SyncEngine::new(storage).unwrap();
+
+        let resource = engine.insert_resource(create_resource()).unwrap();
+
+        b.iter(|| {
+            for _ in 0..100 {
+                let _ = engine.insert_event(create_event(resource));
+            }
+
+            let _ = engine.sync();
+        });
 
         drop(engine);
         std::fs::remove_file("./benches/temp.vena.db").unwrap();

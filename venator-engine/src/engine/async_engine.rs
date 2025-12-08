@@ -185,6 +185,9 @@ impl AsyncEngine {
                         let res = engine.shutdown();
                         let _ = sender.send(res);
                     }
+                    EngineCommand::Sync => {
+                        let _ = engine.sync();
+                    }
                 }));
 
                 if let Err(err) = panic_result {
@@ -357,6 +360,13 @@ impl AsyncEngine {
     }
 
     #[instrument(skip_all)]
+    pub fn sync(&self) {
+        let _ = self
+            .insert_sender
+            .blocking_send((tracing::Span::current(), EngineCommand::Sync));
+    }
+
+    #[instrument(skip_all)]
     pub async fn shutdown(&self) -> Result<(), AnyError> {
         let (sender, receiver) = oneshot::channel();
         self.emit_insert(EngineCommand::Shutdown(sender)).await;
@@ -408,6 +418,8 @@ enum EngineCommand {
 
     CopyDataset(Box<dyn Storage + Send>, OneshotSender<Result<(), AnyError>>),
     GetStatus(OneshotSender<EngineStatus>),
+
+    Sync,
 
     Shutdown(OneshotSender<Result<(), AnyError>>),
 }

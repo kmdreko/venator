@@ -211,4 +211,8 @@ impl Storage for TransientStorage {
 
         Ok(())
     }
+
+    fn sync(&mut self) -> Result<(), StorageError> {
+        Ok(())
+    }
 }

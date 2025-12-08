@@ -349,6 +349,12 @@ pub struct SpanEvent {
     pub kind: SpanEventKind,
 }
 
+impl SpanEvent {
+    pub fn key(&self) -> SpanEventKey {
+        self.timestamp
+    }
+}
+
 #[derive(Clone)]
 pub enum SpanEventKind {
     Create(CreateSpanEvent),

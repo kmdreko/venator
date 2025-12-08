@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use anyhow::Error as AnyError;
 use clap::{ArgAction, Parser};
@@ -10,7 +11,7 @@ use tauri::menu::{Menu, MenuBuilder, MenuEvent, MenuItem, PredefinedMenuItem, Su
 use tauri::{AppHandle, Emitter, Manager, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
 use venator_engine::engine::AsyncEngine;
-use venator_engine::storage::{CachedStorage, FileStorage, TransientStorage};
+use venator_engine::storage::{BatchedStorage, CachedStorage, FileStorage, TransientStorage};
 
 mod commands;
 mod ingress;
@@ -141,10 +142,25 @@ fn main() -> Result<(), AnyError> {
     dataset.prepare();
     let engine = match &dataset {
         DatasetConfig::Default(path) => {
-            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))?
+            let engine = AsyncEngine::new(CachedStorage::new(
+                10000,
+                BatchedStorage::new(FileStorage::new(path)),
+            ))?;
+
+            if bind.is_some() {
+                launch_sync_thread(engine.clone());
+            }
+
+            engine
         }
         DatasetConfig::File(path) => {
-            AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))?
+            let engine = AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))?;
+
+            if bind.is_some() {
+                launch_sync_thread(engine.clone());
+            }
+
+            engine
         }
         DatasetConfig::Memory => AsyncEngine::new(TransientStorage::new())?,
     };
@@ -423,3 +439,10 @@ async fn copy_dataset(engine: &AsyncEngine, new_storage: FileStorage) {
 }
 
 struct SessionPersistence(Option<PathBuf>);
+
+fn launch_sync_thread(engine: AsyncEngine) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(100));
+        engine.sync();
+    });
+}
