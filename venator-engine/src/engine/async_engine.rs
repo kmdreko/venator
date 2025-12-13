@@ -38,7 +38,7 @@ impl AsyncEngine {
 
         std::thread::spawn(move || {
             let mut last_check = Instant::now();
-            let mut computed_ms_since_last_check: u128 = 0;
+            let mut computed_ns_since_last_check: u128 = 0;
 
             fn recv(
                 query: &mut Receiver<(tracing::Span, EngineCommand)>,
@@ -58,9 +58,9 @@ impl AsyncEngine {
             }
 
             while let Some((tracing_span, cmd)) = recv(&mut query_receiver, &mut insert_receiver) {
-                let _entered_span = tracing_span.enter();
-
                 let cmd_start = Instant::now();
+
+                let entered_span = tracing_span.entered();
                 let panic_result = std::panic::catch_unwind(AssertUnwindSafe(|| match cmd {
                     EngineCommand::QuerySpan(query, sender) => {
                         let spans = engine.query_span(query);
@@ -139,11 +139,11 @@ impl AsyncEngine {
                         let _ = sender.send(res);
                     }
                     EngineCommand::GetStatus(sender) => {
-                        let elapsed_ms = last_check.elapsed().as_millis();
-                        let computed_ms = computed_ms_since_last_check;
+                        let elapsed_ms = last_check.elapsed().as_nanos();
+                        let computed_ms = computed_ns_since_last_check;
 
                         last_check = Instant::now();
-                        computed_ms_since_last_check = 0;
+                        computed_ns_since_last_check = 0;
 
                         let load = computed_ms as f64 / elapsed_ms as f64;
 
@@ -194,8 +194,10 @@ impl AsyncEngine {
                     tracing::error!("engine call panicked: {err:?}");
                 }
 
-                let cmd_elapsed = cmd_start.elapsed().as_millis();
-                computed_ms_since_last_check += cmd_elapsed;
+                drop(entered_span);
+
+                let cmd_elapsed = cmd_start.elapsed().as_nanos();
+                computed_ns_since_last_check += cmd_elapsed;
             }
         });
 
