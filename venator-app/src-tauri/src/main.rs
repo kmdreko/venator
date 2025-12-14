@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use anyhow::Error as AnyError;
@@ -10,6 +11,7 @@ use clap::{ArgAction, Parser};
 use tauri::menu::{Menu, MenuBuilder, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent, Wry};
 use tauri_plugin_dialog::DialogExt;
+use tokio::runtime::Builder as RuntimeBuilder;
 use venator_engine::engine::AsyncEngine;
 use venator_engine::storage::{BatchedStorage, CachedStorage, FileStorage, TransientStorage};
 
@@ -17,7 +19,7 @@ mod commands;
 mod ingress;
 mod views;
 
-use ingress::{launch_ingress_thread, IngressState};
+use ingress::{launch_ingress_threads, IngressState};
 
 enum DatasetConfig {
     Default(PathBuf),
@@ -147,25 +149,47 @@ fn main() -> Result<(), AnyError> {
                 BatchedStorage::new(FileStorage::new(path)),
             ))?;
 
-            if bind.is_some() {
-                launch_sync_thread(engine.clone());
-            }
-
             engine
         }
         DatasetConfig::File(path) => {
             let engine = AsyncEngine::new(CachedStorage::new(10000, FileStorage::new(path)))?;
-
-            if bind.is_some() {
-                launch_sync_thread(engine.clone());
-            }
 
             engine
         }
         DatasetConfig::Memory => AsyncEngine::new(TransientStorage::new())?,
     };
 
-    let ingress = bind.map(|bind| launch_ingress_thread(engine.clone(), bind.to_string()));
+    let runtime = RuntimeBuilder::new_multi_thread()
+        .enable_io()
+        .enable_time()
+        .worker_threads(2)
+        .max_blocking_threads(2)
+        .thread_name_fn(|| {
+            static THREAD_COUNT: AtomicUsize = AtomicUsize::new(0);
+            let id = THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
+            format!("main-worker-{}", id)
+        })
+        .build()
+        .unwrap();
+
+    tauri::async_runtime::set(runtime.handle().clone());
+
+    let mut ingress = None;
+    if let Some(bind) = bind {
+        let engine_clone = engine.clone();
+        runtime.spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(100));
+
+            interval.tick().await;
+
+            loop {
+                interval.tick().await;
+                let _ = engine_clone.sync().await;
+            }
+        });
+
+        ingress = Some(launch_ingress_threads(engine.clone(), bind.to_string()))
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -439,10 +463,3 @@ async fn copy_dataset(engine: &AsyncEngine, new_storage: FileStorage) {
 }
 
 struct SessionPersistence(Option<PathBuf>);
-
-fn launch_sync_thread(engine: AsyncEngine) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(100));
-        engine.sync();
-    });
-}

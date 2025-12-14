@@ -13,6 +13,7 @@ use axum::routing::post;
 use axum::BoxError;
 use http_body::Frame;
 use tokio::net::TcpListener;
+use tokio::runtime::Builder as RuntimeBuilder;
 use tonic::service::Routes;
 
 use venator_engine::engine::AsyncEngine;
@@ -125,47 +126,61 @@ async fn ingress_middleware(
     next.run(request.map(|b| IngressBody::wrap(state, b))).await
 }
 
-pub fn launch_ingress_thread(engine: AsyncEngine, bind: String) -> Arc<IngressState> {
-    #[tokio::main(flavor = "current_thread")]
-    async fn ingress_task(state: Arc<IngressState>) {
-        let listener = match TcpListener::bind(&state.bind).await {
+pub fn launch_ingress_threads(engine: AsyncEngine, bind: String) -> Arc<IngressState> {
+    let runtime = RuntimeBuilder::new_multi_thread()
+        .enable_io()
+        .enable_time()
+        .worker_threads(2)
+        .max_blocking_threads(2)
+        .thread_name_fn(|| {
+            static THREAD_COUNT: AtomicUsize = AtomicUsize::new(0);
+            let id = THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
+            format!("engine-ingress-{}", id)
+        })
+        .build()
+        .unwrap();
+
+    let runtime = Arc::new(runtime);
+    let runtime_clone = Arc::clone(&runtime);
+
+    let state = Arc::new(IngressState::new(engine, bind));
+    let state_clone = Arc::clone(&state);
+
+    runtime.spawn(async move {
+        // This keeps the runtime alive even when `runtime` is dropped
+        let _runtime_clone = runtime_clone;
+
+        let listener = match TcpListener::bind(&state_clone.bind).await {
             Ok(listener) => listener,
             Err(err) => {
-                state.set_error(format!("failed to listen on bind port: {err}"));
+                state_clone.set_error(format!("failed to listen on bind port: {err}"));
                 return;
             }
         };
 
         let routes = Routes::default()
-            .add_service(otel::logs_service(state.engine.clone()))
-            .add_service(otel::metrics_service(state.engine.clone()))
-            .add_service(otel::trace_service(state.engine.clone()))
+            .add_service(otel::logs_service(state_clone.engine.clone()))
+            .add_service(otel::metrics_service(state_clone.engine.clone()))
+            .add_service(otel::trace_service(state_clone.engine.clone()))
             .into_axum_router()
             .with_state(())
             .route("/tracing/v1", post(self::tracing::post_tracing_handler))
             .route("/v1/logs", post(self::otel::post_otel_logs_handler))
             .route("/v1/metrics", post(self::otel::post_otel_metrics_handler))
             .route("/v1/trace", post(self::otel::post_otel_trace_handler))
-            .layer(from_fn_with_state(state.clone(), ingress_middleware))
-            .with_state(state.clone());
+            .layer(from_fn_with_state(state_clone.clone(), ingress_middleware))
+            .with_state(state_clone.clone());
 
         match axum::serve(listener, routes).await {
             Ok(_) => {
-                state.set_error("failed to serve: Exit".to_owned());
+                state_clone.set_error("failed to serve: Exit".to_owned());
                 return;
             }
             Err(err) => {
-                state.set_error(format!("failed to serve: {err}"));
+                state_clone.set_error(format!("failed to serve: {err}"));
                 return;
             }
         };
-    }
-
-    let state = Arc::new(IngressState::new(engine, bind));
-
-    std::thread::spawn({
-        let state = state.clone();
-        || ingress_task(state)
     });
 
     state

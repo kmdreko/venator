@@ -1,7 +1,8 @@
 use std::panic::AssertUnwindSafe;
+use std::thread::Builder as ThreadBuilder;
 use std::time::Instant;
 
-use anyhow::{Context, Error as AnyError};
+use anyhow::{anyhow, Context, Error as AnyError};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::oneshot::{self, Receiver as OneshotReceiver, Sender as OneshotSender};
 use tracing::instrument;
@@ -23,12 +24,14 @@ use super::SyncEngine;
 /// message passing.
 #[derive(Clone)]
 pub struct AsyncEngine {
+    sync_sender: Sender<(tracing::Span, EngineCommand)>,
     insert_sender: Sender<(tracing::Span, EngineCommand)>,
     query_sender: Sender<(tracing::Span, EngineCommand)>,
 }
 
 impl AsyncEngine {
     pub fn new<S: Storage + Send + 'static>(storage: S) -> Result<AsyncEngine, AnyError> {
+        let (sync_sender, mut sync_receiver) = mpsc::channel::<(tracing::Span, EngineCommand)>(1);
         let (insert_sender, mut insert_receiver) =
             mpsc::channel::<(tracing::Span, EngineCommand)>(10000);
         let (query_sender, mut query_receiver) =
@@ -36,17 +39,21 @@ impl AsyncEngine {
 
         let mut engine = SyncEngine::new(storage)?;
 
-        std::thread::spawn(move || {
+        let _ = ThreadBuilder::new().name("engine".into()).spawn(move || {
             let mut last_check = Instant::now();
             let mut computed_ns_since_last_check: u128 = 0;
 
             fn recv(
+                sync: &mut Receiver<(tracing::Span, EngineCommand)>,
                 query: &mut Receiver<(tracing::Span, EngineCommand)>,
                 insert: &mut Receiver<(tracing::Span, EngineCommand)>,
             ) -> Option<(tracing::Span, EngineCommand)> {
                 futures::executor::block_on(async {
                     tokio::select! {
                         biased;
+                        msg = sync.recv() => {
+                            msg
+                        }
                         msg = query.recv() => {
                             msg
                         }
@@ -57,7 +64,11 @@ impl AsyncEngine {
                 })
             }
 
-            while let Some((tracing_span, cmd)) = recv(&mut query_receiver, &mut insert_receiver) {
+            while let Some((tracing_span, cmd)) = recv(
+                &mut sync_receiver,
+                &mut query_receiver,
+                &mut insert_receiver,
+            ) {
                 let cmd_start = Instant::now();
 
                 let entered_span = tracing_span.entered();
@@ -202,6 +213,7 @@ impl AsyncEngine {
         });
 
         Ok(AsyncEngine {
+            sync_sender,
             insert_sender,
             query_sender,
         })
@@ -362,10 +374,14 @@ impl AsyncEngine {
     }
 
     #[instrument(skip_all)]
-    pub fn sync(&self) {
-        let _ = self
-            .insert_sender
-            .blocking_send((tracing::Span::current(), EngineCommand::Sync));
+    pub async fn sync(&self) -> Result<(), AnyError> {
+        self.sync_sender
+            .send((tracing::Span::current(), EngineCommand::Sync))
+            .await
+            .map_err(|err| anyhow!("{err}"))
+            .context("failed to send sync command, engine must have stopped")?;
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
