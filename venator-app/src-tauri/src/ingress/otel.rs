@@ -80,7 +80,7 @@ impl LogsService for LogsCollector {
         &self,
         request: Request<ExportLogsServiceRequest>,
     ) -> Result<Response<ExportLogsServiceResponse>, Status> {
-        let request = request.get_ref();
+        let request = request.into_inner();
         let response = process_logs_request(&self.engine, request).await;
         Ok(Response::new(response))
     }
@@ -96,7 +96,7 @@ impl MetricsService for MetricsCollector {
         &self,
         request: Request<ExportMetricsServiceRequest>,
     ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
-        let request = request.get_ref();
+        let request = request.into_inner();
         let response = process_metrics_request(&self.engine, request).await;
         Ok(Response::new(response))
     }
@@ -112,7 +112,7 @@ impl TraceService for TraceCollector {
         &self,
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        let request = request.get_ref();
+        let request = request.into_inner();
         let response = process_trace_request(&self.engine, request).await;
         Ok(Response::new(response))
     }
@@ -134,7 +134,7 @@ pub(super) async fn post_otel_logs_handler(
     State(state): State<Arc<IngressState>>,
     Protobuf(request): Protobuf<ExportLogsServiceRequest>,
 ) -> Protobuf<ExportLogsServiceResponse> {
-    let response = process_logs_request(&state.engine, &request).await;
+    let response = process_logs_request(&state.engine, request).await;
     Protobuf(response)
 }
 
@@ -142,7 +142,7 @@ pub(super) async fn post_otel_metrics_handler(
     State(state): State<Arc<IngressState>>,
     Protobuf(request): Protobuf<ExportMetricsServiceRequest>,
 ) -> Protobuf<ExportMetricsServiceResponse> {
-    let response = process_metrics_request(&state.engine, &request).await;
+    let response = process_metrics_request(&state.engine, request).await;
     Protobuf(response)
 }
 
@@ -150,17 +150,17 @@ pub(super) async fn post_otel_trace_handler(
     State(state): State<Arc<IngressState>>,
     Protobuf(request): Protobuf<ExportTraceServiceRequest>,
 ) -> Protobuf<ExportTraceServiceResponse> {
-    let response = process_trace_request(&state.engine, &request).await;
+    let response = process_trace_request(&state.engine, request).await;
     Protobuf(response)
 }
 
 async fn process_logs_request(
     engine: &AsyncEngine,
-    request: &ExportLogsServiceRequest,
+    request: ExportLogsServiceRequest,
 ) -> ExportLogsServiceResponse {
-    for resource_log in &request.resource_logs {
-        let resource_attributes = if let Some(resource) = &resource_log.resource {
-            conv_value_map(&resource.attributes)
+    for resource_log in request.resource_logs {
+        let resource_attributes = if let Some(resource) = resource_log.resource {
+            conv_value_map(resource.attributes)
         } else {
             // resource info is unknown
             BTreeMap::new()
@@ -181,10 +181,10 @@ async fn process_logs_request(
             }
         };
 
-        for scope_log in &resource_log.scope_logs {
+        for scope_log in resource_log.scope_logs {
             // I'm not going to worry about instrumentation scope
 
-            for log_record in &scope_log.log_records {
+            for log_record in scope_log.log_records {
                 let timestamp = if log_record.time_unix_nano != 0 {
                     log_record.time_unix_nano / 1000
                 } else if log_record.observed_time_unix_nano != 0 {
@@ -204,7 +204,7 @@ async fn process_logs_request(
                     continue;
                 };
 
-                let mut attributes = conv_value_map(&log_record.attributes);
+                let mut attributes = conv_value_map(log_record.attributes);
 
                 let namespace = extract_namespace(&mut attributes);
                 let function = extract_function(&mut attributes);
@@ -220,11 +220,7 @@ async fn process_logs_request(
                     span_id: trace_id.and_then(|trace_id| {
                         span_id.map(|span_id| FullSpanId::Opentelemetry(trace_id, span_id))
                     }),
-                    content: log_record
-                        .body
-                        .as_ref()
-                        .map(conv_value)
-                        .unwrap_or(Value::Null),
+                    content: log_record.body.map(conv_value).unwrap_or(Value::Null),
                     namespace,
                     function,
                     level,
@@ -249,7 +245,7 @@ async fn process_logs_request(
 
 async fn process_metrics_request(
     _engine: &AsyncEngine,
-    _request: &ExportMetricsServiceRequest,
+    _request: ExportMetricsServiceRequest,
 ) -> ExportMetricsServiceResponse {
     ExportMetricsServiceResponse {
         partial_success: None,
@@ -258,11 +254,11 @@ async fn process_metrics_request(
 
 async fn process_trace_request(
     engine: &AsyncEngine,
-    request: &ExportTraceServiceRequest,
+    request: ExportTraceServiceRequest,
 ) -> ExportTraceServiceResponse {
-    for resource_span in &request.resource_spans {
-        let resource_attributes = if let Some(resource) = &resource_span.resource {
-            conv_value_map(&resource.attributes)
+    for resource_span in request.resource_spans {
+        let resource_attributes = if let Some(resource) = resource_span.resource {
+            conv_value_map(resource.attributes)
         } else {
             // resource info is unknown
             BTreeMap::new()
@@ -283,13 +279,12 @@ async fn process_trace_request(
             }
         };
 
-        for scope_span in &resource_span.scope_spans {
+        for scope_span in resource_span.scope_spans {
             // I'm not going to worry about instrumentation scope
 
             let mut instrumentation_attributes = scope_span
                 .scope
-                .as_ref()
-                .map(|scope| conv_value_map(&scope.attributes))
+                .map(|scope| conv_value_map(scope.attributes))
                 .unwrap_or_default();
 
             let scope_level = extract_level(&mut instrumentation_attributes);
@@ -299,7 +294,7 @@ async fn process_trace_request(
             let scope_file_line = extract_file_line(&mut instrumentation_attributes);
             let scope_file_column = extract_file_column(&mut instrumentation_attributes);
 
-            for span in &scope_span.spans {
+            for span in scope_span.spans {
                 let created_timestamp = span.start_time_unix_nano / 1000;
                 let closed_timestamp = span.end_time_unix_nano / 1000;
 
@@ -314,7 +309,7 @@ async fn process_trace_request(
                 };
 
                 let parent_span_id = parse_span_id(&span.parent_span_id);
-                let mut attributes = conv_value_map(&span.attributes);
+                let mut attributes = conv_value_map(span.attributes);
 
                 let level = extract_level(&mut attributes).or(scope_level);
                 let Ok(level) = Level::from_otel_severity(level.unwrap_or(9)) else {
@@ -372,10 +367,10 @@ async fn process_trace_request(
                 #[allow(clippy::let_underscore_future)]
                 let _ = engine.insert_span_event(close_span_event).await;
 
-                for event in &span.events {
+                for event in span.events {
                     let timestamp = event.time_unix_nano / 1000;
 
-                    let mut attributes = conv_value_map(&event.attributes);
+                    let mut attributes = conv_value_map(event.attributes);
 
                     // spans events don't have levels so just set to @level
                     // if it has it or just fallback to INFO (todo: there is
@@ -425,12 +420,12 @@ async fn process_trace_request(
     }
 }
 
-fn conv_value_map(key_values: &[KeyValue]) -> BTreeMap<String, Value> {
+fn conv_value_map(key_values: Vec<KeyValue>) -> BTreeMap<String, Value> {
     key_values
-        .iter()
+        .into_iter()
         .map(|key_value| {
-            let key = key_value.key.to_owned();
-            let value = match &key_value.value {
+            let key = key_value.key;
+            let value = match key_value.value {
                 Some(any_value) => conv_value(any_value),
                 None => Value::Null,
             };
@@ -440,20 +435,20 @@ fn conv_value_map(key_values: &[KeyValue]) -> BTreeMap<String, Value> {
         .collect()
 }
 
-fn conv_value(any_value: &AnyValue) -> Value {
+fn conv_value(any_value: AnyValue) -> Value {
     use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
 
-    let any_value = any_value.value.as_ref();
-
-    match any_value {
+    match any_value.value {
         None => Value::Null,
-        Some(AnyValue::BoolValue(v)) => Value::Bool(*v),
-        Some(AnyValue::IntValue(v)) => Value::I64(*v),
-        Some(AnyValue::DoubleValue(v)) => Value::F64(*v),
-        Some(AnyValue::StringValue(v)) => Value::Str(v.to_owned()),
-        Some(AnyValue::BytesValue(v)) => Value::Bytes(v.to_owned()),
-        Some(AnyValue::ArrayValue(v)) => Value::Array(v.values.iter().map(conv_value).collect()),
-        Some(AnyValue::KvlistValue(v)) => Value::Object(conv_value_map(&v.values)),
+        Some(AnyValue::BoolValue(v)) => Value::Bool(v),
+        Some(AnyValue::IntValue(v)) => Value::I64(v),
+        Some(AnyValue::DoubleValue(v)) => Value::F64(v),
+        Some(AnyValue::StringValue(v)) => Value::Str(v),
+        Some(AnyValue::BytesValue(v)) => Value::Bytes(v),
+        Some(AnyValue::ArrayValue(v)) => {
+            Value::Array(v.values.into_iter().map(conv_value).collect())
+        }
+        Some(AnyValue::KvlistValue(v)) => Value::Object(conv_value_map(v.values)),
     }
 }
 
