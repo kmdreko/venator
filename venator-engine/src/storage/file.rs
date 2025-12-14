@@ -1,38 +1,90 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use bincode::Options;
-use rusqlite::{params, Connection as DbConnection, Error as DbError, Params, Row};
-use tracing::{instrument, warn};
+use redb::{
+    CommitError, Database, Key, ReadableDatabase, TableDefinition, TableError, TransactionError,
+    Value as RedbValue,
+};
+use rkyv::rancor::Error as RkyvError;
+use rkyv::{Archive, Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
-use crate::models::{EventKey, Level, SourceKind, Value};
-use crate::storage::batched::Batch;
-use crate::{
-    Event, FullSpanId, Resource, ResourceKey, Span, SpanEvent, SpanEventKind, SpanKey, Timestamp,
-};
+use crate::models::{EventKey, Value};
+use crate::storage::batched::{Batch, BatchAction};
+use crate::{Event, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp};
 
-use super::batched::BatchAction;
 use super::{IndexStorage, Storage, StorageError, StorageIter};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+mod db_model;
+
+use db_model::DbModel;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Archive, Serialize, Deserialize)]
 enum IndexState {
+    #[default]
     Stale,
     Fresh,
+}
+
+#[derive(Debug, Default, Archive, Serialize, Deserialize)]
+struct Meta {
+    indexes: IndexState,
+}
+
+type MetaDbModel<'a> = DbModel<'a, Meta>;
+type ResourceDbModel<'a> = DbModel<'a, Resource>;
+type SpanDbModel<'a> = DbModel<'a, Span>;
+type SpanEventDbModel<'a> = DbModel<'a, SpanEvent>;
+type EventDbModel<'a> = DbModel<'a, Event>;
+
+#[derive(Debug, Copy, Clone)]
+struct TimestampKey(Timestamp);
+
+impl RedbValue for TimestampKey {
+    type SelfType<'a> = TimestampKey;
+
+    type AsBytes<'a> = [u8; 8];
+
+    fn fixed_width() -> Option<usize> {
+        Some(8)
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> TimestampKey
+    where
+        Self: 'a,
+    {
+        let timestamp = <[u8; 8]>::try_from(data).unwrap();
+        let timestamp = u64::from_be_bytes(timestamp);
+        let timestamp = Timestamp::try_from(timestamp).unwrap();
+        TimestampKey(timestamp)
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a TimestampKey) -> [u8; 8]
+    where
+        Self: 'b,
+    {
+        value.0.get().to_be_bytes()
+    }
+}
+
+impl Key for TimestampKey {
+    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
+        Ord::cmp(data1, data2)
+    }
 }
 
 #[allow(unused)]
 #[derive(Debug)]
 enum FileStorageError {
-    Prepare(DbError),
-    Query(DbError),
-    Row(DbError),
-    Insert(DbError),
-    Update(DbError),
-    Begin(DbError),
-    Commit(DbError),
-    Delete(DbError),
+    Table(TableError),
+    Storage(redb::StorageError),
+    Transaction(TransactionError),
+    Commit(CommitError),
+    Deserialize(RkyvError),
+    NotFound,
 }
 
 impl From<FileStorageError> for StorageError {
@@ -43,247 +95,170 @@ impl From<FileStorageError> for StorageError {
 
 /// This storage holds all entities in an SQLite database at the provided path.
 pub struct FileStorage {
-    connection: DbConnection,
+    database: Database,
     index_state: IndexState,
 }
 
 impl FileStorage {
     pub fn new(path: &Path) -> FileStorage {
-        let connection = DbConnection::open(path).unwrap();
+        let database = Database::create(path).unwrap();
 
-        // connection
-        //     .execute_batch(r#"PRAGMA synchronous = OFF; PRAGMA journal_mode = OFF;"#)
-        //     .unwrap();
+        let tx = database.begin_write().unwrap();
 
-        let _ = connection.execute(
-            r#"
-            CREATE TABLE meta (
-                id      INT  NOT NULL,
-                version TEXT NOT NULL,
-                indexes TEXT NOT NULL,
-
-                CONSTRAINT meta_pk PRIMARY KEY (id)
-            );
-            "#,
-            (),
-        );
-
-        let _ = connection.execute(r#"INSERT INTO meta VALUES (1, '0.5', 'STALE');"#, ());
-
-        let (version, mut index_state): (String, String) = connection
-            .query_row(
-                "SELECT version, indexes FROM meta WHERE id = 1",
-                (),
-                |row| row.get(0).and_then(|a| row.get(1).map(|b| (a, b))),
-            )
+        tx.open_table::<u32, MetaDbModel>(TableDefinition::new("meta"))
+            .unwrap();
+        tx.open_table::<u32, Vec<u8>>(TableDefinition::new("indexes"))
+            .unwrap();
+        tx.open_table::<TimestampKey, ResourceDbModel>(TableDefinition::new("resources"))
+            .unwrap();
+        tx.open_table::<TimestampKey, SpanDbModel>(TableDefinition::new("spans"))
+            .unwrap();
+        tx.open_table::<TimestampKey, SpanEventDbModel>(TableDefinition::new("span_events"))
+            .unwrap();
+        tx.open_table::<TimestampKey, EventDbModel>(TableDefinition::new("events"))
             .unwrap();
 
-        if version != "0.3" && version != "0.4" && version != "0.5" {
-            panic!("cannot load database with incompatible version");
-        }
-
-        if version == "0.3" || version == "0.4" {
-            // migrating from 0.3 -> 0.4 -> 0.5 just requires voiding the index
-            // so it will be rebuilt
-
-            index_state = "STALE".to_owned();
-            connection
-                .execute(
-                    "UPDATE meta SET indexes = 'STALE', version = '0.5' WHERE id = 1",
-                    (),
-                )
-                .unwrap();
-        }
-
-        let index_state = match &*index_state {
-            "STALE" => IndexState::Stale,
-            "FRESH" => IndexState::Fresh,
-            _ => IndexState::Stale,
-        };
-
-        let _ = connection.execute(
-            r#"
-            CREATE TABLE indexes (
-                kind TEXT NOT NULL,
-                data BLOB NOT NULL,
-
-                CONSTRAINT indexes_pk PRIMARY KEY (kind)
-            );
-            "#,
-            (),
-        );
-
-        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('spans', x'');"#, ());
-
-        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('span_events', x'');"#, ());
-
-        let _ = connection.execute(r#"INSERT INTO indexes VALUES ('events', x'');"#, ());
-
-        let _ = connection.execute(
-            r#"
-            CREATE TABLE resources (
-                key        INT8 NOT NULL,
-                attributes TEXT NOT NULL,
-                warnings   TEXT NOT NULL,
-
-                CONSTRAINT resources_pk PRIMARY KEY (key)
-            );"#,
-            (),
-        );
-
-        let _ = connection.execute(
-            r#"
-            CREATE TABLE spans (
-                key              INT8 NOT NULL,
-                kind             INT NOT NULL,
-                resource_key     INT8 NOT NULL,
-                id               TEXT NOT NULL,
-                closed_at        INT8,
-                busy             INT8,
-                parent_id        TEXT,
-                parent_key       INT8,
-                links            TEXT NOT NULL,
-                name             TEXT NOT NULL,
-                namespace        TEXT,
-                function         TEXT,
-                level            INT NOT NULL,
-                file_name        TEXT,
-                file_line        INT,
-                file_column      INT,
-                instr_attributes TEXT NOT NULL,
-                attributes       TEXT NOT NULL,
-                warnings         TEXT NOT NULL,
-
-                CONSTRAINT spans_pk PRIMARY KEY (key)
-            );"#,
-            (),
-        );
-
-        let _ = connection.execute(
-            r#"
-            CREATE TABLE span_events (
-                key      INT8 NOT NULL,
-                span_key INT8 NOT NULL,
-                kind     TEXT NOT NULL,
-                data     TEXT,
-                warnings TEXT NOT NULL,
-
-                CONSTRAINT span_events_pk PRIMARY KEY (key)
-            );"#,
-            (),
-        );
-
-        let _ = connection.execute(
-            r#"
-            CREATE TABLE events (
-                key          INT8 NOT NULL,
-                kind         INT NOT NULL,
-                resource_key INT8 NOT NULL,
-                parent_id    TEXT,
-                parent_key   INT8,
-                content      TEXT NOT NULL,
-                namespace    TEXT,
-                function     TEXT,
-                level        INT NOT NULL,
-                file_name    TEXT,
-                file_line    INT,
-                file_column  INT,
-                attributes   TEXT NOT NULL,
-                warnings     TEXT NOT NULL,
-
-                CONSTRAINT events_pk PRIMARY KEY (key)
-            );"#,
-            (),
-        );
+        tx.commit().unwrap();
 
         FileStorage {
-            connection,
-            index_state,
+            database,
+            index_state: IndexState::Fresh,
         }
     }
 
-    fn invalidate_indexes(&mut self) {
+    fn invalidate_indexes(&mut self) -> Result<(), FileStorageError> {
         if self.index_state == IndexState::Fresh {
-            self.connection
-                .execute("UPDATE meta SET indexes = 'STALE' WHERE id = 1", ())
-                .unwrap();
+            let mut maybe_meta = self
+                .database
+                .begin_read()
+                .map_err(FileStorageError::Transaction)?
+                .open_table::<u32, MetaDbModel>(TableDefinition::new("meta"))
+                .map_err(FileStorageError::Table)?
+                .get(1)
+                .map_err(FileStorageError::Storage)?;
+
+            let mut meta = maybe_meta
+                .as_mut()
+                .map(|guard| guard.value().to_unarchived())
+                .transpose()
+                .map_err(FileStorageError::Deserialize)?
+                .unwrap_or_default();
+
+            meta.indexes = IndexState::Stale;
+
+            let tx = self
+                .database
+                .begin_write()
+                .map_err(FileStorageError::Transaction)?;
+
+            tx.open_table::<u32, MetaDbModel>(TableDefinition::new("meta"))
+                .map_err(FileStorageError::Table)?
+                .insert(1, MetaDbModel::from_unarchived(&meta))
+                .map_err(FileStorageError::Storage)?;
+
+            tx.commit().map_err(FileStorageError::Commit)?;
 
             self.index_state = IndexState::Stale;
         }
+
+        Ok(())
     }
 }
 
 impl Storage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_resource(&self, at: Timestamp) -> Result<Arc<Resource>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM resources WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-
-        let resource = stmt
-            .query_row((at,), resource_from_row)
-            .map_err(FileStorageError::Row)?;
+        let resource = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, ResourceDbModel>(TableDefinition::new("resources"))
+            .map_err(FileStorageError::Table)?
+            .get(TimestampKey(at))
+            .map_err(FileStorageError::Storage)?
+            .ok_or(FileStorageError::NotFound)?
+            .value()
+            .to_unarchived()
+            .map_err(FileStorageError::Deserialize)?;
 
         Ok(Arc::new(resource))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_span(&self, at: Timestamp) -> Result<Arc<Span>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM spans WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-
-        let span = stmt
-            .query_row((at,), span_from_row)
-            .map_err(FileStorageError::Row)?;
+        let span = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, SpanDbModel>(TableDefinition::new("spans"))
+            .map_err(FileStorageError::Table)?
+            .get(TimestampKey(at))
+            .map_err(FileStorageError::Storage)?
+            .ok_or(FileStorageError::NotFound)?
+            .value()
+            .to_unarchived()
+            .map_err(FileStorageError::Deserialize)?;
 
         Ok(Arc::new(span))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_span_event(&self, at: Timestamp) -> Result<Arc<SpanEvent>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM span_events WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-
-        let span_event = stmt
-            .query_row((at,), span_event_from_row)
-            .map_err(FileStorageError::Row)?;
+        let span_event = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, SpanEventDbModel>(TableDefinition::new("span_events"))
+            .map_err(FileStorageError::Table)?
+            .get(TimestampKey(at))
+            .map_err(FileStorageError::Storage)?
+            .ok_or(FileStorageError::NotFound)?
+            .value()
+            .to_unarchived()
+            .map_err(FileStorageError::Deserialize)?;
 
         Ok(Arc::new(span_event))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_event(&self, at: Timestamp) -> Result<Arc<Event>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM events WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-
-        let event = stmt
-            .query_row((at,), event_from_row)
-            .map_err(FileStorageError::Row)?;
+        let event = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, EventDbModel>(TableDefinition::new("events"))
+            .map_err(FileStorageError::Table)?
+            .get(TimestampKey(at))
+            .map_err(FileStorageError::Storage)?
+            .ok_or(FileStorageError::NotFound)?
+            .value()
+            .to_unarchived()
+            .map_err(FileStorageError::Deserialize)?;
 
         Ok(Arc::new(event))
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_resources(&self) -> Result<StorageIter<'_, Resource>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM resources ORDER BY key")
-            .map_err(FileStorageError::Prepare)?;
-
-        let resources = stmt
-            .query_map((), resource_from_row)
-            .map_err(FileStorageError::Query)?
+        let resources = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, ResourceDbModel>(TableDefinition::new("resources"))
+            .map_err(FileStorageError::Table)?
+            .range::<TimestampKey>(..)
+            .map_err(FileStorageError::Storage)?
             .map(|result| {
                 result
+                    .map_err(FileStorageError::Storage)
+                    .and_then(|(_key, resource)| {
+                        resource
+                            .value()
+                            .to_unarchived()
+                            .map_err(FileStorageError::Deserialize)
+                    })
                     .map(Arc::new)
-                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+                    .map_err(StorageError::from)
             })
             .collect::<Vec<_>>();
 
@@ -292,18 +267,24 @@ impl Storage for FileStorage {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_spans(&self) -> Result<StorageIter<'_, Span>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM spans ORDER BY key")
-            .map_err(FileStorageError::Prepare)?;
-
-        let spans = stmt
-            .query_map((), span_from_row)
-            .map_err(FileStorageError::Query)?
+        let spans = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, SpanDbModel>(TableDefinition::new("spans"))
+            .map_err(FileStorageError::Table)?
+            .range::<TimestampKey>(..)
+            .map_err(FileStorageError::Storage)?
             .map(|result| {
                 result
+                    .map_err(FileStorageError::Storage)
+                    .and_then(|(_key, span)| {
+                        span.value()
+                            .to_unarchived()
+                            .map_err(FileStorageError::Deserialize)
+                    })
                     .map(Arc::new)
-                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+                    .map_err(StorageError::from)
             })
             .collect::<Vec<_>>();
 
@@ -312,18 +293,25 @@ impl Storage for FileStorage {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_span_events(&self) -> Result<StorageIter<'_, SpanEvent>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM span_events ORDER BY key")
-            .map_err(FileStorageError::Prepare)?;
-
-        let span_events = stmt
-            .query_map((), span_event_from_row)
-            .map_err(FileStorageError::Query)?
+        let span_events = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, SpanEventDbModel>(TableDefinition::new("span_events"))
+            .map_err(FileStorageError::Table)?
+            .range::<TimestampKey>(..)
+            .map_err(FileStorageError::Storage)?
             .map(|result| {
                 result
+                    .map_err(FileStorageError::Storage)
+                    .and_then(|(_key, span_event)| {
+                        span_event
+                            .value()
+                            .to_unarchived()
+                            .map_err(FileStorageError::Deserialize)
+                    })
                     .map(Arc::new)
-                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+                    .map_err(StorageError::from)
             })
             .collect::<Vec<_>>();
 
@@ -332,18 +320,25 @@ impl Storage for FileStorage {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_all_events(&self) -> Result<StorageIter<'_, Event>, StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM events ORDER BY key")
-            .map_err(FileStorageError::Prepare)?;
-
-        let events = stmt
-            .query_map((), event_from_row)
-            .map_err(FileStorageError::Query)?
+        let events = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<TimestampKey, EventDbModel>(TableDefinition::new("events"))
+            .map_err(FileStorageError::Table)?
+            .range::<TimestampKey>(..)
+            .map_err(FileStorageError::Storage)?
             .map(|result| {
                 result
+                    .map_err(FileStorageError::Storage)
+                    .and_then(|(_key, event)| {
+                        event
+                            .value()
+                            .to_unarchived()
+                            .map_err(FileStorageError::Deserialize)
+                    })
                     .map(Arc::new)
-                    .map_err(|e| StorageError::from(FileStorageError::Row(e)))
+                    .map_err(StorageError::from)
             })
             .collect::<Vec<_>>();
 
@@ -352,102 +347,90 @@ impl Storage for FileStorage {
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_resource(&mut self, resource: Resource) -> Result<(), StorageError> {
-        let mut stmt = self
-            .connection
-            .prepare_cached("INSERT INTO resources VALUES (?1, ?2, ?3)")
-            .map_err(FileStorageError::Prepare)?;
+        self.invalidate_indexes()?;
 
-        stmt.execute(resource_to_params(resource))
-            .map_err(FileStorageError::Insert)?;
+        let tx = self
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
+
+        tx.open_table::<TimestampKey, ResourceDbModel>(TableDefinition::new("resources"))
+            .map_err(FileStorageError::Table)?
+            .insert(
+                TimestampKey(resource.key()),
+                ResourceDbModel::from_unarchived(&resource),
+            )
+            .map_err(FileStorageError::Storage)?;
+
+        tx.commit().map_err(FileStorageError::Commit)?;
+
         Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_span(&mut self, span: Span) -> Result<(), StorageError> {
-        self.invalidate_indexes();
+        self.invalidate_indexes()?;
 
-        let mut stmt = self
-            .connection
-            .prepare_cached(
-                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+        let tx = self
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
+
+        tx.open_table::<TimestampKey, SpanDbModel>(TableDefinition::new("spans"))
+            .map_err(FileStorageError::Table)?
+            .insert(
+                TimestampKey(span.key()),
+                SpanDbModel::from_unarchived(&span),
             )
-            .map_err(FileStorageError::Prepare)?;
+            .map_err(FileStorageError::Storage)?;
 
-        // have to inline it since I exceeded 16 elements
+        tx.commit().map_err(FileStorageError::Commit)?;
 
-        let key = span.created_at;
-        let kind = span.kind as i32;
-        let resource_key = span.resource_key;
-        let id = span.id.to_string();
-        let closed_at = span.closed_at;
-        let busy = span.busy.map(|b| b as i64);
-        let parent_id = span.parent_id.map(|id| id.to_string());
-        let parent_key = span.parent_key;
-        let links = serde_json::to_string(&span.links).unwrap();
-        let name = span.name;
-        let namespace = span.namespace;
-        let function = span.function;
-        let level = span.level.to_db();
-        let file_name = span.file_name;
-        let file_line = span.file_line;
-        let file_column = span.file_column;
-        let instrumentation_attributes =
-            serde_json::to_string(&span.instrumentation_attributes).unwrap();
-        let attributes = serde_json::to_string(&span.attributes).unwrap();
-        let warnings = "[]";
-
-        stmt.execute(params![
-            key,
-            kind,
-            resource_key,
-            id,
-            closed_at,
-            busy,
-            parent_id,
-            parent_key,
-            links,
-            name,
-            namespace,
-            function,
-            level,
-            file_name,
-            file_line,
-            file_column,
-            instrumentation_attributes,
-            attributes,
-            warnings,
-        ])
-        .map_err(FileStorageError::Insert)?;
         Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_span_event(&mut self, span_event: SpanEvent) -> Result<(), StorageError> {
-        self.invalidate_indexes();
+        self.invalidate_indexes()?;
 
-        let mut stmt = self
-            .connection
-            .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4, ?5)")
-            .map_err(FileStorageError::Prepare)?;
+        let tx = self
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
 
-        stmt.execute(span_event_to_params(span_event))
-            .map_err(FileStorageError::Insert)?;
+        tx.open_table::<TimestampKey, SpanEventDbModel>(TableDefinition::new("span_events"))
+            .map_err(FileStorageError::Table)?
+            .insert(
+                TimestampKey(span_event.timestamp),
+                SpanEventDbModel::from_unarchived(&span_event),
+            )
+            .map_err(FileStorageError::Storage)?;
+
+        tx.commit().map_err(FileStorageError::Commit)?;
+
         Ok(())
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn insert_event(&mut self, event: Event) -> Result<(), StorageError> {
-        self.invalidate_indexes();
+        self.invalidate_indexes()?;
 
-        let mut stmt = self
-            .connection
-            .prepare_cached(
-                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        let tx = self
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
+
+        // tx.set_durability(Durability::None).unwrap();
+
+        tx.open_table::<TimestampKey, EventDbModel>(TableDefinition::new("events"))
+            .map_err(FileStorageError::Table)?
+            .insert(
+                TimestampKey(event.key()),
+                EventDbModel::from_unarchived(&event),
             )
-            .map_err(FileStorageError::Prepare)?;
+            .map_err(FileStorageError::Storage)?;
 
-        stmt.execute(event_to_params(event))
-            .map_err(FileStorageError::Insert)?;
+        tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())
     }
@@ -459,15 +442,14 @@ impl Storage for FileStorage {
         closed: Timestamp,
         busy: Option<u64>,
     ) -> Result<(), StorageError> {
-        self.invalidate_indexes();
+        self.invalidate_indexes()?;
 
-        let mut stmt = self
-            .connection
-            .prepare_cached("UPDATE spans SET closed_at = ?2, busy = ?3 WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        let mut span = Arc::unwrap_or_clone(self.get_span(at)?);
 
-        stmt.execute((at, closed, busy.map(|b| b as i64)))
-            .map_err(FileStorageError::Update)?;
+        span.closed_at = Some(closed);
+        span.busy = busy;
+
+        self.insert_span(span)?;
 
         Ok(())
     }
@@ -478,32 +460,13 @@ impl Storage for FileStorage {
         at: Timestamp,
         attributes: BTreeMap<String, Value>,
     ) -> Result<(), StorageError> {
-        self.invalidate_indexes();
+        self.invalidate_indexes()?;
 
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        let mut span = Arc::unwrap_or_clone(self.get_span(at)?);
 
-        let span = stmt
-            .query_row((at,), span_from_row)
-            .map_err(FileStorageError::Row)?;
-        let existing_attributes = span.attributes;
+        span.attributes.extend(attributes);
 
-        let attributes = {
-            let mut new_attributes = existing_attributes;
-            new_attributes.extend(attributes);
-            new_attributes
-        };
-        let attributes = serde_json::to_string(&attributes).unwrap();
-
-        let mut stmt = self
-            .connection
-            .prepare_cached("UPDATE spans SET attributes = ?2 WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-
-        stmt.execute((at, attributes))
-            .map_err(FileStorageError::Update)?;
+        self.insert_span(span)?;
 
         Ok(())
     }
@@ -515,32 +478,13 @@ impl Storage for FileStorage {
         link: FullSpanId,
         attributes: BTreeMap<String, Value>,
     ) -> Result<(), StorageError> {
-        self.invalidate_indexes();
+        self.invalidate_indexes()?;
 
-        let mut stmt = self
-            .connection
-            .prepare_cached("SELECT * FROM spans WHERE spans.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        let mut span = Arc::unwrap_or_clone(self.get_span(at)?);
 
-        let span = stmt
-            .query_row((at,), span_from_row)
-            .map_err(FileStorageError::Row)?;
-        let existing_links = span.links;
+        span.links.push((link, attributes));
 
-        let links = {
-            let mut new_linkss = existing_links;
-            new_linkss.push((link, attributes));
-            new_linkss
-        };
-        let attributes = serde_json::to_string(&links).unwrap();
-
-        let mut stmt = self
-            .connection
-            .prepare_cached("UPDATE spans SET follows = ?2 WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-
-        stmt.execute((at, attributes))
-            .map_err(FileStorageError::Update)?;
+        self.insert_span(span)?;
 
         Ok(())
     }
@@ -551,24 +495,15 @@ impl Storage for FileStorage {
         parent_key: SpanKey,
         spans: &[SpanKey],
     ) -> Result<(), StorageError> {
-        self.invalidate_indexes();
-
-        let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
-
-        let mut stmt = tx
-            .prepare_cached("UPDATE spans SET parent_key = ?2 WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        self.invalidate_indexes()?;
 
         for span_key in spans {
-            stmt.execute((span_key, parent_key))
-                .map_err(FileStorageError::Update)?;
-        }
+            let mut span = Arc::unwrap_or_clone(self.get_span(*span_key)?);
 
-        drop(stmt);
-        tx.commit().map_err(FileStorageError::Commit)?;
+            span.parent_key = Some(parent_key);
+
+            self.insert_span(span)?;
+        }
 
         Ok(())
     }
@@ -579,24 +514,15 @@ impl Storage for FileStorage {
         parent_key: SpanKey,
         events: &[EventKey],
     ) -> Result<(), StorageError> {
-        self.invalidate_indexes();
-
-        let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
-
-        let mut stmt = tx
-            .prepare_cached("UPDATE events SET parent_key = ?2 WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        self.invalidate_indexes()?;
 
         for event_key in events {
-            stmt.execute((event_key, parent_key))
-                .map_err(FileStorageError::Update)?;
-        }
+            let mut event = Arc::unwrap_or_clone(self.get_event(*event_key)?);
 
-        drop(stmt);
-        tx.commit().map_err(FileStorageError::Commit)?;
+            event.parent_key = Some(parent_key);
+
+            self.insert_event(event)?;
+        }
 
         Ok(())
     }
@@ -604,20 +530,21 @@ impl Storage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_resources(&mut self, resources: &[Timestamp]) -> Result<(), StorageError> {
         let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
 
-        let mut stmt = tx
-            .prepare_cached("DELETE FROM resources WHERE resources.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        let mut table = tx
+            .open_table::<TimestampKey, ResourceDbModel>(TableDefinition::new("resources"))
+            .map_err(FileStorageError::Table)?;
 
         for resource_key in resources {
-            stmt.execute((resource_key,))
-                .map_err(FileStorageError::Delete)?;
+            table
+                .remove(TimestampKey(*resource_key))
+                .map_err(FileStorageError::Storage)?;
         }
 
-        drop(stmt);
+        drop(table);
         tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())
@@ -626,20 +553,21 @@ impl Storage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_spans(&mut self, spans: &[Timestamp]) -> Result<(), StorageError> {
         let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
 
-        let mut stmt = tx
-            .prepare_cached("DELETE FROM spans WHERE spans.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        let mut table = tx
+            .open_table::<TimestampKey, SpanDbModel>(TableDefinition::new("spans"))
+            .map_err(FileStorageError::Table)?;
 
         for span_key in spans {
-            stmt.execute((span_key,))
-                .map_err(FileStorageError::Delete)?;
+            table
+                .remove(TimestampKey(*span_key))
+                .map_err(FileStorageError::Storage)?;
         }
 
-        drop(stmt);
+        drop(table);
         tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())
@@ -648,20 +576,21 @@ impl Storage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_span_events(&mut self, span_events: &[Timestamp]) -> Result<(), StorageError> {
         let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
 
-        let mut stmt = tx
-            .prepare_cached("DELETE FROM span_events WHERE span_events.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        let mut table = tx
+            .open_table::<TimestampKey, SpanEventDbModel>(TableDefinition::new("span_events"))
+            .map_err(FileStorageError::Table)?;
 
         for span_event_key in span_events {
-            stmt.execute((span_event_key,))
-                .map_err(FileStorageError::Delete)?;
+            table
+                .remove(TimestampKey(*span_event_key))
+                .map_err(FileStorageError::Storage)?;
         }
 
-        drop(stmt);
+        drop(table);
         tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())
@@ -670,30 +599,29 @@ impl Storage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn drop_events(&mut self, events: &[Timestamp]) -> Result<(), StorageError> {
         let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
 
-        let mut stmt = tx
-            .prepare_cached("DELETE FROM events WHERE events.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
+        let mut table = tx
+            .open_table::<TimestampKey, EventDbModel>(TableDefinition::new("events"))
+            .map_err(FileStorageError::Table)?;
 
         for event_key in events {
-            stmt.execute((event_key,))
-                .map_err(FileStorageError::Delete)?;
+            table
+                .remove(TimestampKey(*event_key))
+                .map_err(FileStorageError::Storage)?;
         }
 
-        drop(stmt);
+        drop(table);
         tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())
     }
 
     fn sync(&mut self) -> Result<(), StorageError> {
-        self.connection
-            .cache_flush()
-            .map_err(FileStorageError::Commit)
-            .map_err(StorageError::from)
+        // we sync on each commit, nothing to do
+        Ok(())
     }
 
     #[allow(private_interfaces)]
@@ -707,47 +635,158 @@ impl Storage for FileStorage {
     }
 }
 
+impl Batch for FileStorage {
+    fn batch(
+        &mut self,
+        resources: &mut dyn Iterator<Item = &BatchAction<Arc<Resource>>>,
+        spans: &mut dyn Iterator<Item = &BatchAction<Arc<Span>>>,
+        span_events: &mut dyn Iterator<Item = &BatchAction<Arc<SpanEvent>>>,
+        events: &mut dyn Iterator<Item = &BatchAction<Arc<Event>>>,
+    ) -> Result<(), StorageError> {
+        let tx = self
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
+
+        let mut resources_table = tx
+            .open_table::<TimestampKey, ResourceDbModel>(TableDefinition::new("resources"))
+            .map_err(FileStorageError::Table)?;
+        let mut spans_table = tx
+            .open_table::<TimestampKey, SpanDbModel>(TableDefinition::new("spans"))
+            .map_err(FileStorageError::Table)?;
+        let mut span_events_table = tx
+            .open_table::<TimestampKey, SpanEventDbModel>(TableDefinition::new("span_events"))
+            .map_err(FileStorageError::Table)?;
+        let mut events_table = tx
+            .open_table::<TimestampKey, EventDbModel>(TableDefinition::new("events"))
+            .map_err(FileStorageError::Table)?;
+
+        for resource in resources {
+            match resource {
+                BatchAction::Create(resource) | BatchAction::Update(resource) => {
+                    resources_table
+                        .insert(
+                            TimestampKey(resource.key()),
+                            ResourceDbModel::from_unarchived(&resource),
+                        )
+                        .map_err(FileStorageError::Storage)?;
+                }
+                BatchAction::Delete(resource_key) => {
+                    resources_table
+                        .remove(TimestampKey(*resource_key))
+                        .map_err(FileStorageError::Storage)?;
+                }
+            }
+        }
+
+        for span in spans {
+            match span {
+                BatchAction::Create(span) | BatchAction::Update(span) => {
+                    spans_table
+                        .insert(
+                            TimestampKey(span.key()),
+                            SpanDbModel::from_unarchived(&span),
+                        )
+                        .map_err(FileStorageError::Storage)?;
+                }
+                BatchAction::Delete(span_key) => {
+                    spans_table
+                        .remove(TimestampKey(*span_key))
+                        .map_err(FileStorageError::Storage)?;
+                }
+            }
+        }
+
+        for span_event in span_events {
+            match span_event {
+                BatchAction::Create(span_event) | BatchAction::Update(span_event) => {
+                    span_events_table
+                        .insert(
+                            TimestampKey(span_event.key()),
+                            SpanEventDbModel::from_unarchived(&span_event),
+                        )
+                        .map_err(FileStorageError::Storage)?;
+                }
+                BatchAction::Delete(span_event_key) => {
+                    span_events_table
+                        .remove(TimestampKey(*span_event_key))
+                        .map_err(FileStorageError::Storage)?;
+                }
+            }
+        }
+
+        for event in events {
+            match event {
+                BatchAction::Create(event) | BatchAction::Update(event) => {
+                    events_table
+                        .insert(
+                            TimestampKey(event.key()),
+                            EventDbModel::from_unarchived(&event),
+                        )
+                        .map_err(FileStorageError::Storage)?;
+                }
+                BatchAction::Delete(event_key) => {
+                    events_table
+                        .remove(TimestampKey(*event_key))
+                        .map_err(FileStorageError::Storage)?;
+                }
+            }
+        }
+
+        drop(resources_table);
+        drop(spans_table);
+        drop(span_events_table);
+        drop(events_table);
+        tx.commit().map_err(FileStorageError::Commit)?;
+
+        Ok(())
+    }
+}
+
 impl IndexStorage for FileStorage {
     #[instrument(level = tracing::Level::TRACE, skip_all)]
     fn get_indexes(
         &self,
     ) -> Result<Option<(SpanIndexes, SpanEventIndexes, EventIndexes)>, StorageError> {
-        use bincode::DefaultOptions;
+        use bincode::{DefaultOptions, Options};
 
         if self.index_state == IndexState::Stale {
             return Ok(None);
         }
 
-        let span_index_data: Vec<u8> = self
-            .connection
-            .query_row("SELECT data FROM indexes WHERE kind = 'spans'", (), |row| {
-                row.get(0)
-            })
-            .map_err(FileStorageError::Query)?;
+        let index_table = self
+            .database
+            .begin_read()
+            .map_err(FileStorageError::Transaction)?
+            .open_table::<u32, Vec<u8>>(TableDefinition::new("indexes"))
+            .map_err(FileStorageError::Table)?;
 
-        let span_event_index_data: Vec<u8> = self
-            .connection
-            .query_row(
-                "SELECT data FROM indexes WHERE kind = 'span_events'",
-                (),
-                |row| row.get(0),
-            )
-            .map_err(FileStorageError::Query)?;
+        let span_index_data = index_table
+            .get(1)
+            .map_err(FileStorageError::Storage)?
+            .ok_or(FileStorageError::NotFound)?;
 
-        let event_index_data: Vec<u8> = self
-            .connection
-            .query_row(
-                "SELECT data FROM indexes WHERE kind = 'events'",
-                (),
-                |row| row.get(0),
-            )
-            .map_err(FileStorageError::Query)?;
+        let span_event_index_data = index_table
+            .get(2)
+            .map_err(FileStorageError::Storage)?
+            .ok_or(FileStorageError::NotFound)?;
+
+        let event_index_data = index_table
+            .get(3)
+            .map_err(FileStorageError::Storage)?
+            .ok_or(FileStorageError::NotFound)?;
 
         let bincode_options = DefaultOptions::new().with_fixint_encoding();
 
-        let span_indexes = bincode_options.deserialize(&span_index_data).unwrap();
-        let span_event_indexes = bincode_options.deserialize(&span_event_index_data).unwrap();
-        let event_indexes = bincode_options.deserialize(&event_index_data).unwrap();
+        let span_indexes = bincode_options
+            .deserialize(&span_index_data.value())
+            .unwrap();
+        let span_event_indexes = bincode_options
+            .deserialize(&span_event_index_data.value())
+            .unwrap();
+        let event_indexes = bincode_options
+            .deserialize(&event_index_data.value())
+            .unwrap();
 
         Ok(Some((span_indexes, span_event_indexes, event_indexes)))
     }
@@ -759,7 +798,7 @@ impl IndexStorage for FileStorage {
         span_event_indexes: &SpanEventIndexes,
         event_indexes: &EventIndexes,
     ) -> Result<(), StorageError> {
-        use bincode::DefaultOptions;
+        use bincode::{DefaultOptions, Options};
 
         let bincode_options = DefaultOptions::new().with_fixint_encoding();
 
@@ -768,448 +807,40 @@ impl IndexStorage for FileStorage {
         let event_index_data = bincode_options.serialize(event_indexes).unwrap();
 
         let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
+            .database
+            .begin_write()
+            .map_err(FileStorageError::Transaction)?;
 
-        let mut stmt = tx
-            .prepare("UPDATE indexes SET data = ?2 WHERE kind = ?1")
-            .map_err(FileStorageError::Prepare)?;
-        stmt.execute(("spans", span_index_data))
-            .map_err(FileStorageError::Update)?;
-        stmt.execute(("span_events", span_event_index_data))
-            .map_err(FileStorageError::Update)?;
-        stmt.execute(("events", event_index_data))
-            .map_err(FileStorageError::Update)?;
-        drop(stmt);
+        let mut index_table = tx
+            .open_table::<u32, Vec<u8>>(TableDefinition::new("indexes"))
+            .map_err(FileStorageError::Table)?;
 
-        tx.execute("UPDATE meta SET indexes = 'FRESH' WHERE id = 1", ())
-            .map_err(FileStorageError::Update)?;
+        index_table
+            .insert(1, span_index_data)
+            .map_err(FileStorageError::Storage)?;
 
+        index_table
+            .insert(2, span_event_index_data)
+            .map_err(FileStorageError::Storage)?;
+
+        index_table
+            .insert(3, event_index_data)
+            .map_err(FileStorageError::Storage)?;
+
+        // also update metadata
+        tx.open_table::<u32, MetaDbModel>(TableDefinition::new("meta"))
+            .map_err(FileStorageError::Table)?
+            .insert(
+                1,
+                MetaDbModel::from_unarchived(&Meta {
+                    indexes: IndexState::Fresh,
+                }),
+            )
+            .map_err(FileStorageError::Storage)?;
+
+        drop(index_table);
         tx.commit().map_err(FileStorageError::Commit)?;
 
         Ok(())
     }
-}
-
-impl Batch for FileStorage {
-    fn batch(
-        &mut self,
-        resources: &mut dyn Iterator<Item = &BatchAction<Arc<Resource>>>,
-        spans: &mut dyn Iterator<Item = &BatchAction<Arc<Span>>>,
-        span_events: &mut dyn Iterator<Item = &BatchAction<Arc<SpanEvent>>>,
-        events: &mut dyn Iterator<Item = &BatchAction<Arc<Event>>>,
-    ) -> Result<(), StorageError> {
-        let tx = self
-            .connection
-            .transaction()
-            .map_err(FileStorageError::Begin)?;
-
-        let mut insert_resource_stmt = tx
-            .prepare_cached("INSERT INTO resources VALUES (?1, ?2, ?3)")
-            .map_err(FileStorageError::Prepare)?;
-        let mut drop_resource_stmt = tx
-            .prepare_cached("DELETE FROM resources WHERE resources.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-        let mut insert_span_stmt = tx
-            .prepare_cached(
-                "INSERT INTO spans VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
-            )
-            .map_err(FileStorageError::Prepare)?;
-        let mut update_span_stmt = tx
-            .prepare_cached("UPDATE spans SET closed_at = ?2, busy = ?3, links = ?4, attributes = ?5 WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-        let mut drop_span_stmt = tx
-            .prepare_cached("DELETE FROM spans WHERE spans.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-        let mut insert_span_event_stmt = tx
-            .prepare_cached("INSERT INTO span_events VALUES (?1, ?2, ?3, ?4, ?5)")
-            .map_err(FileStorageError::Prepare)?;
-        let mut drop_span_event_stmt = tx
-            .prepare_cached("DELETE FROM span_events WHERE span_events.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-        let mut insert_event_stmt = tx
-            .prepare_cached(
-                "INSERT INTO events VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            )
-            .map_err(FileStorageError::Prepare)?;
-        let mut update_event_stmt = tx
-            .prepare_cached("UPDATE events SET parent_key = ?2 WHERE key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-        let mut drop_event_stmt = tx
-            .prepare_cached("DELETE FROM events WHERE events.key = ?1")
-            .map_err(FileStorageError::Prepare)?;
-
-        for resource in resources {
-            match resource {
-                BatchAction::Create(resource) => {
-                    insert_resource_stmt
-                        .execute(resource_to_params((**resource).clone()))
-                        .map_err(FileStorageError::Insert)?;
-                }
-                BatchAction::Update(_) => warn!("resource update not supported"),
-                BatchAction::Delete(resource_key) => {
-                    drop_resource_stmt
-                        .execute((*resource_key,))
-                        .map_err(FileStorageError::Delete)?;
-                }
-            }
-        }
-
-        for span in spans {
-            match span {
-                BatchAction::Create(span) => {
-                    let key = span.created_at;
-                    let kind = span.kind as i32;
-                    let resource_key = span.resource_key;
-                    let id = span.id.to_string();
-                    let closed_at = span.closed_at;
-                    let busy = span.busy.map(|b| b as i64);
-                    let parent_id = span.parent_id.map(|id| id.to_string());
-                    let parent_key = span.parent_key;
-                    let links = serde_json::to_string(&span.links).unwrap();
-                    let name = span.name.clone();
-                    let namespace = span.namespace.clone();
-                    let function = span.function.clone();
-                    let level = span.level.to_db();
-                    let file_name = span.file_name.clone();
-                    let file_line = span.file_line;
-                    let file_column = span.file_column;
-                    let instrumentation_attributes =
-                        serde_json::to_string(&span.instrumentation_attributes).unwrap();
-                    let attributes = serde_json::to_string(&span.attributes).unwrap();
-                    let warnings = "[]";
-
-                    insert_span_stmt
-                        .execute(params![
-                            key,
-                            kind,
-                            resource_key,
-                            id,
-                            closed_at,
-                            busy,
-                            parent_id,
-                            parent_key,
-                            links,
-                            name,
-                            namespace,
-                            function,
-                            level,
-                            file_name,
-                            file_line,
-                            file_column,
-                            instrumentation_attributes,
-                            attributes,
-                            warnings,
-                        ])
-                        .map_err(FileStorageError::Insert)?;
-                }
-                BatchAction::Update(span) => {
-                    let links = serde_json::to_string(&span.links).unwrap();
-                    let attributes = serde_json::to_string(&span.attributes).unwrap();
-
-                    update_span_stmt
-                        .execute((
-                            span.key(),
-                            span.closed_at,
-                            span.busy.map(|b| b as i64),
-                            links,
-                            attributes,
-                        ))
-                        .map_err(FileStorageError::Update)?;
-                }
-                BatchAction::Delete(span_key) => {
-                    drop_span_stmt
-                        .execute((span_key,))
-                        .map_err(FileStorageError::Delete)?;
-                }
-            }
-        }
-
-        for span_event in span_events {
-            match span_event {
-                BatchAction::Create(span_event) => {
-                    insert_span_event_stmt
-                        .execute(span_event_to_params((**span_event).clone()))
-                        .map_err(FileStorageError::Insert)?;
-                }
-                BatchAction::Update(_) => warn!("span event update not supported"),
-                BatchAction::Delete(span_event_key) => {
-                    drop_span_event_stmt
-                        .execute((span_event_key,))
-                        .map_err(FileStorageError::Delete)?;
-                }
-            }
-        }
-
-        for event in events {
-            match event {
-                BatchAction::Create(event) => {
-                    insert_event_stmt
-                        .execute(event_to_params((**event).clone()))
-                        .map_err(FileStorageError::Insert)?;
-                }
-                BatchAction::Update(event) => {
-                    update_event_stmt
-                        .execute((event.key(), event.parent_key))
-                        .map_err(FileStorageError::Update)?;
-                }
-                BatchAction::Delete(event_key) => {
-                    drop_event_stmt
-                        .execute((*event_key,))
-                        .map_err(FileStorageError::Delete)?;
-                }
-            }
-        }
-
-        drop(insert_resource_stmt);
-        drop(drop_resource_stmt);
-        drop(insert_span_stmt);
-        drop(update_span_stmt);
-        drop(drop_span_stmt);
-        drop(insert_span_event_stmt);
-        drop(drop_span_event_stmt);
-        drop(insert_event_stmt);
-        drop(update_event_stmt);
-        drop(drop_event_stmt);
-        tx.commit().map_err(FileStorageError::Commit)?;
-
-        Ok(())
-    }
-}
-
-fn resource_to_params(resource: Resource) -> impl Params {
-    let key = resource.key();
-    let attributes = serde_json::to_string(&resource.attributes).unwrap();
-    let warnings = "[]";
-
-    (key, attributes, warnings)
-}
-
-fn resource_from_row(row: &Row<'_>) -> Result<Resource, DbError> {
-    let key: i64 = row.get(0)?;
-    let attributes: String = row.get(1)?;
-    let attributes = serde_json::from_str(&attributes).unwrap();
-    // let warnings = row.get(2)?;
-
-    Ok(Resource {
-        created_at: ResourceKey::new(key as u64).unwrap(),
-        attributes,
-    })
-}
-
-fn span_from_row(row: &Row<'_>) -> Result<Span, DbError> {
-    let key = row.get(0)?;
-    let kind: i32 = row.get(1)?;
-    let resource_key = row.get(2)?;
-    let id: String = row.get(3)?;
-    let closed_at = row.get(4)?;
-    let busy: Option<i64> = row.get(5)?;
-    let parent_id: Option<String> = row.get(6)?;
-    let parent_key = row.get(7)?;
-    let links: String = row.get(8)?;
-    let links = serde_json::from_str(&links).unwrap();
-    let name = row.get(9)?;
-    let namespace = row.get(10)?;
-    let function = row.get(11)?;
-    let level: i32 = row.get(12)?;
-    let file_name = row.get(13)?;
-    let file_line = row.get(14)?;
-    let file_column = row.get(15)?;
-    let instrumentation_attributes: String = row.get(16)?;
-    let instrumentation_attributes = serde_json::from_str(&instrumentation_attributes).unwrap();
-    let attributes: String = row.get(17)?;
-    let attributes = serde_json::from_str(&attributes).unwrap();
-    // let warnings = row.get(18)?;
-
-    Ok(Span {
-        kind: SourceKind::try_from(kind).unwrap(),
-        created_at: key,
-        resource_key,
-        id: id.parse().unwrap(),
-        closed_at,
-        busy: busy.map(|b| b as u64),
-        parent_id: parent_id.map(|id| id.parse().unwrap()),
-        parent_key,
-        links,
-        name,
-        namespace,
-        function,
-        level: Level::from_db(level).unwrap(),
-        file_name,
-        file_line,
-        file_column,
-        instrumentation_attributes,
-        attributes,
-    })
-}
-
-fn span_event_to_params(span_event: SpanEvent) -> impl Params {
-    match span_event.kind {
-        SpanEventKind::Create(create_span_event) => {
-            let key = span_event.timestamp;
-            let span_key = span_event.span_key;
-            let kind = "create";
-            let data = serde_json::to_string(&create_span_event).unwrap();
-            let warnings = "[]";
-
-            (key, span_key, kind, Some(data), warnings)
-        }
-        SpanEventKind::Update(update_span_event) => {
-            let key = span_event.timestamp;
-            let span_key = span_event.span_key;
-            let kind = "update";
-            let data = serde_json::to_string(&update_span_event).unwrap();
-            let warnings = "[]";
-
-            (key, span_key, kind, Some(data), warnings)
-        }
-        SpanEventKind::Follows(follows_span_event) => {
-            let key = span_event.timestamp;
-            let span_key = span_event.span_key;
-            let kind = "follows";
-            let data = serde_json::to_string(&follows_span_event).unwrap();
-            let warnings = "[]";
-
-            (key, span_key, kind, Some(data), warnings)
-        }
-        SpanEventKind::Enter(enter_span_event) => {
-            let key = span_event.timestamp;
-            let span_key = span_event.span_key;
-            let kind = "enter";
-            let data = serde_json::to_string(&enter_span_event).unwrap();
-            let warnings = "[]";
-
-            (key, span_key, kind, Some(data), warnings)
-        }
-        SpanEventKind::Exit => {
-            let key = span_event.timestamp;
-            let span_key = span_event.span_key;
-            let kind = "exit";
-            let warnings = "[]";
-
-            (key, span_key, kind, None, warnings)
-        }
-        SpanEventKind::Close(close_span_event) => {
-            let key = span_event.timestamp;
-            let span_key = span_event.span_key;
-            let kind = "close";
-            let data = serde_json::to_string(&close_span_event).unwrap();
-            let warnings = "[]";
-
-            (key, span_key, kind, Some(data), warnings)
-        }
-    }
-}
-
-fn span_event_from_row(row: &Row<'_>) -> Result<SpanEvent, DbError> {
-    let key = row.get(0)?;
-    let span_key = row.get(1)?;
-    let kind: String = row.get(2)?;
-    let data: Option<String> = row.get(3)?;
-    // let warnings = row.get(4)?;
-
-    match kind.as_str() {
-        "create" => {
-            let create_span_event = serde_json::from_str(&data.unwrap()).unwrap();
-            Ok(SpanEvent {
-                timestamp: key,
-                span_key,
-                kind: SpanEventKind::Create(create_span_event),
-            })
-        }
-        "update" => {
-            let update_span_event = serde_json::from_str(&data.unwrap()).unwrap();
-            Ok(SpanEvent {
-                timestamp: key,
-                span_key,
-                kind: SpanEventKind::Update(update_span_event),
-            })
-        }
-        "follows" => {
-            let follows_span_event = serde_json::from_str(&data.unwrap()).unwrap();
-            Ok(SpanEvent {
-                timestamp: key,
-                span_key,
-                kind: SpanEventKind::Follows(follows_span_event),
-            })
-        }
-        "enter" => {
-            let enter_span_event = serde_json::from_str(&data.unwrap()).unwrap();
-            Ok(SpanEvent {
-                timestamp: key,
-                span_key,
-                kind: SpanEventKind::Enter(enter_span_event),
-            })
-        }
-        "exit" => Ok(SpanEvent {
-            timestamp: key,
-            span_key,
-            kind: SpanEventKind::Exit,
-        }),
-        "close" => {
-            let close_span_event = serde_json::from_str(&data.unwrap()).unwrap();
-            Ok(SpanEvent {
-                timestamp: key,
-                span_key,
-                kind: SpanEventKind::Close(close_span_event),
-            })
-        }
-        _ => panic!("unknown span event kind"),
-    }
-}
-
-#[rustfmt::skip]
-fn event_to_params(event: Event) -> impl Params {
-    let key = event.timestamp;
-    let kind = event.kind as i32;
-    let resource_key = event.resource_key;
-    let parent_id = event.parent_id.map(|id| id.to_string());
-    let parent_key = event.parent_key;
-    let content = serde_json::to_string(&event.content).unwrap();
-    let namespace = event.namespace;
-    let function = event.function;
-    let level = event.level.to_db();
-    let file_name = event.file_name;
-    let file_line = event.file_line;
-    let file_column = event.file_column;
-    let attributes = serde_json::to_string(&event.attributes).unwrap();
-    let warnings = "[]";
-
-    (key, kind, resource_key, parent_id, parent_key, content, namespace, function, level, file_name, file_line, file_column, attributes, warnings)
-}
-
-fn event_from_row(row: &Row<'_>) -> Result<Event, DbError> {
-    let key = row.get(0)?;
-    let kind: i32 = row.get(1)?;
-    let resource_key = row.get(2)?;
-    let parent_id: Option<String> = row.get(3)?;
-    let parent_key = row.get(4)?;
-    let content: String = row.get(5)?;
-    let content = serde_json::from_str(&content).unwrap();
-    let namespace = row.get(6)?;
-    let function = row.get(7)?;
-    let level: i32 = row.get(8)?;
-    let file_name = row.get(9)?;
-    let file_line = row.get(10)?;
-    let file_column = row.get(11)?;
-    let attributes: String = row.get(12)?;
-    let attributes = serde_json::from_str(&attributes).unwrap();
-    // let warnings = row.get(13)?;
-
-    Ok(Event {
-        kind: SourceKind::try_from(kind).unwrap(),
-        timestamp: key,
-        resource_key,
-        parent_id: parent_id.map(|id| id.parse().unwrap()),
-        parent_key,
-        content,
-        namespace,
-        function,
-        level: Level::from_db(level).unwrap(),
-        file_name,
-        file_line,
-        file_column,
-        attributes,
-    })
 }

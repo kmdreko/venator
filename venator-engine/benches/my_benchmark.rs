@@ -187,18 +187,16 @@ fn count_spans_benchmark(c: &mut Criterion) {
 
 fn insert_events_benchmark(c: &mut Criterion) {
     fn now() -> Timestamp {
-        {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("now should not be before the UNIX epoch")
-                .as_micros();
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("now should not be before the UNIX epoch")
+            .as_micros();
 
-            let timestamp = u64::try_from(timestamp)
-                .expect("microseconds shouldn't exceed a u64 until the year 586,912 AD");
+        let timestamp = u64::try_from(timestamp)
+            .expect("microseconds shouldn't exceed a u64 until the year 586,912 AD");
 
-            Timestamp::new(timestamp).expect("now should not be at the UNIX epoch")
-        }
+        Timestamp::new(timestamp).expect("now should not be at the UNIX epoch")
     }
 
     let create_resource = || NewResource {
@@ -237,7 +235,7 @@ fn insert_events_benchmark(c: &mut Criterion) {
         b.iter(|| engine.insert_event(create_event(resource)))
     });
 
-    c.bench_function("write events to sqlite", |b| {
+    c.bench_function("write events to redb", |b| {
         let storage = FileStorage::new(Path::new("./benches/temp.vena.db"));
         let mut engine = SyncEngine::new(storage).unwrap();
 
@@ -249,7 +247,7 @@ fn insert_events_benchmark(c: &mut Criterion) {
         std::fs::remove_file("./benches/temp.vena.db").unwrap();
     });
 
-    c.bench_function("batch write events to sqlite", |b| {
+    c.bench_function("batch write events to redb", |b| {
         let storage = FileStorage::new(Path::new("./benches/temp.vena.db"));
         let storage = BatchedStorage::new(storage);
         let mut engine = SyncEngine::new(storage).unwrap();

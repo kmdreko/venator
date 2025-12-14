@@ -4,6 +4,7 @@ use std::fmt::{Display, Error as FmtError, Formatter};
 use std::num::NonZeroU64;
 use std::str::FromStr;
 
+use rkyv::Archive;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -40,7 +41,7 @@ pub type TraceId = u128;
 #[derive(Debug)]
 pub struct FullSpanIdParseError;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum FullSpanId {
     Tracing(InstanceId, SpanId),
     Opentelemetry(TraceId, SpanId),
@@ -134,7 +135,18 @@ impl FromStr for TraceRoot {
 #[derive(Debug)]
 pub struct SourceKindConvertError;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 #[repr(i32)]
 pub enum SourceKind {
@@ -167,7 +179,16 @@ impl TryFrom<i32> for SourceKind {
 pub struct LevelConvertError;
 
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 #[repr(i32)]
 pub enum Level {
@@ -198,14 +219,6 @@ pub enum Level {
 }
 
 impl Level {
-    pub(crate) fn to_db(self) -> i32 {
-        self as i32
-    }
-
-    pub(crate) fn from_db(value: i32) -> Result<Level, LevelConvertError> {
-        Self::from_otel_severity(value)
-    }
-
     pub fn from_tracing_level(level: i32) -> Result<Level, LevelConvertError> {
         match level {
             0 => Ok(Level::Trace),
@@ -313,7 +326,7 @@ pub struct NewResource {
     pub attributes: BTreeMap<String, Value>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Resource {
     pub created_at: Timestamp,
     pub attributes: BTreeMap<String, Value>,
@@ -342,7 +355,7 @@ pub enum NewSpanEventKind {
     Close(NewCloseSpanEvent),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct SpanEvent {
     pub timestamp: Timestamp,
     pub span_key: SpanKey,
@@ -355,7 +368,7 @@ impl SpanEvent {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum SpanEventKind {
     Create(CreateSpanEvent),
     Update(UpdateSpanEvent),
@@ -381,7 +394,7 @@ pub struct NewCreateSpanEvent {
     pub attributes: BTreeMap<String, Value>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct CreateSpanEvent {
     pub kind: SourceKind,
     pub resource_key: ResourceKey,
@@ -402,7 +415,7 @@ pub struct NewUpdateSpanEvent {
     pub attributes: BTreeMap<String, Value>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct UpdateSpanEvent {
     pub attributes: BTreeMap<String, Value>,
 }
@@ -422,17 +435,17 @@ pub struct NewCloseSpanEvent {
     pub busy: Option<u64>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct FollowsSpanEvent {
     pub follows: SpanKey,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct EnterSpanEvent {
     pub thread_id: u64,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct CloseSpanEvent {
     pub busy: Option<u64>,
 }
@@ -452,7 +465,7 @@ pub struct NewEvent {
     pub attributes: BTreeMap<String, Value>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Event {
     pub kind: SourceKind,
     pub resource_key: ResourceKey,
@@ -488,7 +501,7 @@ pub struct ComposedEvent {
     pub attributes: Vec<Attribute>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Span {
     pub kind: SourceKind,
     pub resource_key: ResourceKey,
@@ -545,7 +558,19 @@ pub struct Ancestor {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Deserialize, Serialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
+#[rkyv(serialize_bounds(
+    __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+    __S::Error: rkyv::rancor::Source,
+))]
+#[rkyv(deserialize_bounds(__D::Error: rkyv::rancor::Source))]
+#[rkyv(bytecheck(
+    bounds(
+        __C: rkyv::validation::ArchiveContext,
+    )
+))]
 pub enum Value {
     Null,
     F64(f64),
@@ -556,8 +581,8 @@ pub enum Value {
     Bool(bool),
     Str(String),
     Bytes(Vec<u8>),
-    Array(Vec<Value>),
-    Object(BTreeMap<String, Value>),
+    Array(#[rkyv(omit_bounds)] Vec<Value>),
+    Object(#[rkyv(omit_bounds)] BTreeMap<String, Value>),
 }
 
 impl Display for Value {
