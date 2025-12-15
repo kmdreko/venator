@@ -6,6 +6,10 @@ pub trait IndexExt<T> {
     /// This is intended to remove elements in an efficient way for sorted
     /// `self` and `list`.
     fn remove_list_sorted(&mut self, list: &[T]);
+
+    /// Removes `list` elements from `self` just like [`remove_list_sorted`] but
+    /// removes corresponding indexes from `tagalong` as well.
+    fn remove_list_sorted_with_tagalong<U>(&mut self, list: &[T], tagalong: &mut Vec<U>);
 }
 
 impl<T: Ord> IndexExt<T> for Vec<T> {
@@ -17,6 +21,21 @@ impl<T: Ord> IndexExt<T> for Vec<T> {
             // TODO: this can be done more efficiently with unsafe shenanigans -
             // as it is, this is O(n^2) when it could be O(n)
             self.remove(i + ii);
+
+            i += ii;
+            j += jj + 1;
+        }
+    }
+
+    fn remove_list_sorted_with_tagalong<U>(&mut self, list: &[T], tagalong: &mut Vec<U>) {
+        let mut i = 0;
+        let mut j = 0;
+
+        while let Some((ii, jj)) = find_next_match(&self[i..], &list[j..]) {
+            // TODO: this can be done more efficiently with unsafe shenanigans -
+            // as it is, this is O(n^2) when it could be O(n)
+            self.remove(i + ii);
+            tagalong.remove(i + ii);
 
             i += ii;
             j += jj + 1;

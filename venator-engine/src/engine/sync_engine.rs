@@ -230,7 +230,7 @@ impl<S: Storage> SyncEngine<S> {
             .with_simplification()
             .into_indexed(&self.span_indexes, &self.storage)
             .with_stratification(&self.span_indexes.durations)
-            .with_timeframe(query.start, query.end, &self.span_indexes.all)
+            .with_timeframe(query.start, query.end)
             .with_pagination(query.previous, query.order)
             .with_optimization()
             .into_iterator(&self.storage)
@@ -255,7 +255,7 @@ impl<S: Storage> SyncEngine<S> {
             .with_simplification()
             .into_indexed(&self.span_indexes, &self.storage)
             .with_stratification(&self.span_indexes.durations)
-            .with_timeframe(query.start, query.end, &self.span_indexes.all)
+            .with_timeframe(query.start, query.end)
             .with_pagination(query.previous, query.order)
             .with_optimization()
             .into_iterator(&self.storage);

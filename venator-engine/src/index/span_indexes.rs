@@ -65,20 +65,50 @@ impl SpanIndexes {
         self.levels
             .add_entry(span.level.into_simple_level(), span_key);
 
-        let duration_index = match span.duration() {
-            None => &mut self.durations.open,
-            Some(0..=3999) => &mut self.durations.closed_4_ms,
-            Some(4000..=15999) => &mut self.durations.closed_16_ms,
-            Some(16000..=63999) => &mut self.durations.closed_64_ms,
-            Some(64000..=255999) => &mut self.durations.closed_256_ms,
-            Some(256000..=999999) => &mut self.durations.closed_1_s,
-            Some(1000000..=3999999) => &mut self.durations.closed_4_s,
-            Some(4000000..=15999999) => &mut self.durations.closed_16_s,
-            Some(16000000..=63999999) => &mut self.durations.closed_64_s,
-            Some(64000000..) => &mut self.durations.closed_long,
+        let (duration_index, closed_at_index) = match span.duration() {
+            None => (&mut self.durations.open, None),
+            Some(0..=3999) => (
+                &mut self.durations.closed_4_ms,
+                Some(&mut self.durations.closed_4_ms_at),
+            ),
+            Some(4000..=15999) => (
+                &mut self.durations.closed_16_ms,
+                Some(&mut self.durations.closed_16_ms_at),
+            ),
+            Some(16000..=63999) => (
+                &mut self.durations.closed_64_ms,
+                Some(&mut self.durations.closed_64_ms_at),
+            ),
+            Some(64000..=255999) => (
+                &mut self.durations.closed_256_ms,
+                Some(&mut self.durations.closed_256_ms_at),
+            ),
+            Some(256000..=999999) => (
+                &mut self.durations.closed_1_s,
+                Some(&mut self.durations.closed_1_s_at),
+            ),
+            Some(1000000..=3999999) => (
+                &mut self.durations.closed_4_s,
+                Some(&mut self.durations.closed_4_s_at),
+            ),
+            Some(4000000..=15999999) => (
+                &mut self.durations.closed_16_s,
+                Some(&mut self.durations.closed_16_s_at),
+            ),
+            Some(16000000..=63999999) => (
+                &mut self.durations.closed_64_s,
+                Some(&mut self.durations.closed_64_s_at),
+            ),
+            Some(64000000..) => (
+                &mut self.durations.closed_long,
+                Some(&mut self.durations.closed_long_at),
+            ),
         };
         let idx = duration_index.upper_bound_via_expansion(&span_key);
         duration_index.insert(idx, span_key);
+        if let Some(closed_at_index) = closed_at_index {
+            closed_at_index.insert(idx, span.closed_at.unwrap());
+        }
 
         if let FullSpanId::Tracing(instance_id, _) = span.id {
             let instance_index = self.instances.entry(instance_id).or_default();
@@ -173,20 +203,47 @@ impl SpanIndexes {
         }
 
         let duration = closed_at.get().saturating_sub(span_key.get());
-        let index = match duration {
-            0..=3999 => &mut self.durations.closed_4_ms,
-            4000..=15999 => &mut self.durations.closed_16_ms,
-            16000..=63999 => &mut self.durations.closed_64_ms,
-            64000..=255999 => &mut self.durations.closed_256_ms,
-            256000..=999999 => &mut self.durations.closed_1_s,
-            1000000..=3999999 => &mut self.durations.closed_4_s,
-            4000000..=15999999 => &mut self.durations.closed_16_s,
-            16000000..=63999999 => &mut self.durations.closed_64_s,
-            64000000.. => &mut self.durations.closed_long,
+        let (index, closed_at_index) = match duration {
+            0..=3999 => (
+                &mut self.durations.closed_4_ms,
+                Some(&mut self.durations.closed_4_ms_at),
+            ),
+            4000..=15999 => (
+                &mut self.durations.closed_16_ms,
+                Some(&mut self.durations.closed_16_ms_at),
+            ),
+            16000..=63999 => (
+                &mut self.durations.closed_64_ms,
+                Some(&mut self.durations.closed_64_ms_at),
+            ),
+            64000..=255999 => (
+                &mut self.durations.closed_256_ms,
+                Some(&mut self.durations.closed_256_ms_at),
+            ),
+            256000..=999999 => (
+                &mut self.durations.closed_1_s,
+                Some(&mut self.durations.closed_1_s_at),
+            ),
+            1000000..=3999999 => (
+                &mut self.durations.closed_4_s,
+                Some(&mut self.durations.closed_4_s_at),
+            ),
+            4000000..=15999999 => (
+                &mut self.durations.closed_16_s,
+                Some(&mut self.durations.closed_16_s_at),
+            ),
+            16000000..=63999999 => (
+                &mut self.durations.closed_64_s,
+                Some(&mut self.durations.closed_64_s_at),
+            ),
+            64000000.. => (&mut self.durations.closed_long, None),
         };
 
         let idx = index.upper_bound_via_expansion(&span_key);
         index.insert(idx, span_key);
+        if let Some(closed_at_index) = closed_at_index {
+            closed_at_index.insert(idx, closed_at);
+        }
         true
     }
 
@@ -227,61 +284,115 @@ impl SpanIndexes {
     }
 }
 
+#[rustfmt::skip]
 #[derive(Serialize, Deserialize)]
 pub struct SpanDurationIndex {
-    closed_4_ms: Vec<Timestamp>,   // span ids with durations shorter than 4ms
-    closed_16_ms: Vec<Timestamp>,  // span ids with durations between [4ms and 16ms)
-    closed_64_ms: Vec<Timestamp>,  // span ids with durations between [16ms and 64ms)
-    closed_256_ms: Vec<Timestamp>, // span ids with durations between [64ms and 256ms)
-    closed_1_s: Vec<Timestamp>,    // span ids with durations between [256ms and 1s)
-    closed_4_s: Vec<Timestamp>,    // span ids with durations between [1s and 4s)
-    closed_16_s: Vec<Timestamp>,   // span ids with durations between [4s and 16s)
-    closed_64_s: Vec<Timestamp>,   // span ids with durations between [16s and 64s)
-    closed_long: Vec<Timestamp>,   // span ids with durations 64s and longer
-    pub open: Vec<Timestamp>,      // span ids that haven't finished yet
+    closed_4_ms: Vec<Timestamp>,      // span ids with durations shorter than 4ms
+    closed_4_ms_at: Vec<Timestamp>,
+    closed_16_ms: Vec<Timestamp>,     // span ids with durations between [4ms and 16ms)
+    closed_16_ms_at: Vec<Timestamp>,
+    closed_64_ms: Vec<Timestamp>,     // span ids with durations between [16ms and 64ms)
+    closed_64_ms_at: Vec<Timestamp>,
+    closed_256_ms: Vec<Timestamp>,    // span ids with durations between [64ms and 256ms)
+    closed_256_ms_at: Vec<Timestamp>,
+    closed_1_s: Vec<Timestamp>,       // span ids with durations between [256ms and 1s)
+    closed_1_s_at: Vec<Timestamp>,
+    closed_4_s: Vec<Timestamp>,       // span ids with durations between [1s and 4s)
+    closed_4_s_at: Vec<Timestamp>,
+    closed_16_s: Vec<Timestamp>,      // span ids with durations between [4s and 16s)
+    closed_16_s_at: Vec<Timestamp>,
+    closed_64_s: Vec<Timestamp>,      // span ids with durations between [16s and 64s)
+    closed_64_s_at: Vec<Timestamp>,
+    closed_long: Vec<Timestamp>,      // span ids with durations 64s and longer
+    closed_long_at: Vec<Timestamp>,
+    pub open: Vec<Timestamp>,         // span ids that haven't finished yet
 }
 
 impl SpanDurationIndex {
     pub fn new() -> SpanDurationIndex {
         SpanDurationIndex {
             closed_4_ms: vec![],
+            closed_4_ms_at: vec![],
             closed_16_ms: vec![],
+            closed_16_ms_at: vec![],
             closed_64_ms: vec![],
+            closed_64_ms_at: vec![],
             closed_256_ms: vec![],
+            closed_256_ms_at: vec![],
             closed_1_s: vec![],
+            closed_1_s_at: vec![],
             closed_4_s: vec![],
+            closed_4_s_at: vec![],
             closed_16_s: vec![],
+            closed_16_s_at: vec![],
             closed_64_s: vec![],
+            closed_64_s_at: vec![],
             closed_long: vec![],
+            closed_long_at: vec![],
             open: vec![],
         }
     }
 
-    pub fn to_stratified_indexes(&self) -> Vec<(&'_ [Timestamp], Range<u64>)> {
+    pub fn to_stratified_indexes(
+        &self,
+    ) -> Vec<(&'_ [Timestamp], Option<(&'_ [Timestamp], Range<u64>)>)> {
         vec![
-            (&self.closed_4_ms, 0..4000),
-            (&self.closed_16_ms, 4000..16000),
-            (&self.closed_64_ms, 16000..64000),
-            (&self.closed_256_ms, 64000..256000),
-            (&self.closed_1_s, 256000..1000000),
-            (&self.closed_4_s, 1000000..4000000),
-            (&self.closed_16_s, 4000000..16000000),
-            (&self.closed_64_s, 16000000..64000000),
-            (&self.closed_long, 64000000..u64::MAX),
-            (&self.open, 0..u64::MAX),
+            (&self.closed_4_ms, Some((&self.closed_4_ms_at, 0..4000))),
+            (
+                &self.closed_16_ms,
+                Some((&self.closed_16_ms_at, 4000..16000)),
+            ),
+            (
+                &self.closed_64_ms,
+                Some((&self.closed_64_ms_at, 16000..64000)),
+            ),
+            (
+                &self.closed_256_ms,
+                Some((&self.closed_256_ms_at, 64000..256000)),
+            ),
+            (
+                &self.closed_1_s,
+                Some((&self.closed_1_s_at, 256000..1000000)),
+            ),
+            (
+                &self.closed_4_s,
+                Some((&self.closed_4_s_at, 1000000..4000000)),
+            ),
+            (
+                &self.closed_16_s,
+                Some((&self.closed_16_s_at, 4000000..16000000)),
+            ),
+            (
+                &self.closed_64_s,
+                Some((&self.closed_64_s_at, 16000000..64000000)),
+            ),
+            (
+                &self.closed_long,
+                Some((&self.closed_long_at, 64000000..u64::MAX)),
+            ),
+            (&self.open, None),
         ]
     }
 
     pub fn remove_spans(&mut self, spans: &[SpanKey]) {
-        self.closed_4_ms.remove_list_sorted(spans);
-        self.closed_16_ms.remove_list_sorted(spans);
-        self.closed_64_ms.remove_list_sorted(spans);
-        self.closed_256_ms.remove_list_sorted(spans);
-        self.closed_1_s.remove_list_sorted(spans);
-        self.closed_4_s.remove_list_sorted(spans);
-        self.closed_16_s.remove_list_sorted(spans);
-        self.closed_64_s.remove_list_sorted(spans);
-        self.closed_long.remove_list_sorted(spans);
+        self.closed_4_ms
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_4_ms_at);
+        self.closed_16_ms
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_16_ms_at);
+        self.closed_64_ms
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_64_ms_at);
+        self.closed_256_ms
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_256_ms_at);
+        self.closed_1_s
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_1_s_at);
+        self.closed_4_s
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_4_s_at);
+        self.closed_16_s
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_16_s_at);
+        self.closed_64_s
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_64_s_at);
+        self.closed_long
+            .remove_list_sorted_with_tagalong(spans, &mut self.closed_long_at);
         self.open.remove_list_sorted(spans);
     }
 }

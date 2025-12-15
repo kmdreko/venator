@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -22,7 +23,11 @@ use super::{validate_value_predicate, FallibleFilterPredicate, FileFilter, Input
 
 pub(crate) enum IndexedSpanFilter<'i> {
     Single(&'i [Timestamp], Option<NonIndexedSpanFilter>),
-    Stratified(&'i [Timestamp], Range<u64>, Option<NonIndexedSpanFilter>),
+    Stratified(
+        Cow<'i, [Timestamp]>,
+        Option<(&'i [Timestamp], Range<u64>)>,
+        Option<NonIndexedSpanFilter>,
+    ),
     Not(&'i [Timestamp], Box<IndexedSpanFilter<'i>>),
     And(Vec<IndexedSpanFilter<'i>>),
     Or(Vec<IndexedSpanFilter<'i>>, bool),
@@ -54,15 +59,24 @@ impl<'a> IndexedSpanFilter<'a> {
                 let filters = span_indexes.durations.to_stratified_indexes();
                 let filters = filters
                     .into_iter()
-                    .filter_map(|(index, range)| {
-                        match duration_filter.matches_duration_range(&range) {
-                            Some(true) => Some(IndexedSpanFilter::Stratified(index, range, None)),
-                            None => Some(IndexedSpanFilter::Stratified(
-                                index,
-                                range,
-                                Some(NonIndexedSpanFilter::Duration(duration_filter.clone())),
-                            )),
-                            Some(false) => None,
+                    .filter_map(|(index, extras)| {
+                        if let Some((closed_ats, range)) = extras {
+                            match duration_filter.matches_duration_range(&range) {
+                                Some(true) => Some(IndexedSpanFilter::Stratified(
+                                    index.into(),
+                                    Some((closed_ats, range)),
+                                    None,
+                                )),
+                                None => Some(IndexedSpanFilter::Stratified(
+                                    index.into(),
+                                    Some((closed_ats, range)),
+                                    Some(NonIndexedSpanFilter::Duration(duration_filter.clone())),
+                                )),
+                                Some(false) => None,
+                            }
+                        } else {
+                            // open spans cannot satisfy a duration filter
+                            None
                         }
                     })
                     .collect();
@@ -96,7 +110,8 @@ impl<'a> IndexedSpanFilter<'a> {
                 let filters = span_indexes.durations.to_stratified_indexes();
                 let filters = filters
                     .into_iter()
-                    .map(|(index, range)| {
+                    .map(|(index, extras)| {
+                        let range = extras.map(|(_, range)| range).unwrap_or(0..u64::MAX);
                         match op {
                             ValueOperator::Gt => {
                                 let v = value.get().saturating_sub(range.end - 1); // use the max of range
@@ -429,7 +444,7 @@ impl<'a> IndexedSpanFilter<'a> {
 
         match self {
             IndexedSpanFilter::Single(index, _)
-            | IndexedSpanFilter::Stratified(index, _, _)
+            | IndexedSpanFilter::Stratified(Cow::Borrowed(index), None, _)
             | IndexedSpanFilter::Not(index, _) => match order {
                 Order::Asc => {
                     let idx = index.upper_bound(&previous);
@@ -438,6 +453,31 @@ impl<'a> IndexedSpanFilter<'a> {
                 Order::Desc => {
                     let idx = index.lower_bound(&previous);
                     *index = &index[..idx];
+                }
+            },
+            IndexedSpanFilter::Stratified(Cow::Borrowed(index), Some((closed_ats, _)), _) => {
+                match order {
+                    Order::Asc => {
+                        let idx = index.upper_bound(&previous);
+                        *index = &index[idx..];
+                        *closed_ats = &closed_ats[idx..];
+                    }
+                    Order::Desc => {
+                        let idx = index.lower_bound(&previous);
+                        *index = &index[..idx];
+                        *closed_ats = &closed_ats[..idx];
+                    }
+                }
+            }
+            IndexedSpanFilter::Stratified(Cow::Owned(index), _, _) => match order {
+                // owned stratified index filters should not have any closed_ats
+                Order::Asc => {
+                    let idx = index.upper_bound(&previous);
+                    index.drain(..idx);
+                }
+                Order::Desc => {
+                    let idx = index.lower_bound(&previous);
+                    index.truncate(idx);
                 }
             },
             IndexedSpanFilter::And(filters) | IndexedSpanFilter::Or(filters, _) => filters
@@ -463,18 +503,7 @@ impl<'a> IndexedSpanFilter<'a> {
         }
     }
 
-    pub fn with_timeframe(mut self, start: Timestamp, end: Timestamp, all: &'a [SpanKey]) -> Self {
-        // we need to add a filter that the span wasn't closed before the start
-        // time since the indexes can't rule those out directly
-        let new_filter =
-            IndexedSpanFilter::Single(all, Some(NonIndexedSpanFilter::InTimeframe(start, end)));
-
-        if let IndexedSpanFilter::And(ref mut filters) = self {
-            filters.push(new_filter);
-        } else {
-            self = IndexedSpanFilter::And(vec![self, new_filter]);
-        }
-
+    pub fn with_timeframe(mut self, start: Timestamp, end: Timestamp) -> Self {
         self.trim_to_timeframe(start, end);
         self
     }
@@ -489,18 +518,92 @@ impl<'a> IndexedSpanFilter<'a> {
 
                 *index = &index[..end_idx];
             }
-            IndexedSpanFilter::Stratified(index, duration_range, _) => {
-                // we can trim to "max duration" before `start`
-                let trim_start = Timestamp::new(start.get().saturating_sub(duration_range.end))
-                    .unwrap_or(Timestamp::MIN);
+            IndexedSpanFilter::Stratified(index, extras, filter) => {
+                // we can split the filter into ones known in range, and those
+                // maybe in range and preemptively filter them
 
-                // we can trim by the end
-                let trim_end = end;
+                let ostart = match extras {
+                    Some((_, range)) => Timestamp::new(start.get().saturating_sub(range.end))
+                        .unwrap_or(Timestamp::MIN),
+                    None => Timestamp::MIN,
+                };
 
-                let start_idx = index.lower_bound(&trim_start);
-                let end_idx = index.upper_bound(&trim_end);
+                let ostart_idx = index.lower_bound(&ostart);
+                let start_idx = index.lower_bound(&start);
+                let end_idx = index.upper_bound(&end);
 
-                *index = &index[start_idx..end_idx];
+                if ostart_idx == start_idx {
+                    // if there are none that can overlap the start, then we can
+                    // simply trim
+
+                    match index {
+                        Cow::Borrowed(index) => {
+                            *index = &index[start_idx..end_idx];
+
+                            if let Some((closed_ats, _)) = extras {
+                                *closed_ats = &closed_ats[start_idx..end_idx]
+                            }
+                        }
+                        Cow::Owned(index) => {
+                            index.truncate(end_idx);
+                            index.drain(..start_idx);
+                        }
+                    }
+
+                    return;
+                } else {
+                    // if there are some that can overlap
+
+                    let (overlaping, overlapping_extras) = if let Some((closed_ats, range)) = extras
+                    {
+                        let keys = &index[ostart_idx..start_idx];
+                        let closed_ats = &closed_ats[ostart_idx..start_idx];
+
+                        let index = keys
+                            .iter()
+                            .zip(closed_ats)
+                            .filter(|(_, closed_at)| **closed_at > start)
+                            .map(|(key, _)| *key)
+                            .collect::<Vec<_>>();
+
+                        (index, Some((&[] as &[Timestamp], range.clone())))
+                    } else {
+                        // these spans have not closed, all overlap
+                        let index = index[ostart_idx..start_idx].into_iter().copied().collect();
+
+                        (index, None)
+                    };
+
+                    let overlapping_filter = filter.clone();
+
+                    match index {
+                        Cow::Borrowed(index) => {
+                            *index = &index[start_idx..end_idx];
+
+                            if let Some((closed_ats, _)) = extras {
+                                *closed_ats = &closed_ats[start_idx..end_idx]
+                            }
+                        }
+                        Cow::Owned(index) => {
+                            index.truncate(end_idx);
+                            index.drain(..start_idx);
+                        }
+                    }
+
+                    let this = std::mem::replace(self, IndexedSpanFilter::Single(&[], None)); // dummy
+
+                    *self = IndexedSpanFilter::Or(
+                        vec![
+                            IndexedSpanFilter::Stratified(
+                                overlaping.into(),
+                                overlapping_extras,
+                                overlapping_filter,
+                            ),
+                            this,
+                        ],
+                        true,
+                    )
+                }
             }
             IndexedSpanFilter::Not(index, inner_filter) => {
                 // we can trim the end
@@ -541,7 +644,7 @@ impl<'a> IndexedSpanFilter<'a> {
             let dfilters = duration_index.to_stratified_indexes();
             let dfilters = dfilters
                 .into_iter()
-                .map(|(index, range)| IndexedSpanFilter::Stratified(index, range, None))
+                .map(|(index, extras)| IndexedSpanFilter::Stratified(index.into(), extras, None))
                 .collect();
             let dfilter = IndexedSpanFilter::Or(dfilters, true); // to_stratified_indexes values are always distinct
 
@@ -552,7 +655,7 @@ impl<'a> IndexedSpanFilter<'a> {
             let dfilters = duration_index.to_stratified_indexes();
             let dfilters = dfilters
                 .into_iter()
-                .map(|(index, range)| IndexedSpanFilter::Stratified(index, range, None))
+                .map(|(index, extras)| IndexedSpanFilter::Stratified(index.into(), extras, None))
                 .collect();
             let dfilter = IndexedSpanFilter::Or(dfilters, true); // to_stratified_indexes values are always distinct
 
@@ -1316,10 +1419,10 @@ impl BasicSpanFilter {
     }
 }
 
+#[derive(Clone)]
 pub(crate) enum NonIndexedSpanFilter {
     Duration(DurationFilter),
     Closed(ValueOperator, Timestamp),
-    InTimeframe(Timestamp, Timestamp), // internal
     Kind(SourceKind),
     Name(ValueStringComparison),
     Namespace(ValueStringComparison),
@@ -1340,16 +1443,6 @@ impl NonIndexedSpanFilter {
                 };
 
                 op.compare(closed_at, *value)
-            }
-            NonIndexedSpanFilter::InTimeframe(start, end) => {
-                if span.created_at > *end {
-                    return false;
-                }
-                if span.closed_at.is_some_and(|closed| closed <= *start) {
-                    return false;
-                }
-
-                true
             }
             NonIndexedSpanFilter::Kind(kind) => kind == &span.kind,
             NonIndexedSpanFilter::Name(filter) => filter.matches(&span.name),

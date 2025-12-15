@@ -98,6 +98,7 @@ impl Display for InputError {
 
 impl StdError for InputError {}
 
+#[derive(Clone)]
 pub(crate) struct FileFilter {
     name: ValueStringComparison,
     line: Option<u32>,
