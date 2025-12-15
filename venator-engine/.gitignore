@@ -1,1 +1,1 @@
-benches/*.db
+benches/*.db*
