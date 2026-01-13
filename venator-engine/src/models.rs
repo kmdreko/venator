@@ -660,4 +660,24 @@ pub struct DeleteMetrics {
 
 pub struct EngineStatus {
     pub load: f64,
+    pub sync: EngineSyncStatus,
+}
+
+#[derive(Copy, Clone)]
+pub enum EngineSyncStatus {
+    Synced,
+    Syncing,
+    Behind,
+    Fatal,
+}
+
+impl AsRef<str> for EngineSyncStatus {
+    fn as_ref(&self) -> &str {
+        match self {
+            EngineSyncStatus::Synced => "synced",
+            EngineSyncStatus::Syncing => "syncing",
+            EngineSyncStatus::Behind => "behind",
+            EngineSyncStatus::Fatal => "fatal",
+        }
+    }
 }

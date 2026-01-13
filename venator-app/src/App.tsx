@@ -1599,6 +1599,11 @@ function App() {
                         <span style="padding: 0 8px;">using {s().dataset_name}</span>
                         -
                         <span style="padding: 0 8px;" title={s().ingress_error}>{s().ingress_message}</span>
+                        <Switch fallback={<></>}>
+                            <Match when={s().engine_sync == 'syncing'}>-<span style="padding: 0 8px;">writing</span></Match>
+                            <Match when={s().engine_sync == 'behind'}>-<span style="padding: 0 8px;">write thread is behind</span></Match>
+                            <Match when={s().engine_sync == 'fatal'}>-<span style="padding: 0 8px; color: var(--text-error);">write thread crashed</span></Match>
+                        </Switch>
                     </span>
                     <span class="statusbar-region">
                         <span style="display: inline-block; padding: 0 8px; width: 75px; text-align: right;">{formatBytesPerSecond(s().ingress_bytes_per_second)}</span>

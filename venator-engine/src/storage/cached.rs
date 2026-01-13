@@ -7,7 +7,7 @@ use lru::LruCache;
 
 use crate::{Event, EventKey, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
 
-use super::{IndexStorage, Storage, StorageError};
+use super::{IndexStorage, Storage, StorageError, StorageSyncStatus};
 
 /// This storage wraps another storage implementation to keep some in memory.
 pub struct CachedStorage<S> {
@@ -197,7 +197,7 @@ where
         self.inner.drop_events(events)
     }
 
-    fn sync(&mut self) -> Result<(), StorageError> {
+    fn sync(&mut self) -> Result<StorageSyncStatus, StorageError> {
         self.inner.sync()
     }
 

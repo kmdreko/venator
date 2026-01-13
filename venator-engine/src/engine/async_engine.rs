@@ -8,7 +8,8 @@ use tokio::sync::oneshot::{self, Receiver as OneshotReceiver, Sender as OneshotS
 use tracing::instrument;
 
 use crate::filter::{FilterPredicate, Query};
-use crate::storage::Storage;
+use crate::models::EngineSyncStatus;
+use crate::storage::{Storage, StorageSyncStatus};
 use crate::subscription::Subscriber;
 use crate::{
     ComposedEvent, ComposedSpan, DatasetStats, DeleteFilter, DeleteMetrics, EngineStatus,
@@ -40,6 +41,7 @@ impl AsyncEngine {
         let mut engine = SyncEngine::new(storage)?;
 
         let _ = ThreadBuilder::new().name("engine".into()).spawn(move || {
+            let mut last_sync_status = EngineSyncStatus::Synced;
             let mut last_check = Instant::now();
             let mut computed_ns_since_last_check: u128 = 0;
 
@@ -160,6 +162,7 @@ impl AsyncEngine {
 
                         let _ = sender.send(EngineStatus {
                             load: load.min(1.0) * 100.0,
+                            sync: last_sync_status,
                         });
                     }
                     EngineCommand::Shutdown(sender) => {
@@ -196,8 +199,17 @@ impl AsyncEngine {
                         let res = engine.shutdown();
                         let _ = sender.send(res);
                     }
-                    EngineCommand::Sync => {
-                        let _ = engine.sync();
+                    EngineCommand::Sync(sender) => {
+                        let res = engine.sync();
+
+                        last_sync_status = match res {
+                            Ok(StorageSyncStatus::Synced) => EngineSyncStatus::Synced,
+                            Ok(StorageSyncStatus::Syncing) => EngineSyncStatus::Syncing,
+                            Ok(StorageSyncStatus::Behind) => EngineSyncStatus::Behind,
+                            Err(_) => EngineSyncStatus::Fatal,
+                        };
+
+                        let _ = sender.send(res);
                     }
                 }));
 
@@ -374,14 +386,15 @@ impl AsyncEngine {
     }
 
     #[instrument(skip_all)]
-    pub async fn sync(&self) -> Result<(), AnyError> {
+    pub async fn sync(&self) -> Result<StorageSyncStatus, AnyError> {
+        let (sender, receiver) = oneshot::channel();
         self.sync_sender
-            .send((tracing::Span::current(), EngineCommand::Sync))
+            .send((tracing::Span::current(), EngineCommand::Sync(sender)))
             .await
             .map_err(|err| anyhow!("{err}"))
             .context("failed to send sync command, engine must have stopped")?;
 
-        Ok(())
+        receiver.await.context("failed to get result")?
     }
 
     #[instrument(skip_all)]
@@ -437,7 +450,7 @@ enum EngineCommand {
     CopyDataset(Box<dyn Storage + Send>, OneshotSender<Result<(), AnyError>>),
     GetStatus(OneshotSender<EngineStatus>),
 
-    Sync,
+    Sync(OneshotSender<Result<StorageSyncStatus, AnyError>>),
 
     Shutdown(OneshotSender<Result<(), AnyError>>),
 }

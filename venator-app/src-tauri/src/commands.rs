@@ -321,6 +321,7 @@ async fn get_status(
         dataset_name,
         ingress_bytes_per_second: bytes_per_second,
         engine_load: engine_status.load,
+        engine_sync: engine_status.sync.as_ref().to_owned(),
     })
 }
 

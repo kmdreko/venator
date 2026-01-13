@@ -16,7 +16,7 @@ use crate::models::{EventKey, Value};
 use crate::storage::batched::{Batch, BatchAction};
 use crate::{Event, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp};
 
-use super::{IndexStorage, Storage, StorageError, StorageIter};
+use super::{IndexStorage, Storage, StorageError, StorageIter, StorageSyncStatus};
 
 mod db_model;
 
@@ -94,8 +94,9 @@ impl From<FileStorageError> for StorageError {
 }
 
 /// This storage holds all entities in an SQLite database at the provided path.
+#[derive(Clone)]
 pub struct FileStorage {
-    database: Database,
+    database: Arc<Database>,
     index_state: IndexState,
 }
 
@@ -121,7 +122,7 @@ impl FileStorage {
         tx.commit().unwrap();
 
         FileStorage {
-            database,
+            database: Arc::new(database),
             index_state: IndexState::Fresh,
         }
     }
@@ -619,9 +620,9 @@ impl Storage for FileStorage {
         Ok(())
     }
 
-    fn sync(&mut self) -> Result<(), StorageError> {
+    fn sync(&mut self) -> Result<StorageSyncStatus, StorageError> {
         // we sync on each commit, nothing to do
-        Ok(())
+        Ok(StorageSyncStatus::Synced)
     }
 
     #[allow(private_interfaces)]

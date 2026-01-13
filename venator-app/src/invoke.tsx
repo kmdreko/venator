@@ -109,6 +109,7 @@ export type AppStatus = {
     ingress_bytes_per_second: number;
     dataset_name: string;
     engine_load: number;
+    engine_sync: 'synced' | 'syncing' | 'behind' | 'fatal';
 };
 
 export type DeleteMetrics = {

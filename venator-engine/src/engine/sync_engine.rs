@@ -8,7 +8,7 @@ use crate::context::{EventContext, SpanContext};
 use crate::filter::{BasicEventFilter, BasicSpanFilter, FilterPredicate, IndexedSpanFilter, Query};
 use crate::index::{EventIndexes, SpanEventIndexes, SpanIndexes};
 use crate::models::{CloseSpanEvent, EnterSpanEvent, EventKey, FollowsSpanEvent};
-use crate::storage::Storage;
+use crate::storage::{Storage, StorageSyncStatus};
 use crate::subscription::{EventSubscription, SpanSubscription, Subscriber};
 use crate::util::BoundSearch;
 use crate::{
@@ -1192,10 +1192,10 @@ impl<S: Storage> SyncEngine<S> {
         self.event_subscribers.remove(&id);
     }
 
-    pub fn sync(&mut self) -> Result<(), AnyError> {
-        self.storage.sync()?;
+    pub fn sync(&mut self) -> Result<StorageSyncStatus, AnyError> {
+        let status = self.storage.sync()?;
 
-        Ok(())
+        Ok(status)
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]

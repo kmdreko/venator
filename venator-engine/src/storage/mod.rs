@@ -48,6 +48,13 @@ impl Display for StorageError {
 
 impl StdError for StorageError {}
 
+#[derive(Debug, Copy, Clone)]
+pub enum StorageSyncStatus {
+    Synced,
+    Syncing,
+    Behind,
+}
+
 pub type StorageIter<'a, T> = Box<dyn Iterator<Item = Result<Arc<T>, StorageError>> + 'a>;
 
 /// This serves as the backing storage of resources, spans, events, and span
@@ -105,7 +112,7 @@ pub trait Storage {
     fn drop_span_events(&mut self, span_events: &[Timestamp]) -> Result<(), StorageError>;
     fn drop_events(&mut self, events: &[Timestamp]) -> Result<(), StorageError>;
 
-    fn sync(&mut self) -> Result<(), StorageError>;
+    fn sync(&mut self) -> Result<StorageSyncStatus, StorageError>;
 
     #[doc(hidden)]
     #[allow(private_interfaces)]

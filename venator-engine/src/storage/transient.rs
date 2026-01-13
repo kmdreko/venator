@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use super::{Storage, StorageError};
+use super::{Storage, StorageError, StorageSyncStatus};
 use crate::models::{EventKey, Value};
 use crate::{Event, FullSpanId, Resource, Span, SpanEvent, SpanKey, Timestamp};
 
@@ -212,7 +212,7 @@ impl Storage for TransientStorage {
         Ok(())
     }
 
-    fn sync(&mut self) -> Result<(), StorageError> {
-        Ok(())
+    fn sync(&mut self) -> Result<StorageSyncStatus, StorageError> {
+        Ok(StorageSyncStatus::Synced)
     }
 }
