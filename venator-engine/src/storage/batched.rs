@@ -1,6 +1,10 @@
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::thread::{JoinHandle, Thread};
+
+use tokio::sync::oneshot;
 
 use crate::storage::{IndexStorage, Storage};
 use crate::{Event, EventKey, Resource, Span, SpanEvent, SpanKey, Timestamp, Value};
@@ -23,22 +27,70 @@ impl<T> BatchAction<T> {
     }
 }
 
+enum WriteThreadCommand {
+    Sync(
+        usize,
+        Vec<BatchAction<Arc<Resource>>>,
+        Vec<BatchAction<Arc<Span>>>,
+        Vec<BatchAction<Arc<SpanEvent>>>,
+        Vec<BatchAction<Arc<Event>>>,
+        oneshot::Sender<usize>,
+    ),
+}
+
 pub struct BatchedStorage<S> {
     inner: S,
     resources: BTreeMap<Timestamp, BatchAction<Arc<Resource>>>,
     spans: BTreeMap<Timestamp, BatchAction<Arc<Span>>>,
     span_events: BTreeMap<Timestamp, BatchAction<Arc<SpanEvent>>>,
     events: BTreeMap<Timestamp, BatchAction<Arc<Event>>>,
+
+    write_thread: JoinHandle<()>,
+    write_sender: Sender<WriteThreadCommand>,
 }
 
-impl<S> BatchedStorage<S> {
+impl<S: Clone + Batch + Send + 'static> BatchedStorage<S> {
     pub fn new(storage: S) -> BatchedStorage<S> {
+        let (write_sender, write_receiver) = std::sync::mpsc::channel();
+
+        let mut write_storage = storage.clone();
+        let write_thread = std::thread::Builder::new()
+            .name("engine-write".into())
+            .spawn(move || {
+                while let Ok(command) = write_receiver.recv() {
+                    match command {
+                        WriteThreadCommand::Sync(
+                            epoch,
+                            resource_actions,
+                            span_actions,
+                            span_event_actions,
+                            event_actions,
+                            sender,
+                        ) => {
+                            // TODO: pass back failures
+                            let result = write_storage.batch(
+                                &mut resource_actions.iter(),
+                                &mut span_actions.iter(),
+                                &mut span_event_actions.iter(),
+                                &mut event_actions.iter(),
+                            );
+
+                            let _ = sender.send(epoch);
+                        }
+                    }
+                }
+            })
+            .unwrap();
+
         BatchedStorage {
             inner: storage,
             resources: BTreeMap::new(),
             spans: BTreeMap::new(),
             span_events: BTreeMap::new(),
             events: BTreeMap::new(),
+
+            write_thread,
+            write_sender,
         }
     }
 }

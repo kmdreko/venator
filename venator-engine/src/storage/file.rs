@@ -94,8 +94,9 @@ impl From<FileStorageError> for StorageError {
 }
 
 /// This storage holds all entities in an SQLite database at the provided path.
+#[derive(Clone)]
 pub struct FileStorage {
-    database: Database,
+    database: Arc<Database>,
     index_state: IndexState,
 }
 
@@ -121,7 +122,7 @@ impl FileStorage {
         tx.commit().unwrap();
 
         FileStorage {
-            database,
+            database: Arc::new(database),
             index_state: IndexState::Fresh,
         }
     }
