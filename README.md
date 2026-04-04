@@ -1,3 +1,35 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="center">
+        <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=en">English</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=zh-CN">简体中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=zh-TW">繁體中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=ja">日本語</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=ko">한국어</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=hi">हिन्दी</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=th">ไทย</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=fr">Français</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=de">Deutsch</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=es">Español</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=it">Italiano</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=ru">Русский</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=pt">Português</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=nl">Nederlands</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=pl">Polski</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=ar">العربية</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=fa">فارسی</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=tr">Türkçe</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=vi">Tiếng Việt</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=id">Bahasa Indonesia</a>
+        | <a href="https://openaitx.github.io/view.html?user=kmdreko&project=venator&lang=as">অসমীয়া</
+      </div>
+    </div>
+  </details>
+</div>
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" height=170 srcset="docs/images/icon-dark.svg">
